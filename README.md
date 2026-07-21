@@ -6,13 +6,29 @@ derives keys, and signs and submits transactions **directly to the network** —
 `tari_ootle_walletd` daemon involved anywhere. Pages get a MetaMask-style injected provider
 (`window.tari`), not the WalletConnect relay protocol — see "Design notes" below for why.
 
-## Status: core crypto complete, not yet tested against a live browser
+## Status: tested end-to-end in a live browser
 
-Wallet creation/import, encrypted storage, unlock/lock, key derivation, the on-chain component
-address, transaction signing primitives, the injected-provider bridge, and the approval-popup flow
-are all implemented and unit-tested. What's left is loading the built extension in real Chrome and
-exercising it end-to-end against a live indexer (see "Loading it in Chrome" below) — not yet done
-in this environment.
+Loaded as an unpacked extension in real Chrome and exercised against a live Ootle testnet indexer
+(esmeralda), not just unit-tested in isolation. Confirmed working live:
+
+- Wallet creation and import (24-word recovery phrase), password unlock/lock, multiple accounts
+  per wallet with switching
+- Claiming testnet XTR from the network's builtin faucet, including the self-funding
+  first-transaction path for a brand-new account
+- Balances rendered with each token's **real on-chain divisibility and symbol** (not guessed
+  constants) — confirmed against tokens with different divisibility (XTR = 6, a custom
+  DemoToken = 8)
+- **Send** (to any `component_…` address, for any held token) and **Receive** (address display +
+  copy-to-clipboard), both in the popup UI
+- The `window.tari` injected-provider flow end-to-end against a real third-party page: connect
+  request → approval popup → account access, and transaction build → approval popup → sign →
+  submit → on-chain confirmation
+- A full DEX built against this wallet (`../tari-dex/swap-ui`) exercising it for token creation,
+  liquidity-pool creation, adding liquidity, and swaps — including the multi-instruction,
+  multi-retry transactions those flows require
+
+See "Design notes" below for the architectural decisions (own seed scheme, `window.tari` instead
+of WalletConnect) and their trade-offs.
 
 **`OotleAccount.getComponentAddress()` (`src/lib/wallet.ts`) derives the on-chain component
 address client-side**, via `deriveAccountComponentAddress()` in `src/lib/componentAddress.ts`. This
@@ -53,6 +69,61 @@ and signatures from a wallet the user controls), much smaller surface area, no e
 dependency, works with pages coded against it (e.g. `../tari-dex/swap-ui`) but isn't interoperable
 with arbitrary WalletConnect-speaking dApps.
 
+## Integrating a dApp
+
+Once loaded, the extension injects a MetaMask-style provider at `window.tari` into every page —
+EIP-1193-shaped (`request({ method, params })`), not the WalletConnect relay protocol (see "Design
+notes"). `../tari-dex/swap-ui/index.html` is a complete, real working example of everything below.
+
+```js
+// Detect the wallet. It may not exist yet at page-load time, so also listen for its ready event.
+if (!window.tari?.isTariWallet) {
+  window.addEventListener("tari#initialized", () => console.log("Tari wallet ready"), { once: true });
+}
+
+// Connect — prompts the user with an approval popup the first time; a no-op afterwards.
+const [accountAddress] = await window.tari.request({ method: "tari_requestAccounts" });
+
+// Read-only calls — no approval popup.
+await window.tari.request({ method: "tari_getAccounts" });   // -> string[] (already-connected accounts)
+await window.tari.request({ method: "tari_getNetwork" });    // -> "esmeralda" | "igor"
+await window.tari.request({ method: "tari_getBalances" });   // -> { resourceAddress, kind, amount, divisibility, symbol }[]
+await window.tari.request({
+  method: "tari_getSubstate",
+  params: { substateId: "resource_...", version: null },     // -> raw Substate (e.g. to read a resource's divisibility/metadata)
+});
+
+// Build and submit a transaction — prompts an approval popup unless dryRun is true.
+const result = await window.tari.request({
+  method: "tari_signAndSubmitTransaction",
+  params: {
+    instructions: [ /* raw Instruction[] from @tari-project/ootle-ts-bindings */ ],
+    maxFee: "5000",       // optional, string (µT)
+    dryRun: false,        // true = simulate only, no approval popup, nothing spent
+    inputs: [],            // optional: substates you already know are needed; the wallet
+                            // auto-resolves anything else missing via its own retry loop
+  },
+});
+
+await window.tari.request({ method: "tari_disconnect" });
+```
+
+Notes for dApp authors, learned building `tari-dex/swap-ui` against this wallet:
+
+- **CBOR-encode instruction args yourself.** `instructions` are the raw `Instruction[]` shape from
+  `@tari-project/ootle-ts-bindings` — numeric/address/string args need `InstructionArg::Literal`
+  CBOR encoding (see `amountLiteral`/`resourceAddressLiteral`/`componentAddressLiteral`/
+  `stringLiteral` exported by `@tari-project/ootle` if you can depend on it directly).
+- **You don't need to know every substate your instructions touch.** The wallet's own auto-retry
+  (`OotleAccount.execute()`) discovers and pins whatever's still missing by parsing the engine's
+  rejection messages and resubmitting — `inputs` is purely an optimization, never required for
+  correctness.
+- **Dry-run calls skip the approval popup**, real submissions don't — so it's safe to dry-run on
+  every keystroke (e.g. for a live price quote) without spamming the user with popups.
+- Resource decimal precision (`divisibility`) and display names (`symbol`) are real on-chain data
+  (`Resource.divisibility` / `Resource.metadata.SYMBOL`) fetched via `tari_getSubstate` or returned
+  directly by `tari_getBalances` — don't hardcode a decimals constant per token.
+
 ## Architecture
 
 ```
@@ -74,7 +145,8 @@ src/
     inject.ts             MAIN-world script; defines window.tari
     content-script.ts       ISOLATED-world relay: page <-postMessage-> here <-runtime.sendMessage-> background
   popup/
-    main.ts                vanilla-TS UI: onboarding, unlock, home, approvals (routed via location.hash)
+    main.ts                vanilla-TS UI: onboarding, unlock, home, send, receive, settings,
+                            approvals (routed via location.hash)
 ```
 
 Manifest V3 service workers are ephemeral — Chrome can kill and restart the background script at
