@@ -9,7 +9,14 @@ import {
   setState,
   wipeWallet,
 } from "../lib/storage";
-import type { PageRequestMessage, PageResponseMessage, PendingApprovalInput, PopupRequest, WalletStatus } from "../lib/messages";
+import type {
+  AccountsChangedBroadcast,
+  PageRequestMessage,
+  PageResponseMessage,
+  PendingApprovalInput,
+  PopupRequest,
+  WalletStatus,
+} from "../lib/messages";
 import { clearAccountCache, getAccountByIndex, getActiveAccount } from "./accounts";
 import { clearUnlockedSeed, getUnlockedSeed, isUnlocked, setUnlockedSeed } from "./session";
 import { getPendingApproval, requestApproval, resolveApproval } from "./approvals";
@@ -139,6 +146,25 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
   }
 }
 
+/**
+ * Pushes a `tari-accounts-changed` message to every tab's content script (which forwards it into
+ * the page as a `tari#accountsChanged` DOM event — see inject.ts). Broadcasts blind to every tab
+ * rather than filtering by which origins were actually connected: reading a tab's URL to filter
+ * would need either the `tabs` permission or a host-permission match, and a page that was never
+ * connected simply has nothing listening for this event, so there's no harm in it arriving.
+ */
+async function broadcastAccountsChanged(accounts: string[]): Promise<void> {
+  const tabs = await chrome.tabs.query({});
+  const message: AccountsChangedBroadcast = { kind: "tari-accounts-changed", accounts };
+  for (const tab of tabs) {
+    if (tab.id === undefined) continue;
+    // Most tabs have no content script (chrome://, extension pages, other origins mid-navigation)
+    // — sendMessage rejects with "Receiving end does not exist" for those, which is expected and
+    // not worth surfacing.
+    chrome.tabs.sendMessage(tab.id, message).catch(() => {});
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Popup requests
 // ---------------------------------------------------------------------------
@@ -242,6 +268,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
         // (see addConnectedSite) — switching accounts without dropping them would leave connected
         // sites silently reading/spending from the account the user just switched away from.
         await removeAllConnectedSites();
+        await broadcastAccountsChanged([]);
       }
       await setState({ activeAccountIndex: message.index });
       return {};

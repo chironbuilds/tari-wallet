@@ -45,6 +45,19 @@ export interface PageResponseMessage {
   error?: string;
 }
 
+/**
+ * Unsolicited push from the background to every tab's content script, forwarded into the page as
+ * a `tari#accountsChanged` DOM event (see inject.ts) — mirrors EIP-1193's `accountsChanged`.
+ * Fired with an empty `accounts` array when the user switches the wallet's active account, since
+ * every existing connection gets dropped at the same time (see `removeAllConnectedSites` in
+ * storage.ts) and the page needs to know its previously-authorized account is no longer valid
+ * without waiting for its next request to fail.
+ */
+export interface AccountsChangedBroadcast {
+  kind: "tari-accounts-changed";
+  accounts: string[];
+}
+
 // ---- Popup <-> background ----
 
 export type PopupRequest =

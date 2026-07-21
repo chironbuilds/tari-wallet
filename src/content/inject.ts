@@ -27,12 +27,24 @@ function request(method: ProviderMethod, params?: unknown): Promise<unknown> {
 window.addEventListener("message", (event) => {
   if (event.source !== window) return;
   const data = event.data;
-  if (!data || data.target !== PAGE_TARGET || data.type !== "tari-response") return;
-  const entry = pending.get(data.id);
-  if (!entry) return;
-  pending.delete(data.id);
-  if (data.error) entry.reject(new Error(data.error));
-  else entry.resolve(data.result);
+  if (!data || data.target !== PAGE_TARGET) return;
+
+  if (data.type === "tari-response") {
+    const entry = pending.get(data.id);
+    if (!entry) return;
+    pending.delete(data.id);
+    if (data.error) entry.reject(new Error(data.error));
+    else entry.resolve(data.result);
+    return;
+  }
+
+  if (data.type === "tari-accounts-changed") {
+    // Mirrors EIP-1193's `accountsChanged` event. Fires with an empty array whenever the wallet
+    // drops this page's connection out from under it (e.g. the user switched accounts in the
+    // extension) — listen for this instead of waiting for the next request to fail with "Site is
+    // not connected" to know a fresh `tari_requestAccounts` call is needed.
+    window.dispatchEvent(new CustomEvent<string[]>("tari#accountsChanged", { detail: data.accounts }));
+  }
 });
 
 export interface TariProvider {

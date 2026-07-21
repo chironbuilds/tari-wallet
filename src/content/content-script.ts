@@ -1,6 +1,6 @@
 // Runs in the content script's isolated world (same tab/frame as inject.ts, separate JS realm).
 // Pure relay: page <-window.postMessage-> here <-chrome.runtime.sendMessage-> background.
-import type { PageRequestMessage, PageResponseMessage } from "../lib/messages";
+import type { AccountsChangedBroadcast, PageRequestMessage, PageResponseMessage } from "../lib/messages";
 
 const PAGE_TARGET = "tari-wallet-page";
 const CONTENT_TARGET = "tari-wallet-content";
@@ -61,4 +61,11 @@ window.addEventListener("message", (event) => {
     .catch((e: Error) => {
       window.postMessage({ target: PAGE_TARGET, type: "tari-response", id: data.id, error: e.message }, "*");
     });
+});
+
+// Unsolicited push from the background (not a reply to any page request) — forwarded into the
+// page's world the same way as everything else, so inject.ts can turn it into a DOM event.
+chrome.runtime.onMessage.addListener((message: AccountsChangedBroadcast) => {
+  if (!message || message.kind !== "tari-accounts-changed") return;
+  window.postMessage({ target: PAGE_TARGET, type: "tari-accounts-changed", accounts: message.accounts }, "*");
 });

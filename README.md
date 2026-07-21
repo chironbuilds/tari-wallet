@@ -106,6 +106,13 @@ const result = await window.tari.request({
 });
 
 await window.tari.request({ method: "tari_disconnect" });
+
+// Fires (mirroring EIP-1193's accountsChanged) whenever the wallet drops this page's connection
+// out from under it — e.g. the user switched the active account in the extension. `detail` is
+// always `[]`; treat it purely as a signal to re-run `tari_requestAccounts` before the next call.
+window.addEventListener("tari#accountsChanged", (e) => {
+  console.log("accounts changed:", e.detail); // []
+});
 ```
 
 Notes for dApp authors, learned building `tari-dex/swap-ui` against this wallet:
@@ -123,6 +130,10 @@ Notes for dApp authors, learned building `tari-dex/swap-ui` against this wallet:
 - Resource decimal precision (`divisibility`) and display names (`symbol`) are real on-chain data
   (`Resource.divisibility` / `Resource.metadata.SYMBOL`) fetched via `tari_getSubstate` or returned
   directly by `tari_getBalances` — don't hardcode a decimals constant per token.
+- Switching the active account inside the extension disconnects every connected site (each
+  connection is pinned to whichever account was active when it was made) and fires
+  `tari#accountsChanged` on every open tab — listen for it rather than caching the account address
+  from `tari_requestAccounts` indefinitely.
 
 ## Architecture
 
