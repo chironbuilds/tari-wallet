@@ -23,6 +23,7 @@ import type {
 } from "@tari-project/ootle-ts-bindings";
 import { IndexerProvider } from "@tari-project/ootle-indexer";
 import { SecretKeyWallet } from "@tari-project/ootle-secret-key-wallet";
+import type { WalletAccountApi } from "./accountApi";
 import { deriveAccountComponentAddress } from "./componentAddress";
 import { deriveAccountKeys } from "./derivation";
 import { type NetworkName, toOotleNetwork } from "./ootleNetwork";
@@ -43,7 +44,7 @@ export interface TokenBalance {
  * One derived Ootle account: a signer (owner + view keypair) plus the network connection needed
  * to read its state and submit transactions, entirely independent of the wallet daemon.
  */
-export class OotleAccount {
+export class OotleAccount implements WalletAccountApi {
   readonly index: number;
   readonly network: Network;
   readonly signer: SecretKeyWallet;

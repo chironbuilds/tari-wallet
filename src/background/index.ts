@@ -2,22 +2,31 @@ import { entropyToMnemonic, generateMnemonic, mnemonicToEntropy, validateMnemoni
 import { decryptVault, encryptVault } from "../lib/vault";
 import {
   addConnectedSite,
+  addDaemonAccount,
+  addDaemonConnection,
+  daemonAccountId,
   getConnectedSite,
   getState,
+  localAccountId,
   removeAllConnectedSites,
   removeConnectedSite,
+  removeDaemonAccount,
+  removeDaemonConnection,
   setState,
   wipeWallet,
 } from "../lib/storage";
 import type {
+  AccountSummary,
   AccountsChangedBroadcast,
+  DaemonAccountOption,
   PageRequestMessage,
   PageResponseMessage,
   PendingApprovalInput,
   PopupRequest,
   WalletStatus,
 } from "../lib/messages";
-import { clearAccountCache, getAccountByIndex, getActiveAccount } from "./accounts";
+import { DaemonAccount } from "../lib/daemonAccount";
+import { clearAccountCache, getAccountById, getActiveAccount, getDaemonClient } from "./accounts";
 import { clearUnlockedSeed, getUnlockedSeed, isUnlocked, setUnlockedSeed } from "./session";
 import { getPendingApproval, requestApproval, resolveApproval } from "./approvals";
 
@@ -71,7 +80,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
     case "tari_getAccounts": {
       const site = await getConnectedSite(origin);
       if (!site || !(await isUnlocked())) return [];
-      const account = await getAccountByIndex(site.accountIndex);
+      const account = await getAccountById(site.accountId);
       return account ? [await account.getComponentAddress()] : [];
     }
 
@@ -79,7 +88,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       if (!(await getState()).vault) throw new Error("No wallet set up in the Tari extension yet.");
       const existing = await getConnectedSite(origin);
       if (existing && (await isUnlocked())) {
-        const account = await getAccountByIndex(existing.accountIndex);
+        const account = await getAccountById(existing.accountId);
         if (account) return [await account.getComponentAddress()];
       }
       const approved = await requestApproval({ kind: "connect", origin });
@@ -87,9 +96,9 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       // Unlocking (if needed) happens inside the approval popup before it resolves; by the time
       // we get here the wallet must be unlocked or the user closed the window without unlocking.
       if (!(await isUnlocked())) throw new Error("Wallet is locked.");
-      const { activeAccountIndex } = await getState();
-      await addConnectedSite(origin, activeAccountIndex);
-      const account = await getAccountByIndex(activeAccountIndex);
+      const { activeAccountId } = await getState();
+      await addConnectedSite(origin, activeAccountId);
+      const account = await getAccountById(activeAccountId);
       if (!account) throw new Error("Could not resolve account.");
       return [await account.getComponentAddress()];
     }
@@ -102,14 +111,14 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
     case "tari_getBalances": {
       const site = await getConnectedSite(origin);
       if (!site || !(await isUnlocked())) return [];
-      const account = await getAccountByIndex(site.accountIndex);
+      const account = await getAccountById(site.accountId);
       return account ? account.getBalances() : [];
     }
 
     case "tari_getSubstate": {
       const site = await getConnectedSite(origin);
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
-      const account = await getAccountByIndex(site.accountIndex);
+      const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Wallet is locked.");
       const p = params as { substateId: string; version?: number | null };
       const provider = await account.getProvider();
@@ -134,7 +143,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
         if (!approved) throw new Error("Transaction rejected.");
       }
       if (!(await isUnlocked())) throw new Error("Wallet is locked.");
-      const account = await getAccountByIndex(site.accountIndex);
+      const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Could not resolve account.");
       const maxFee = p.maxFee ? BigInt(p.maxFee) : undefined;
       const result = await account.execute(p.instructions, { maxFee, dryRun: p.dryRun, inputs: p.inputs });
@@ -181,14 +190,26 @@ async function buildStatus(): Promise<WalletStatus> {
       address = await account.getComponentAddress();
     }
   }
+  const localAccounts: AccountSummary[] = Array.from({ length: state.accountCount }, (_, i) => ({
+    id: localAccountId(i),
+    label: `Account ${i + 1}`,
+    kind: "local",
+  }));
+  const daemonAccounts: AccountSummary[] = state.daemonAccounts.map((a) => ({
+    id: daemonAccountId(a.connectionId, a.componentAddress),
+    label: a.label,
+    kind: "daemon",
+  }));
   return {
     hasWallet: state.vault !== null,
     isUnlocked: unlocked,
     network: state.network,
-    activeAccountIndex: state.activeAccountIndex,
+    activeAccountId: state.activeAccountId,
     accountCount: state.accountCount,
     address,
     receiveAddress,
+    accounts: [...localAccounts, ...daemonAccounts],
+    daemonConnections: state.daemonConnections.map((c) => ({ id: c.id, url: c.url, label: c.label })),
   };
 }
 
@@ -201,7 +222,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       const mnemonic = generateMnemonic();
       const entropy = mnemonicToEntropy(mnemonic); // round-trip validates our own encoder
       const vault = await encryptVault(message.password, entropy);
-      await setState({ vault, accountCount: 1, activeAccountIndex: 0 });
+      await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0) });
       await setUnlockedSeed(entropy);
       return { mnemonic };
     }
@@ -210,7 +231,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       if (!validateMnemonic(message.mnemonic)) throw new Error("Invalid recovery phrase.");
       const entropy = mnemonicToEntropy(message.mnemonic);
       const vault = await encryptVault(message.password, entropy);
-      await setState({ vault, accountCount: 1, activeAccountIndex: 0 });
+      await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0) });
       await setUnlockedSeed(entropy);
       return {};
     }
@@ -257,20 +278,21 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     case "popup-add-account": {
       const state = await getState();
       const newIndex = state.accountCount;
-      await setState({ accountCount: newIndex + 1, activeAccountIndex: newIndex });
+      const newId = localAccountId(newIndex);
+      await setState({ accountCount: newIndex + 1, activeAccountId: newId });
       return { index: newIndex };
     }
 
     case "popup-set-active-account": {
-      const { activeAccountIndex } = await getState();
-      if (message.index !== activeAccountIndex) {
+      const { activeAccountId } = await getState();
+      if (message.accountId !== activeAccountId) {
         // Every existing connection is pinned to whichever account was active when it was made
         // (see addConnectedSite) — switching accounts without dropping them would leave connected
         // sites silently reading/spending from the account the user just switched away from.
         await removeAllConnectedSites();
         await broadcastAccountsChanged([]);
       }
-      await setState({ activeAccountIndex: message.index });
+      await setState({ activeAccountId: message.accountId });
       return {};
     }
 
@@ -295,6 +317,51 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       await clearUnlockedSeed();
       clearAccountCache();
       await wipeWallet();
+      return {};
+    }
+
+    case "popup-connect-daemon": {
+      const id = crypto.randomUUID();
+      // Validates connectivity/auth up front so a bad URL or token fails here, in the "connect"
+      // step, rather than silently later on the first real account operation.
+      const client = await DaemonAccount.connectClient(message.url, message.authToken);
+      await addDaemonConnection({ id, url: message.url, authToken: client.getToken() ?? message.authToken ?? "", label: message.label });
+      const accounts = await DaemonAccount.listAccounts(client);
+      const options: DaemonAccountOption[] = accounts.map((a) => ({
+        componentAddress: a.component_address,
+        label: a.name ?? a.component_address,
+      }));
+      return { connectionId: id, accounts: options };
+    }
+
+    case "popup-list-daemon-accounts": {
+      const client = await getDaemonClient(message.connectionId);
+      const accounts = await DaemonAccount.listAccounts(client);
+      const options: DaemonAccountOption[] = accounts.map((a) => ({
+        componentAddress: a.component_address,
+        label: a.name ?? a.component_address,
+      }));
+      return { accounts: options };
+    }
+
+    case "popup-add-daemon-accounts": {
+      for (const account of message.accounts) {
+        await addDaemonAccount({ connectionId: message.connectionId, componentAddress: account.componentAddress, label: account.label });
+      }
+      // Switch to the first newly-added account so the user lands somewhere useful, matching
+      // `popup-add-account`'s behavior for a freshly-derived local account.
+      const first = message.accounts[0];
+      if (first) await setState({ activeAccountId: daemonAccountId(message.connectionId, first.componentAddress) });
+      return {};
+    }
+
+    case "popup-remove-daemon-connection": {
+      await removeDaemonConnection(message.connectionId);
+      return {};
+    }
+
+    case "popup-remove-daemon-account": {
+      await removeDaemonAccount(message.connectionId, message.componentAddress);
       return {};
     }
 

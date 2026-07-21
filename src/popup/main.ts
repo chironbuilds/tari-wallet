@@ -1,5 +1,5 @@
 import "./styles.css";
-import type { PendingApproval, PopupRequest, WalletStatus } from "../lib/messages";
+import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest, WalletStatus } from "../lib/messages";
 import { validateMnemonic } from "../lib/mnemonic";
 
 const app = document.getElementById("app")!;
@@ -272,8 +272,13 @@ function renderUnlock(onUnlocked?: () => void) {
 // Home
 // ---------------------------------------------------------------------------
 
+function activeAccountSummary(status: WalletStatus): AccountSummary | undefined {
+  return status.accounts.find((a) => a.id === status.activeAccountId);
+}
+
 async function renderHome(status: WalletStatus) {
-  const accountPill = h("span", { class: "account-pill" }, [`Account ${status.activeAccountIndex + 1} ▾`]);
+  const activeLabel = activeAccountSummary(status)?.label ?? "Account";
+  const accountPill = h("span", { class: "account-pill" }, [`${activeLabel} ▾`]);
   const settingsBtn = h("button", { class: "secondary", id: "settingsBtn", style: "width:auto;padding:6px 10px;margin-top:0" }, ["⚙"]);
   const nav = h("div", { class: "top-nav" }, [
     h("h1", {}, ["Tari", h("span", {}, [" Wallet"])]),
@@ -282,7 +287,7 @@ async function renderHome(status: WalletStatus) {
   accountPill.addEventListener("click", () => renderAccountSwitcher(status));
   settingsBtn.addEventListener("click", () => renderSettings(status));
 
-  const initial = `A${status.activeAccountIndex + 1}`;
+  const initial = activeLabel.slice(0, 1).toUpperCase();
   const copyLabel = h("span", {}, [shortAddr(status.address ?? "", 8)]);
   const addrPill = h("div", { class: "addr-pill", id: "addrPill" }, [copyLabel, h("span", { class: "icon" }, ["⧉"])]);
   addrPill.addEventListener("click", () => copyToClipboard(status.address ?? "", copyLabel));
@@ -342,11 +347,13 @@ async function renderHome(status: WalletStatus) {
 function renderSettings(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
   const addAccountBtn = h("button", { class: "secondary", id: "addAccount" }, ["+ Add account"]);
+  const connectDaemonBtn = h("button", { class: "secondary", id: "connectDaemon" }, ["+ Connect daemon wallet"]);
+  const daemonsBtn = h("button", { class: "secondary", id: "daemons" }, [`Daemon connections (${status.daemonConnections.length})`]);
   const sitesBtn = h("button", { class: "secondary", id: "sites" }, ["Connected sites"]);
   const backupBtn = h("button", { class: "secondary", id: "backup" }, ["Reveal recovery phrase"]);
   const lockBtn = h("button", { class: "danger", id: "lock" }, ["Lock wallet"]);
 
-  render(h("h1", {}, ["Settings"]), back, addAccountBtn, sitesBtn, backupBtn, lockBtn);
+  render(h("h1", {}, ["Settings"]), back, addAccountBtn, connectDaemonBtn, daemonsBtn, sitesBtn, backupBtn, lockBtn);
 
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
   document.getElementById("lock")!.addEventListener("click", async () => {
@@ -363,6 +370,8 @@ function renderSettings(status: WalletStatus) {
       render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
     }
   });
+  document.getElementById("connectDaemon")!.addEventListener("click", () => renderConnectDaemon(status));
+  document.getElementById("daemons")!.addEventListener("click", () => renderDaemonConnections(status));
   document.getElementById("sites")!.addEventListener("click", renderConnectedSites);
   document.getElementById("backup")!.addEventListener("click", renderRevealMnemonic);
 }
@@ -387,7 +396,7 @@ function renderReceive(status: WalletStatus) {
   render(
     h("h1", {}, ["Receive"]),
     h("p", { class: "muted" }, ["Share your account address to receive any token on Tari Ootle."]),
-    h("div", { class: "hero" }, [h("div", { class: "avatar" }, [`A${status.activeAccountIndex + 1}`])]),
+    h("div", { class: "hero" }, [h("div", { class: "avatar" }, [(activeAccountSummary(status)?.label ?? "Account").slice(0, 1).toUpperCase()])]),
     h("div", { class: "card" }, [
       h("div", { class: "muted", style: "margin-bottom:8px" }, ["Component address"]),
       componentRow,
@@ -542,15 +551,16 @@ function renderBalances(balancesCard: HTMLElement, balances: Balance[]) {
 }
 
 function renderAccountSwitcher(status: WalletStatus) {
-  const rows = Array.from({ length: status.accountCount }, (_, index) => {
-    const isActive = index === status.activeAccountIndex;
+  const rows = status.accounts.map((account) => {
+    const isActive = account.id === status.activeAccountId;
     const row = h("button", { class: isActive ? "primary" : "secondary", style: "text-align:left" }, [
-      `Account ${index + 1}`,
+      account.label,
+      account.kind === "daemon" ? " · daemon" : "",
       isActive ? " (current)" : "",
     ]);
     row.addEventListener("click", async () => {
       if (isActive) return;
-      await send({ kind: "popup-set-active-account", index });
+      await send({ kind: "popup-set-active-account", accountId: account.id });
       renderLoading("Switching account…");
       try {
         const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
@@ -561,9 +571,157 @@ function renderAccountSwitcher(status: WalletStatus) {
     });
     return row;
   });
+  const connectDaemonBtn = h("button", { class: "secondary", id: "connectDaemon" }, ["+ Connect daemon wallet"]);
   const back = h("button", { class: "secondary", id: "back" }, ["Back"]);
-  render(h("h1", {}, ["Switch account"]), ...rows, back);
+  render(h("h1", {}, ["Switch account"]), ...rows, connectDaemonBtn, back);
+  connectDaemonBtn.addEventListener("click", () => renderConnectDaemon(status));
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
+}
+
+function renderDaemonConnections(status: WalletStatus) {
+  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const list =
+    status.daemonConnections.length === 0
+      ? h("div", { class: "muted" }, ["No daemon connections yet."])
+      : h(
+          "div",
+          {},
+          status.daemonConnections.map((c) => {
+            const row = h("div", { class: "balance-row" }, [`${c.label} — ${c.url}`]);
+            const removeBtn = h("button", { class: "secondary", style: "width:auto;padding:4px 8px" }, ["Disconnect"]);
+            removeBtn.addEventListener("click", async () => {
+              await send({ kind: "popup-remove-daemon-connection", connectionId: c.id });
+              renderLoading("Removing…");
+              const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
+              // Switching away is only necessary if the removed connection owned the active
+              // account — `popup-get-status` already reflects accounts being gone either way.
+              if (!newStatus.accounts.some((a) => a.id === newStatus.activeAccountId)) {
+                await send({ kind: "popup-set-active-account", accountId: "local:0" });
+                await renderHome(await send<WalletStatus>({ kind: "popup-get-status" }));
+              } else {
+                renderDaemonConnections(newStatus);
+              }
+            });
+            row.append(removeBtn);
+            return row;
+          })
+        );
+  render(h("h1", {}, ["Daemon connections"]), list, back);
+  document.getElementById("back")!.addEventListener("click", () => renderSettings(status));
+}
+
+// ---------------------------------------------------------------------------
+// Connect daemon wallet (the "hardware wallet" flow — connect, then pick accounts to add)
+// ---------------------------------------------------------------------------
+
+function renderConnectDaemon(status: WalletStatus) {
+  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const urlInput = h("input", { type: "text", id: "url", placeholder: "http://127.0.0.1:18103" });
+  const tokenInput = h("input", { type: "text", id: "token", placeholder: "Leave blank to auto-authenticate" });
+  const labelInput = h("input", { type: "text", id: "label", placeholder: "e.g. Local walletd" });
+  const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
+  const connectBtn = h("button", { class: "primary", id: "connect" }, ["Connect"]);
+
+  render(
+    h("h1", {}, ["Connect daemon wallet"]),
+    h("p", { class: "muted" }, [
+      "Connect to a running tari_ootle_walletd — this extension will relay reads and transactions to it instead of signing locally, like a hardware wallet.",
+    ]),
+    h("label", {}, ["Daemon URL"]),
+    urlInput,
+    h("label", {}, ["Auth token"]),
+    tokenInput,
+    h("label", {}, ["Label"]),
+    labelInput,
+    statusEl,
+    connectBtn,
+    back
+  );
+  document.getElementById("back")!.addEventListener("click", () => renderAccountSwitcher(status));
+
+  const showStatus = (msg: string, cls: "err" | "ok") => {
+    statusEl.style.display = "block";
+    statusEl.className = `status ${cls}`;
+    statusEl.textContent = msg;
+  };
+
+  connectBtn.addEventListener("click", async () => {
+    const url = (urlInput as HTMLInputElement).value.trim();
+    if (!url) return showStatus("Enter the daemon's URL.", "err");
+    const authToken = (tokenInput as HTMLInputElement).value.trim() || undefined;
+    const label = (labelInput as HTMLInputElement).value.trim() || url;
+
+    connectBtn.setAttribute("disabled", "true");
+    showStatus("Connecting…", "ok");
+    try {
+      const result = await send<{ connectionId: string; accounts: DaemonAccountOption[] }>({
+        kind: "popup-connect-daemon",
+        url,
+        authToken,
+        label,
+      });
+      renderDaemonAccountPicker(status, result.connectionId, result.accounts);
+    } catch (e) {
+      showStatus(e instanceof Error ? e.message : String(e), "err");
+      connectBtn.removeAttribute("disabled");
+    }
+  });
+}
+
+function renderDaemonAccountPicker(status: WalletStatus, connectionId: string, accounts: DaemonAccountOption[]) {
+  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+
+  if (accounts.length === 0) {
+    render(h("h1", {}, ["No accounts found"]), h("p", { class: "muted" }, ["This daemon has no accounts yet."]), back);
+    document.getElementById("back")!.addEventListener("click", () => renderAccountSwitcher(status));
+    return;
+  }
+
+  const checkboxes = accounts.map((a) => {
+    const checkbox = h("input", { type: "checkbox", id: `acct-${a.componentAddress}` }) as HTMLInputElement;
+    checkbox.checked = true;
+    const row = h("label", { class: "balance-row", style: "cursor:pointer" }, [checkbox, " ", a.label]);
+    return { checkbox, account: a, row };
+  });
+
+  const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
+  const addBtn = h("button", { class: "primary", id: "add" }, ["Add selected accounts"]);
+
+  render(
+    h("h1", {}, ["Choose accounts"]),
+    h("p", { class: "muted" }, ["Pick which of this daemon's accounts to add to your wallet."]),
+    h("div", { class: "card" }, checkboxes.map((c) => c.row)),
+    statusEl,
+    addBtn,
+    back
+  );
+  document.getElementById("back")!.addEventListener("click", () => renderAccountSwitcher(status));
+
+  addBtn.addEventListener("click", async () => {
+    const selected = checkboxes.filter((c) => c.checkbox.checked).map((c) => c.account);
+    if (selected.length === 0) {
+      statusEl.style.display = "block";
+      statusEl.className = "status err";
+      statusEl.textContent = "Select at least one account.";
+      return;
+    }
+    addBtn.setAttribute("disabled", "true");
+    try {
+      await send({
+        kind: "popup-add-daemon-accounts",
+        connectionId,
+        accounts: selected.map((a) => ({ componentAddress: a.componentAddress, label: a.label })),
+      });
+      renderLoading("Switching to the new account…");
+      const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
+      await renderHome(newStatus);
+    } catch (e) {
+      statusEl.style.display = "block";
+      statusEl.className = "status err";
+      statusEl.textContent = e instanceof Error ? e.message : String(e);
+      addBtn.removeAttribute("disabled");
+    }
+  });
 }
 
 function renderRevealMnemonic() {

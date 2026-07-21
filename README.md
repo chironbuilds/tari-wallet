@@ -3,8 +3,12 @@
 A self-custody Chrome extension wallet for [Tari Ootle](https://github.com/tari-project/tari-ootle)
 (L2 — not the Minotari L1 base layer). It generates and holds its own 24-word recovery phrase,
 derives keys, and signs and submits transactions **directly to the network** — no
-`tari_ootle_walletd` daemon involved anywhere. Pages get a MetaMask-style injected provider
-(`window.tari`), not the WalletConnect relay protocol — see "Design notes" below for why.
+`tari_ootle_walletd` daemon required for its own accounts. Pages get a MetaMask-style injected
+provider (`window.tari`), not the WalletConnect relay protocol — see "Design notes" below for why.
+
+It can **also** connect to a running `tari_ootle_walletd` and relay to it — the same "self-custody
+accounts + hardware-wallet-style external accounts, side by side" split MetaMask uses for Ledger.
+See "Daemon-relayed accounts" below.
 
 ## Status: tested end-to-end in a live browser
 
@@ -26,6 +30,10 @@ Loaded as an unpacked extension in real Chrome and exercised against a live Ootl
 - A full DEX built against this wallet (`../tari-dex/swap-ui`) exercising it for token creation,
   liquidity-pool creation, adding liquidity, and swaps — including the multi-instruction,
   multi-retry transactions those flows require
+
+**Not yet exercised in the browser: daemon-relayed accounts.** The underlying relay logic is
+verified end-to-end against a live `tari_ootle_walletd` (see "Daemon-relayed accounts" below), but
+that was driven from Node directly, not by clicking through the popup's Connect-daemon UI in Chrome.
 
 See "Design notes" below for the architectural decisions (own seed scheme, `window.tari` instead
 of WalletConnect) and their trade-offs.
@@ -89,6 +97,57 @@ injects a MetaMask-style provider object into every page — same spirit (a page
 and signatures from a wallet the user controls), much smaller surface area, no external relay
 dependency, works with pages coded against it (e.g. `../tari-dex/swap-ui`) but isn't interoperable
 with arbitrary WalletConnect-speaking dApps.
+
+## Daemon-relayed accounts
+
+**Core relay path verified against a live `tari_ootle_walletd` (esmeralda) from Node — connect,
+authenticate, list accounts, read balances, and both dry-run and real transaction submission all
+confirmed working end-to-end.** The popup UI itself (Connect daemon wallet screen, account picker,
+Send/Receive/balances rendering for a daemon-backed active account) has not yet been clicked through
+in Chrome — only the underlying `DaemonAccount` class has been exercised directly.
+
+One real bug was caught and fixed during that verification: a locally-built unsigned transaction
+defaults `is_seal_signer_authorized: false`, which the engine's `TransactionSignatureValidator`
+rejects with "has no main signer" for a single-signer request (the shape every daemon-relayed
+transaction here uses) — `DaemonAccount.execute()` now sets it explicitly. See the comment at its
+call site in `daemonAccount.ts` for the full explanation; this is exactly the kind of silent,
+plausible-looking failure mode the "Design notes" section above warns about elsewhere in this
+codebase, and worth knowing about if you extend this class.
+
+Local (seed-derived) and daemon-relayed accounts coexist in the same wallet, switchable from the
+same account list — Settings → "+ Connect daemon wallet", or straight from the account switcher.
+Connecting asks for the daemon's URL (`http://127.0.0.1:18103`-style) and an auth token (leave
+blank to auto-authenticate via the daemon's configured method — `none` or WebAuthn, both handled by
+`@tari-project/ootle-wallet-daemon-signer`'s `authenticate()` helper), then lists that daemon's
+accounts so you pick which ones to add — the same "connect, then choose accounts to import" shape
+as a hardware-wallet flow.
+
+A daemon-relayed account (`src/lib/daemonAccount.ts`, `DaemonAccount`) never signs or derives
+anything client-side — the daemon holds the real key material. Two consequences that make this a
+genuinely different code path from `OotleAccount`, not just a swapped-in signer:
+
+- **No client-side retry loop.** `OotleAccount.execute()`'s whole reason for existing is that
+  neither this TS SDK nor the indexer this extension talks to directly does automatic
+  dependency-graph discovery ("want-derivation") the way Rust's `ootle_sdk_core` does, so it has to
+  retry reactively off rejection messages (see that method's own doc comment). The daemon's
+  `transactions.submit` JRPC takes a `detect_inputs: true` flag that asks the daemon to do that
+  discovery itself, server-side, in one round trip — so `DaemonAccount.execute()` just builds the
+  unsigned transaction and submits it once.
+- **Deliberately does not use `WalletDaemonSigner`** (the higher-level signer class the same npm
+  package exports). Its own doc comment flags that its `signTransaction`'s handling of
+  `seal_public_key` is unverified against a real daemon and can fail late and opaquely if the
+  daemon doesn't honor it. `DaemonAccount` sidesteps that entirely by calling the daemon's own
+  account/balance/submit JRPC methods directly (`accountsGetBalances`, `submitTransaction`,
+  `createFreeTestCoins`, ...) rather than composing this extension's own `TransactionBuilder` with
+  a borrowed `Signer` — the daemon does its own signing internally, out of band from this class.
+
+**Known limitation:** stealth/confidential operations aren't wired up for daemon accounts (XTR's
+native container type is `Stealth`, but everything this extension actually does with it — claim,
+send, swap — moves it through revealed `withdraw`/`deposit`, which needs no stealth signing). The
+daemon's own stealth JRPC (`stealthTransfer`, `stealthUtxosList`, ...) exists but isn't called here.
+
+**Known limitation:** `host_permissions` in `manifest.json` currently only covers `localhost` and
+`127.0.0.1` — a daemon on a remote host will hit CORS unless that origin is added.
 
 ## Integrating a dApp
 
@@ -166,19 +225,21 @@ src/
     componentAddress.ts  owner public key -> on-chain component_<hex> address (Tari's own scheme, byte-exact)
     vault.ts         password -> AES-256-GCM encrypt/decrypt of the seed (WebCrypto, PBKDF2 600k)
     wallet.ts         OotleAccount: wraps SecretKeyWallet (signing) + IndexerProvider (network)
-    storage.ts        chrome.storage.local wrapper (encrypted vault + accounts + connected sites)
+    daemonAccount.ts  DaemonAccount: relays to a connected tari_ootle_walletd instead of signing locally
+    accountApi.ts      WalletAccountApi: the shared surface OotleAccount and DaemonAccount both implement
+    storage.ts        chrome.storage.local wrapper (encrypted vault + local/daemon accounts + connected sites)
     messages.ts        shared message shapes across all contexts
   background/
     index.ts           service worker: message router, page-request + popup-request handling
     session.ts          unlocked seed cache, in chrome.storage.session (survives SW restarts)
-    accounts.ts          OotleAccount instances, cached per network:index
+    accounts.ts          resolves an account id (local or daemon) to a WalletAccountApi, cached
     approvals.ts          pending connect/sign requests + approval popup windows
   content/
     inject.ts             MAIN-world script; defines window.tari
     content-script.ts       ISOLATED-world relay: page <-postMessage-> here <-runtime.sendMessage-> background
   popup/
     main.ts                vanilla-TS UI: onboarding, unlock, home, send, receive, settings,
-                            approvals (routed via location.hash)
+                            connect-daemon-wallet, approvals (routed via location.hash)
 ```
 
 Manifest V3 service workers are ephemeral — Chrome can kill and restart the background script at

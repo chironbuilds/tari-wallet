@@ -71,21 +71,42 @@ export type PopupRequest =
   | { kind: "popup-claim-testnet-xtr" }
   | { kind: "popup-send"; toAddress: string; resourceAddress: string; amount: string }
   | { kind: "popup-add-account" }
-  | { kind: "popup-set-active-account"; index: number }
+  | { kind: "popup-set-active-account"; accountId: string }
   | { kind: "popup-get-connected-sites" }
   | { kind: "popup-disconnect-site"; origin: string }
   | { kind: "popup-get-pending-approval"; approvalId: string }
   | { kind: "popup-resolve-approval"; approvalId: string; approve: boolean }
-  | { kind: "popup-reset-wallet" };
+  | { kind: "popup-reset-wallet" }
+  | { kind: "popup-connect-daemon"; url: string; authToken?: string; label: string }
+  | { kind: "popup-list-daemon-accounts"; connectionId: string }
+  | { kind: "popup-add-daemon-accounts"; connectionId: string; accounts: { componentAddress: string; label: string }[] }
+  | { kind: "popup-remove-daemon-connection"; connectionId: string }
+  | { kind: "popup-remove-daemon-account"; connectionId: string; componentAddress: string };
+
+export interface AccountSummary {
+  id: string;
+  label: string;
+  kind: "local" | "daemon";
+}
 
 export interface WalletStatus {
   hasWallet: boolean;
   isUnlocked: boolean;
   network: "esmeralda" | "igor";
-  activeAccountIndex: number;
+  activeAccountId: string;
   accountCount: number;
   address: string | null;
   receiveAddress: string | null;
+  accounts: AccountSummary[];
+  daemonConnections: { id: string; url: string; label: string }[];
+}
+
+/** One account as reported by a wallet daemon's `accounts.list`/`accounts.get` JRPC, surfaced to
+ * the popup so the user can pick which ones to add — the "select accounts to import" step of the
+ * hardware-wallet-style connect flow. */
+export interface DaemonAccountOption {
+  componentAddress: string;
+  label: string;
 }
 
 // ---- Approval requests (background holds these; popup renders + resolves them) ----
