@@ -10,7 +10,7 @@ import { WalletDaemonClient } from "@tari-project/ootle-wallet-daemon-signer";
 import type { WalletAccountApi } from "../lib/accountApi";
 import { DaemonAccount } from "../lib/daemonAccount";
 import { OotleAccount } from "../lib/wallet";
-import { type AccountId, getState, parseAccountId } from "../lib/storage";
+import { type AccountId, getState, parseAccountId, updateDaemonConnectionToken } from "../lib/storage";
 import { getUnlockedSeed } from "./session";
 
 // Cache account instances (they hold a live network connection) so repeated calls within one
@@ -61,6 +61,13 @@ export async function getDaemonClient(connectionId: string): Promise<WalletDaemo
   const config = daemonConnections.find((c) => c.id === connectionId);
   if (!config) throw new Error(`Unknown daemon connection: ${connectionId}`);
   const client = await DaemonAccount.connectClient(config.url, config.authToken);
+  // connectClient() silently re-authenticates when the stored token turns out to be expired —
+  // persist whatever it ended up with so the next connection (e.g. after a service worker
+  // restart) doesn't repeat that same expired-token round trip.
+  const currentToken = client.getToken();
+  if (currentToken && currentToken !== config.authToken) {
+    await updateDaemonConnectionToken(connectionId, currentToken);
+  }
   daemonClientCache.set(connectionId, client);
   return client;
 }

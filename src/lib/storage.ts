@@ -121,6 +121,15 @@ export async function removeDaemonConnection(id: string): Promise<void> {
   });
 }
 
+/** Persists a token `connectClient()` obtained by re-authenticating a stale stored one, so the
+ * next connection doesn't repeat the same expired-token round trip. */
+export async function updateDaemonConnectionToken(id: string, authToken: string): Promise<void> {
+  const state = await getState();
+  await setState({
+    daemonConnections: state.daemonConnections.map((c) => (c.id === id ? { ...c, authToken } : c)),
+  });
+}
+
 export async function addDaemonAccount(ref: DaemonAccountRef): Promise<void> {
   const state = await getState();
   const withoutExisting = state.daemonAccounts.filter(

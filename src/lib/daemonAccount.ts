@@ -46,16 +46,33 @@ export class DaemonAccount implements WalletAccountApi {
    * JRPC methods rather than composing this extension's `TransactionBuilder` with a swapped-in
    * `Signer`, sidestepping an unverified `seal_public_key` handling path that class's own doc
    * comment flags as untested against a real daemon).
+   *
+   * A stored `authToken` from a previous session can itself have expired — `WalletDaemonClient`
+   * already retries once via `auth.refresh` on a 401 internally, but if the refresh grant has
+   * *also* expired (confirmed empirically: "RPC Error 401: Access denied. Expired token" surfacing
+   * on a real call after the daemon had been running for hours), that self-healing gives up and the
+   * stored token is simply dead. Falling back to a fresh `authenticate()` call here means a stale
+   * persisted token degrades to "reconnect silently" instead of "this connection is now permanently
+   * broken until the user removes and re-adds it."
+   *
+   * The validity check below deliberately calls `accountsList` rather than `walletGetInfo` —
+   * confirmed empirically that `wallet.get_info` doesn't require authentication at all (it happily
+   * answers with a garbage token), so it can't detect an expired one; `accounts.list` does.
    */
   static async connectClient(url: string, authToken?: string): Promise<WalletDaemonClient> {
     const client = WalletDaemonClient.usingFetchTransport(url);
+    client.setReauthenticationEnabled(true);
     if (authToken) {
       client.setToken(authToken);
-    } else {
-      const token = await authenticate(client);
-      client.setToken(token);
+      try {
+        await client.accountsList({ offset: 0, limit: 1 });
+        return client;
+      } catch {
+        // Fall through to a fresh authentication below — see the doc comment above.
+      }
     }
-    client.setReauthenticationEnabled(true);
+    const token = await authenticate(client);
+    client.setToken(token);
     // Cheap connectivity check — throws immediately with a clear network-level error if the URL is
     // wrong or nothing is listening, rather than surfacing a confusing failure on the first real call.
     await client.walletGetInfo();
