@@ -54,8 +54,14 @@ function h<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
+// Every screen swap replays a short fade/slide-in on #app — restarting a CSS animation requires a
+// reflow between removing and re-adding its class, since re-adding the same class name alone is a
+// no-op as far as the browser's style engine is concerned.
 function render(...nodes: (Node | string)[]) {
   app.replaceChildren(...nodes);
+  app.classList.remove("view-enter");
+  void app.offsetWidth;
+  app.classList.add("view-enter");
 }
 
 function shortAddr(addr: string, n = 10): string {
