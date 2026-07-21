@@ -4,7 +4,7 @@ import { validateMnemonic } from "../lib/mnemonic";
 
 const app = document.getElementById("app")!;
 
-type Balance = { resourceAddress: string; kind: string; amount: string; divisibility: number; symbol: string | null };
+type Balance = { resourceAddress: string; kind: string; amount: string; divisibility: number; symbol: string | null; name: string | null };
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -326,7 +326,7 @@ async function renderHome(status: WalletStatus) {
       claimStatusEl.className = "status ok";
       claimStatusEl.textContent = "Claimed! Refreshing balances…";
       const balances = await send<Balance[]>({ kind: "popup-get-balances" });
-      renderBalances(balancesCard, balances);
+      renderBalances(balancesCard, balances, status);
       claimStatusEl.textContent = "Claimed testnet XTR.";
     } catch (e) {
       claimStatusEl.className = "status err";
@@ -338,7 +338,7 @@ async function renderHome(status: WalletStatus) {
 
   try {
     const balances = await send<Balance[]>({ kind: "popup-get-balances" });
-    renderBalances(balancesCard, balances);
+    renderBalances(balancesCard, balances, status);
   } catch (e) {
     balancesCard.replaceChildren(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
   }
@@ -532,22 +532,54 @@ function tokenInitial(resourceAddress: string, symbol: string | null): string {
   return label.slice(0, 1).toUpperCase();
 }
 
-function renderBalances(balancesCard: HTMLElement, balances: Balance[]) {
+function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: WalletStatus) {
   if (balances.length === 0) {
     balancesCard.replaceChildren(h("div", { class: "muted" }, ["No tokens yet."]));
   } else {
     balancesCard.replaceChildren(
-      ...balances.map((b) =>
-        h("div", { class: "balance-row" }, [
+      ...balances.map((b) => {
+        const row = h("div", { class: "balance-row clickable" }, [
           h("div", { class: "balance-left" }, [
             h("span", { class: "token-avatar" }, [tokenInitial(b.resourceAddress, b.symbol)]),
             h("span", { class: "token-symbol" }, [resourceLabel(b.resourceAddress, b.symbol)]),
           ]),
           h("span", { class: "token-amount" }, [formatBalanceAmount(b.amount, b.divisibility)]),
-        ])
-      )
+        ]);
+        row.addEventListener("click", () => renderTokenDetail(status, b));
+        return row;
+      })
     );
   }
+}
+
+function renderTokenDetail(status: WalletStatus, balance: Balance) {
+  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+
+  const addrLabel = h("span", {}, ["Copy"]);
+  const addrCopyBtn = h("button", { class: "icon-btn" }, [addrLabel]);
+  const addrRow = h("div", { class: "copy-row" }, [h("div", { class: "addr" }, [balance.resourceAddress]), addrCopyBtn]);
+  addrCopyBtn.addEventListener("click", () => copyToClipboard(balance.resourceAddress, addrLabel));
+
+  const isXtr = balance.resourceAddress === TARI_RESOURCE_ADDRESS;
+  const displayName = isXtr ? "Tari" : (balance.name ?? "—");
+  const displaySymbol = resourceLabel(balance.resourceAddress, balance.symbol);
+
+  render(
+    h("h1", {}, ["Token"]),
+    h("div", { class: "hero" }, [h("div", { class: "avatar" }, [tokenInitial(balance.resourceAddress, balance.symbol)])]),
+    h("div", { class: "card" }, [
+      h("div", { class: "muted" }, ["Name"]),
+      h("div", { style: "margin:4px 0 14px;font-size:15px;font-weight:600" }, [displayName]),
+      h("div", { class: "muted" }, ["Symbol"]),
+      h("div", { style: "margin:4px 0 14px;font-size:15px;font-weight:600" }, [displaySymbol]),
+      h("div", { class: "muted" }, ["Balance"]),
+      h("div", { style: "margin:4px 0 14px;font-size:15px;font-weight:600" }, [formatBalanceAmount(balance.amount, balance.divisibility)]),
+      h("div", { class: "muted" }, ["Resource address"]),
+      h("div", { style: "margin-top:4px" }, [addrRow]),
+    ]),
+    back
+  );
+  document.getElementById("back")!.addEventListener("click", () => renderHome(status));
 }
 
 function renderAccountSwitcher(status: WalletStatus) {

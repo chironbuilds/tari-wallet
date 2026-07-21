@@ -35,9 +35,12 @@ export interface TokenBalance {
   /** The resource's on-chain decimal precision (e.g. 6 for XTR, 8 for a typical DemoToken) —
    * a real `Resource.divisibility` field, not a guessed convention. */
   divisibility: number;
-  /** The resource's `metadata.SYMBOL` (falling back to `metadata.name`), if it set one — null for
-   * a resource with no such metadata key, in which case a caller should fall back to the address. */
+  /** The resource's `metadata.SYMBOL`, if it set one — null for a resource with no such metadata
+   * key, in which case a caller should fall back to the address. */
   symbol: string | null;
+  /** The resource's `metadata.name` (a longer display name, distinct from the ticker-style
+   * `symbol`), if it set one — null otherwise. */
+  name: string | null;
 }
 
 /**
@@ -130,19 +133,21 @@ export class OotleAccount implements WalletAccountApi {
     const { substates: resourceSubstates } = await withTimeout(provider.fetchSubstates(resourceIds), 15_000, "reading token decimal precision");
     const divisibilityByResource = new Map<string, number>();
     const symbolByResource = new Map<string, string | null>();
+    const nameByResource = new Map<string, string | null>();
     for (const id of resourceIds) {
       const value = resourceSubstates[id]?.substate;
       const resource = value && "Resource" in value ? (value.Resource as { divisibility?: number; metadata?: Record<string, unknown> }) : undefined;
       divisibilityByResource.set(id, typeof resource?.divisibility === "number" ? resource.divisibility : 0);
       const metadata = resource?.metadata;
-      const symbol = metadata?.SYMBOL ?? metadata?.name;
-      symbolByResource.set(id, typeof symbol === "string" ? symbol : null);
+      symbolByResource.set(id, typeof metadata?.SYMBOL === "string" ? metadata.SYMBOL : null);
+      nameByResource.set(id, typeof metadata?.name === "string" ? metadata.name : null);
     }
 
     const balances: TokenBalance[] = parsed.map((p) => ({
       ...p,
       divisibility: divisibilityByResource.get(p.resourceAddress) ?? 0,
       symbol: symbolByResource.get(p.resourceAddress) ?? null,
+      name: nameByResource.get(p.resourceAddress) ?? null,
     }));
     return balances;
   }

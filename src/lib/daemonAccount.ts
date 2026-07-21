@@ -94,12 +94,29 @@ export class DaemonAccount implements WalletAccountApi {
       account: { ComponentAddress: this.account.component_address },
       refresh: true,
     });
+    if (balances.length === 0) return [];
+
+    // The daemon's own balance RPC only returns `token_symbol`, not the resource's longer
+    // `metadata.name` — fetched separately via this account's own indexer connection (the same one
+    // used for epoch-bound resolution in execute()), mirroring OotleAccount.getBalances()'s
+    // resource-substate lookup so both account types expose the same TokenBalance shape.
+    const resourceIds = [...new Set(balances.map((b) => b.resource_address))];
+    const { substates } = await this.indexerProvider.fetchSubstates(resourceIds);
+    const nameByResource = new Map<string, string | null>();
+    for (const id of resourceIds) {
+      const value = substates[id]?.substate;
+      const resource = value && "Resource" in value ? (value.Resource as { metadata?: Record<string, unknown> }) : undefined;
+      const name = resource?.metadata?.name;
+      nameByResource.set(id, typeof name === "string" ? name : null);
+    }
+
     return balances.map((b) => ({
       resourceAddress: b.resource_address,
       kind: b.resource_type,
       amount: BigInt(b.balance),
       divisibility: b.divisibility,
       symbol: b.token_symbol,
+      name: nameByResource.get(b.resource_address) ?? null,
     }));
   }
 
