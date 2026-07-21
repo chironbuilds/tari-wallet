@@ -60,6 +60,27 @@ higher-risk undertaking than a scheme with the same security properties. **Pract
 a recovery phrase from this extension will not import into (or export to) the official Tari wallet
 daemon / Aurora / desktop wallet. It only recovers accounts within this extension.
 
+**Investigated official-seed compatibility (2026-07-22), not yet implemented.** Confirmed feasible,
+should a future session take it on:
+
+- Ootle's own account-key derivation (`tari-ootle`'s `crates/wallet/crypto/src/derive.rs`,
+  `derive_ristretto_key`) is `Blake2b-512(domain_tag("com.tari.base_layer.key_manager", v1,
+  "derive_key") ‖ entropy ‖ branch ‖ index_u64_LE)`, wide-reduced to a Ristretto scalar — branches
+  `"account"` / `"view_only_key"` (`crates/wallet/sdk/src/models/key.rs`, `KeyBranch::as_str`). The
+  domain-tag framing is byte-identical to what `componentAddress.ts` already implements and
+  verifies (`u64LE(len) ‖ "domain.vN.label"`), so this half is low-risk to port.
+- The seed format itself (`CipherSeed`, `tari/base_layer/common_types/src/seeds/cipher_seed.rs`) is
+  the hard part: `version‖birthday‖entropy‖MAC` encrypted with ChaCha20, keyed via **Argon2d (46
+  MiB memory cost)** derived from the user's password (or a fixed default passphrase if none is
+  set), plus a CRC32 checksum, mapped onto the BIP-39 wordlist. No known-answer test vectors exist
+  upstream for this — every Rust test is a self-consistent round-trip — so verifying a port means
+  generating our own golden vectors by compiling a small harness against the real crate (`cargo`
+  is available in this environment) with fixed inputs, the same way the component-address golden
+  vectors were sourced, just self-generated instead of upstream-provided.
+- Net: verifiable, but a substantial multi-file port (new ChaCha20/Argon2d/CRC32 primitives — Argon2d
+  needs a WASM library, e.g. `hash-wasm`, since pure-JS Argon2 is impractically slow — plus changes
+  across `derivation.ts`, `mnemonic.ts`, and onboarding/reveal/import flows), not a quick patch.
+
 **`window.tari`, not WalletConnect v2.** Real WalletConnect requires registering a project with
 Reown's relay network and implementing the wallet side of that pairing protocol (which,
 per research at the time this was built, doesn't exist yet anywhere in the Tari ecosystem — only
