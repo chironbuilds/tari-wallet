@@ -1,7 +1,14 @@
 import { Network, TransactionBuilder, amountLiteral, defaultIndexerUrl, resolveTransaction, resourceAddressLiteral } from "@tari-project/ootle";
 import { IndexerProvider } from "@tari-project/ootle-indexer";
 import { WalletDaemonClient, authenticate } from "@tari-project/ootle-wallet-daemon-signer";
-import type { Account, Instruction, KeyId, TransactionResult } from "@tari-project/ootle-ts-bindings";
+import type {
+  Account,
+  IndexerGetTransactionResultResponse,
+  Instruction,
+  KeyId,
+  TransactionResult,
+  TransactionWaitResultResponse,
+} from "@tari-project/ootle-ts-bindings";
 import type { TransactionExecuteOpts, WalletAccountApi } from "./accountApi";
 import { type NetworkName, toOotleNetwork } from "./ootleNetwork";
 import type { TokenBalance } from "./wallet";
@@ -138,7 +145,7 @@ export class DaemonAccount implements WalletAccountApi {
     const response = await this.client.waitForTransactionResult({ transaction_id, timeout_secs: 60 });
     if (response.timed_out) throw new Error(`Timed out waiting for transaction ${transaction_id} to finalize.`);
     if (response.result) throwOnRejection(transaction_id, response.result.result);
-    return response;
+    return toIndexerResultShape(response);
   }
 
   async send(recipientAddress: string, resourceAddress: string, amount: bigint, maxFee = 5000n): Promise<unknown> {
@@ -165,4 +172,35 @@ function throwOnRejection(transactionId: string, outcome: TransactionResult): vo
   if ("AcceptFeeRejectRest" in outcome) {
     throw new Error(`Transaction ${transactionId} accepted the fee but rejected the rest: ${JSON.stringify(outcome.AcceptFeeRejectRest)}`);
   }
+}
+
+/**
+ * Reshapes the daemon's `transactions.wait_result` response into the exact
+ * `IndexerGetTransactionResultResponse` shape `OotleAccount.execute()` returns for a real
+ * submission — `{result: {Finalized: {execution_result: ExecuteResult, ...}}}`, not the daemon's
+ * own flatter `{result: FinalizeResult, status, final_fee, ...}`. Without this, any dApp parsing
+ * the result (this extension's own DEX included) has to special-case which account backend served
+ * it — confirmed empirically: the DEX's create-token flow threw "Unexpected transaction result
+ * shape" against a daemon-relayed account before this normalization existed. `throwOnRejection`
+ * has already run by the time this is called, so `response.result` being present here always means
+ * a successful `Accept` outcome.
+ */
+function toIndexerResultShape(response: TransactionWaitResultResponse): IndexerGetTransactionResultResponse {
+  if (!response.result) return { result: "Pending" };
+  return {
+    result: {
+      Finalized: {
+        final_decision: "Commit",
+        execution_result: {
+          finalize: response.result,
+          execution_time: { secs: 0, nanos: 0 },
+          execute_epoch: null,
+          wasm_execution_points: 0n,
+        },
+        execution_time: { secs: 0, nanos: 0 },
+        finalized_time: new Date().toISOString(),
+        abort_details: null,
+      },
+    },
+  };
 }
