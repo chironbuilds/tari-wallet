@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Tari Ootle Wallet — window.tari test harness</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #131417; color: #eee; padding: 24px; max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; }
+  button { display: block; margin: 8px 0; padding: 10px 16px; background: #1e1f24; color: #eee; border: 1px solid #333; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  button:hover { border-color: #a259ff; }
+  pre { background: #000; padding: 12px; border-radius: 8px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+  .row { display: flex; gap: 8px; }
+  .row button { flex: 1; }
+  #providerStatus { font-weight: bold; }
+</style>
+</head>
+<body>
+  <h1>window.tari test harness</h1>
+  <p>Provider detected: <span id="providerStatus">checking…</span></p>
+  <div class="row">
+    <button id="requestAccounts">tari_requestAccounts</button>
+    <button id="getAccounts">tari_getAccounts</button>
+  </div>
+  <div class="row">
+    <button id="getNetwork">tari_getNetwork</button>
+    <button id="disconnect">tari_disconnect</button>
+  </div>
+  <button id="dryRun">tari_signAndSubmitTransaction (dry run, no-op instructions)</button>
+  <h2>Log</h2>
+  <pre id="log"></pre>
+  <script>
+    const logEl = document.getElementById("log");
+    function log(label, value) {
+      logEl.textContent += `\n[${new Date().toLocaleTimeString()}] ${label}\n${JSON.stringify(value, (_, v) => typeof v === "bigint" ? v.toString() : v, 2)}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function checkProvider() {
+      const el = document.getElementById("providerStatus");
+      if (window.tari && window.tari.isTariWallet) {
+        el.textContent = "YES — window.tari.isTariWallet = true";
+        el.style.color = "#4ade80";
+      } else {
+        el.textContent = "NO — window.tari not found (reload page after loading the extension)";
+        el.style.color = "#f87171";
+      }
+    }
+    checkProvider();
+    setTimeout(checkProvider, 500);
+
+    async function call(method, params) {
+      try {
+        const result = await window.tari.request({ method, params });
+        log(`${method} OK`, result);
+      } catch (e) {
+        log(`${method} ERROR`, String(e && e.message ? e.message : e));
+      }
+    }
+
+    document.getElementById("requestAccounts").addEventListener("click", () => call("tari_requestAccounts"));
+    document.getElementById("getAccounts").addEventListener("click", () => call("tari_getAccounts"));
+    document.getElementById("getNetwork").addEventListener("click", () => call("tari_getNetwork"));
+    document.getElementById("disconnect").addEventListener("click", () => call("tari_disconnect"));
+    document.getElementById("dryRun").addEventListener("click", () =>
+      call("tari_signAndSubmitTransaction", { instructions: [], dryRun: true })
+    );
+  </script>
+</body>
+</html>

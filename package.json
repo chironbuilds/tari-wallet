@@ -1,0 +1,30 @@
+{
+  "name": "tari-ootle-wallet-extension",
+  "version": "0.1.0",
+  "description": "Self-custody Chrome extension wallet for Tari Ootle (L2) — holds its own seed, signs and submits transactions directly to the network, no wallet daemon required.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx scripts/test-crypto.ts"
+  },
+  "license": "BSD-3-Clause",
+  "dependencies": {
+    "@noble/hashes": "^2.2.0",
+    "@tari-project/ootle": "^0.1.0",
+    "@tari-project/ootle-indexer": "^0.1.0",
+    "@tari-project/ootle-secret-key-wallet": "^0.1.0",
+    "@tari-project/ootle-wasm": "^0.36.0"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.7.1",
+    "@types/chrome": "^0.2.2",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.6.0"
+  }
+}
