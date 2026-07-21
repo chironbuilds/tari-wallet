@@ -17,7 +17,7 @@
 html,
 body {
   margin: 0;
-  width: 360px;
+  width: 320px;
   min-height: 480px;
   background: var(--bg);
   color: var(--text);
@@ -30,10 +30,10 @@ body {
   font-size: 14px;
 }
 #app {
-  padding: 16px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 h1 {
   font-size: 16px;

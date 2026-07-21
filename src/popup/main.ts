@@ -125,7 +125,7 @@ async function main() {
 
 function renderWelcome() {
   render(
-    h("h1", {}, ["Tari", h("span", {}, ["Dex"]), " Wallet"]),
+    h("h1", {}, ["Tari", h("span", {}, [" Wallet"])]),
     h("p", { class: "muted" }, [
       "A self-custody wallet for Tari Ootle. Your seed never leaves this browser and no wallet daemon is required.",
     ]),
@@ -270,7 +270,7 @@ async function renderHome(status: WalletStatus) {
   const accountPill = h("span", { class: "account-pill" }, [`Account ${status.activeAccountIndex + 1} ▾`]);
   const settingsBtn = h("button", { class: "secondary", id: "settingsBtn", style: "width:auto;padding:6px 10px;margin-top:0" }, ["⚙"]);
   const nav = h("div", { class: "top-nav" }, [
-    h("h1", {}, ["Tari", h("span", {}, ["Dex"]), " Wallet"]),
+    h("h1", {}, ["Tari", h("span", {}, [" Wallet"])]),
     h("div", { class: "row", style: "gap:6px" }, [accountPill, settingsBtn]),
   ]);
   accountPill.addEventListener("click", () => renderAccountSwitcher(status));
