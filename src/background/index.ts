@@ -4,6 +4,7 @@ import {
   addConnectedSite,
   getConnectedSite,
   getState,
+  removeAllConnectedSites,
   removeConnectedSite,
   setState,
   wipeWallet,
@@ -235,6 +236,13 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     }
 
     case "popup-set-active-account": {
+      const { activeAccountIndex } = await getState();
+      if (message.index !== activeAccountIndex) {
+        // Every existing connection is pinned to whichever account was active when it was made
+        // (see addConnectedSite) — switching accounts without dropping them would leave connected
+        // sites silently reading/spending from the account the user just switched away from.
+        await removeAllConnectedSites();
+      }
       await setState({ activeAccountIndex: message.index });
       return {};
     }

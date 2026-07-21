@@ -56,6 +56,14 @@ export async function removeConnectedSite(origin: string): Promise<void> {
   await setState({ connectedSites: state.connectedSites.filter((s) => s.origin !== origin) });
 }
 
+/** Disconnects every connected site. Each connection is pinned to the account index active at the
+ * time it was made (see `addConnectedSite`), so switching accounts without this would leave sites
+ * silently talking to the account the user just switched away from — clearing them forces every
+ * site to reconnect via `tari_requestAccounts`, which then binds to the newly active account. */
+export async function removeAllConnectedSites(): Promise<void> {
+  await setState({ connectedSites: [] });
+}
+
 export async function wipeWallet(): Promise<void> {
   await chrome.storage.local.clear();
 }
