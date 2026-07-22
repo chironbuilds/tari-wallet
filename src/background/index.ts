@@ -183,11 +183,19 @@ async function buildStatus(): Promise<WalletStatus> {
   const unlocked = await isUnlocked();
   let address: string | null = null;
   let receiveAddress: string | null = null;
+  let activeAccountError: string | null = null;
   if (unlocked) {
-    const account = await getActiveAccount();
-    if (account) {
-      receiveAddress = await account.getWalletAddress();
-      address = await account.getComponentAddress();
+    // A daemon-relayed active account can throw here (the daemon is off, unreachable, etc.) — that
+    // must not take down the whole status fetch, or the popup can't even render enough UI (the
+    // account switcher included) to let the user switch away from the broken account.
+    try {
+      const account = await getActiveAccount();
+      if (account) {
+        receiveAddress = await account.getWalletAddress();
+        address = await account.getComponentAddress();
+      }
+    } catch (e) {
+      activeAccountError = e instanceof Error ? e.message : String(e);
     }
   }
   const localAccounts: AccountSummary[] = Array.from({ length: state.accountCount }, (_, i) => ({
@@ -208,6 +216,7 @@ async function buildStatus(): Promise<WalletStatus> {
     accountCount: state.accountCount,
     address,
     receiveAddress,
+    activeAccountError,
     accounts: [...localAccounts, ...daemonAccounts],
     daemonConnections: state.daemonConnections.map((c) => ({ id: c.id, url: c.url, label: c.label })),
   };
@@ -326,7 +335,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       // step, rather than silently later on the first real account operation.
       const client = await DaemonAccount.connectClient(message.url, message.authToken);
       await addDaemonConnection({ id, url: message.url, authToken: client.getToken() ?? message.authToken ?? "", label: message.label });
-      const accounts = await DaemonAccount.listAccounts(client);
+      const accounts = await DaemonAccount.listAccounts(client, message.url);
       const options: DaemonAccountOption[] = accounts.map((a) => ({
         componentAddress: a.component_address,
         label: a.name ?? a.component_address,
@@ -335,8 +344,8 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     }
 
     case "popup-list-daemon-accounts": {
-      const client = await getDaemonClient(message.connectionId);
-      const accounts = await DaemonAccount.listAccounts(client);
+      const { client, url } = await getDaemonClient(message.connectionId);
+      const accounts = await DaemonAccount.listAccounts(client, url);
       const options: DaemonAccountOption[] = accounts.map((a) => ({
         componentAddress: a.component_address,
         label: a.name ?? a.component_address,

@@ -97,6 +97,11 @@ export interface WalletStatus {
   accountCount: number;
   address: string | null;
   receiveAddress: string | null;
+  /** Set when resolving the active account failed (e.g. a daemon-relayed account whose daemon is
+   * unreachable) — `address`/`receiveAddress` are null in that case, but the rest of the status
+   * (account list, network, etc.) is still valid, so the popup can render enough UI to let the
+   * user switch to a working account instead of being stuck on a blank error screen. */
+  activeAccountError: string | null;
   accounts: AccountSummary[];
   daemonConnections: { id: string; url: string; label: string }[];
 }

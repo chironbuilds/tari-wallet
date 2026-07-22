@@ -27,6 +27,7 @@ import type { WalletAccountApi } from "./accountApi";
 import { deriveAccountComponentAddress } from "./componentAddress";
 import { deriveAccountKeys } from "./derivation";
 import { type NetworkName, toOotleNetwork } from "./ootleNetwork";
+import { withTimeout } from "./timeout";
 
 export interface TokenBalance {
   resourceAddress: string;
@@ -472,27 +473,6 @@ function bytesToHex(bytes: Uint8Array): string {
   let out = "";
   for (const byte of bytes) out += byte.toString(16).padStart(2, "0");
   return out;
-}
-
-// A hung fetch (or any other network stall) inside a page-triggered request otherwise blocks that
-// page's promise forever with no error and no way to recover short of reloading the extension —
-// confirmed empirically hitting exactly this waiting on a testnet indexer response. Every
-// individual network step in execute()'s retry loop is wrapped in this so a stall surfaces as a
-// clear timeout error instead of an indefinite hang.
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`Timed out after ${ms}ms while ${label}.`)), ms);
-    promise.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(timer);
-        reject(e);
-      }
-    );
-  });
 }
 
 // Matches the address this engine names in a "not found" rejection. Confirmed two distinct

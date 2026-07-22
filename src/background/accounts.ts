@@ -50,16 +50,17 @@ function getLocalAccount(seed: Uint8Array, network: "esmeralda" | "igor", index:
   return account;
 }
 
-/** Returns the cached authenticated client for a connection, or connects fresh using its stored
- * auth token. Kept separate from `getDaemonAccount` so the "connect + list accounts" flow (before
- * any account has been added yet) can reuse the exact same cached client. */
-export async function getDaemonClient(connectionId: string): Promise<WalletDaemonClient> {
-  const cached = daemonClientCache.get(connectionId);
-  if (cached) return cached;
-
+/** Returns the cached authenticated client (and its URL) for a connection, or connects fresh using
+ * its stored auth token. Kept separate from `getDaemonAccount` so the "connect + list accounts"
+ * flow (before any account has been added yet) can reuse the exact same cached client. */
+export async function getDaemonClient(connectionId: string): Promise<{ client: WalletDaemonClient; url: string }> {
   const { daemonConnections } = await getState();
   const config = daemonConnections.find((c) => c.id === connectionId);
   if (!config) throw new Error(`Unknown daemon connection: ${connectionId}`);
+
+  const cached = daemonClientCache.get(connectionId);
+  if (cached) return { client: cached, url: config.url };
+
   const client = await DaemonAccount.connectClient(config.url, config.authToken);
   // connectClient() silently re-authenticates when the stored token turns out to be expired —
   // persist whatever it ended up with so the next connection (e.g. after a service worker
@@ -69,7 +70,7 @@ export async function getDaemonClient(connectionId: string): Promise<WalletDaemo
     await updateDaemonConnectionToken(connectionId, currentToken);
   }
   daemonClientCache.set(connectionId, client);
-  return client;
+  return { client, url: config.url };
 }
 
 async function getDaemonAccount(connectionId: string, componentAddress: string): Promise<DaemonAccount> {
@@ -78,8 +79,8 @@ async function getDaemonAccount(connectionId: string, componentAddress: string):
   if (cached) return cached;
 
   const { network } = await getState();
-  const client = await getDaemonClient(connectionId);
-  const account = await DaemonAccount.connectAccount(client, network, componentAddress);
+  const { client, url } = await getDaemonClient(connectionId);
+  const account = await DaemonAccount.connectAccount(client, url, network, componentAddress);
   daemonAccountCache.set(key, account);
   return account;
 }

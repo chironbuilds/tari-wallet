@@ -287,6 +287,19 @@ async function renderHome(status: WalletStatus) {
   accountPill.addEventListener("click", () => renderAccountSwitcher(status));
   settingsBtn.addEventListener("click", () => renderSettings(status));
 
+  if (status.activeAccountError) {
+    const switchBtn = h("button", { class: "primary", id: "switchAccount" }, ["Switch account"]);
+    render(
+      nav,
+      h("div", { class: "status err" }, [
+        `Couldn't reach "${activeLabel}": ${status.activeAccountError}`,
+      ]),
+      switchBtn
+    );
+    switchBtn.addEventListener("click", () => renderAccountSwitcher(status));
+    return;
+  }
+
   const initial = activeLabel.slice(0, 1).toUpperCase();
   const copyLabel = h("span", {}, [shortAddr(status.address ?? "", 8)]);
   const addrPill = h("div", { class: "addr-pill", id: "addrPill" }, [copyLabel, h("span", { class: "icon" }, ["⧉"])]);

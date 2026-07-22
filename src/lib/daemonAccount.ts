@@ -11,7 +11,45 @@ import type {
 } from "@tari-project/ootle-ts-bindings";
 import type { TransactionExecuteOpts, WalletAccountApi } from "./accountApi";
 import { type NetworkName, toOotleNetwork } from "./ootleNetwork";
+import { withTimeout } from "./timeout";
 import type { TokenBalance } from "./wallet";
+
+const DAEMON_TIMEOUT_MS = 15_000;
+
+/**
+ * A plain `fetch()` failure (connection refused, DNS failure, or — on some platforms — a hang that
+ * never even reaches the daemon) throws a raw `TypeError`/`AbortError` straight out of
+ * `FetchRpcTransport`. An actual JSON-RPC error the daemon *did* respond with (wrong auth, bad
+ * params, ...) is always wrapped by `WalletDaemonClient` as `Error("RPC Error ...", { cause: {
+ * method, code, message, data } })` — checking for `method` alongside `code` matters: Chrome's
+ * `fetch()` throws a bare `TypeError` with no `.cause` for a connection failure, but Node's
+ * (undici-based) `fetch()` sets `.cause` to the underlying errno error, which *also* has a `.code`
+ * (e.g. `"ECONNREFUSED"`) — confirmed empirically this produces a false negative here when
+ * exercised from a Node verification script, even though the real (browser) code path never hits
+ * it. `method` is unique to this client's own RPC-error wrapping either way, so checking for it is
+ * strictly more correct in both environments. That distinction is what lets `connectClient()` below
+ * skip a doomed-to-fail retry when the daemon isn't reachable at all, instead of just being slow to
+ * say so.
+ */
+function isDaemonUnreachable(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  return !(e.cause && typeof e.cause === "object" && "method" in e.cause && "code" in e.cause);
+}
+
+/** Runs a daemon call with a bounded timeout and rewrites an unreachable-daemon failure (dead
+ * connection or a hang past the timeout — indistinguishable from the user's point of view) into an
+ * actionable message, instead of a raw "Failed to fetch" or "Timed out after ...". */
+async function daemonCall<T>(url: string, promise: Promise<T>, label: string, timeoutMs = DAEMON_TIMEOUT_MS): Promise<T> {
+  try {
+    return await withTimeout(promise, timeoutMs, label);
+  } catch (e) {
+    if (isDaemonUnreachable(e)) {
+      const details = e instanceof Error ? e.message : String(e);
+      throw new Error(`Could not reach the daemon at ${url} — make sure tari_ootle_walletd is running. (${details})`);
+    }
+    throw e;
+  }
+}
 
 /**
  * One account on a `tari_ootle_walletd` this extension has connected to as a JRPC client — the
@@ -35,7 +73,8 @@ export class DaemonAccount implements WalletAccountApi {
     private readonly indexerProvider: IndexerProvider,
     networkName: NetworkName,
     private account: Account,
-    private readonly address: string
+    private readonly address: string,
+    private readonly url: string
   ) {
     this.network = toOotleNetwork(networkName);
   }
@@ -65,33 +104,44 @@ export class DaemonAccount implements WalletAccountApi {
     if (authToken) {
       client.setToken(authToken);
       try {
-        await client.accountsList({ offset: 0, limit: 1 });
+        await withTimeout(client.accountsList({ offset: 0, limit: 1 }), DAEMON_TIMEOUT_MS, "checking the stored connection");
         return client;
-      } catch {
-        // Fall through to a fresh authentication below — see the doc comment above.
+      } catch (e) {
+        // An unreachable daemon fails the fresh-auth attempt below identically — surface the clear
+        // error immediately instead of waiting through a second doomed timeout for the same reason.
+        if (isDaemonUnreachable(e)) {
+          const details = e instanceof Error ? e.message : String(e);
+          throw new Error(`Could not reach the daemon at ${url} — make sure tari_ootle_walletd is running. (${details})`);
+        }
+        // Otherwise this was a real (auth-shaped) rejection — fall through to a fresh authentication.
       }
     }
-    const token = await authenticate(client);
+    const token = await daemonCall(url, authenticate(client), "authenticating with the daemon");
     client.setToken(token);
     // Cheap connectivity check — throws immediately with a clear network-level error if the URL is
     // wrong or nothing is listening, rather than surfacing a confusing failure on the first real call.
-    await client.walletGetInfo();
+    await daemonCall(url, client.walletGetInfo(), "connecting to the daemon");
     return client;
   }
 
-  static async listAccounts(client: WalletDaemonClient): Promise<Account[]> {
-    const { accounts } = await client.accountsList({ offset: 0, limit: 200 });
+  static async listAccounts(client: WalletDaemonClient, url: string): Promise<Account[]> {
+    const { accounts } = await daemonCall(url, client.accountsList({ offset: 0, limit: 200 }), "listing the daemon's accounts");
     return accounts.map((a) => a.account);
   }
 
   static async connectAccount(
     client: WalletDaemonClient,
+    url: string,
     networkName: NetworkName,
     componentAddress: string
   ): Promise<DaemonAccount> {
-    const { account, address } = await client.accountsGet({ name_or_address: { ComponentAddress: componentAddress } });
+    const { account, address } = await daemonCall(
+      url,
+      client.accountsGet({ name_or_address: { ComponentAddress: componentAddress } }),
+      "looking up the daemon account"
+    );
     const indexerProvider = await IndexerProvider.connect({ url: defaultIndexerUrl(toOotleNetwork(networkName)), network: toOotleNetwork(networkName) });
-    return new DaemonAccount(client, indexerProvider, networkName, account, address);
+    return new DaemonAccount(client, indexerProvider, networkName, account, address, url);
   }
 
   async getComponentAddress(): Promise<string> {
@@ -107,10 +157,11 @@ export class DaemonAccount implements WalletAccountApi {
   }
 
   async getBalances(): Promise<TokenBalance[]> {
-    const { balances } = await this.client.accountsGetBalances({
-      account: { ComponentAddress: this.account.component_address },
-      refresh: true,
-    });
+    const { balances } = await daemonCall(
+      this.url,
+      this.client.accountsGetBalances({ account: { ComponentAddress: this.account.component_address }, refresh: true }),
+      "fetching balances"
+    );
     if (balances.length === 0) return [];
 
     // The daemon's own balance RPC only returns `token_symbol`, not the resource's longer
@@ -149,7 +200,11 @@ export class DaemonAccount implements WalletAccountApi {
     const maxFee = opts.maxFee ?? 5000n;
     const builder = TransactionBuilder.new(this.network).withInstructions(instructions).feeTransactionPayFromComponent(this.account.component_address, maxFee);
     if (opts.inputs?.length) builder.withInputs(opts.inputs);
-    const unsignedTx = await resolveTransaction(this.indexerProvider, builder.buildUnsignedTransaction());
+    const unsignedTx = await withTimeout(
+      resolveTransaction(this.indexerProvider, builder.buildUnsignedTransaction()),
+      DAEMON_TIMEOUT_MS,
+      "resolving the transaction"
+    );
     // `TransactionBuilder` defaults this to false — the engine's `TransactionSignatureValidator`
     // then rejects with "has no main signer" unless there's a real per-instruction participant
     // signature (what OotleAccount's local signing produces via `signTransaction([signer], ...)`).
@@ -170,13 +225,21 @@ export class DaemonAccount implements WalletAccountApi {
     };
 
     if (opts.dryRun) {
-      const response = await this.client.submitTransactionDryRun(request);
+      const response = await daemonCall(this.url, this.client.submitTransactionDryRun(request), "simulating the transaction");
       throwOnRejection(response.transaction_id, response.result.finalize.result);
       return response;
     }
 
-    const { transaction_id } = await this.client.submitTransaction(request);
-    const response = await this.client.waitForTransactionResult({ transaction_id, timeout_secs: 60 });
+    const { transaction_id } = await daemonCall(this.url, this.client.submitTransaction(request), "submitting the transaction");
+    // The daemon's own `timeout_secs: 60` bounds how long it waits for finalization server-side;
+    // the client-side budget here just needs enough slack for that plus normal round-trip time so
+    // a dead connection (not just a slow finalization) still surfaces as a clear error.
+    const response = await daemonCall(
+      this.url,
+      this.client.waitForTransactionResult({ transaction_id, timeout_secs: 60 }),
+      "waiting for the transaction to finalize",
+      70_000
+    );
     if (response.timed_out) throw new Error(`Timed out waiting for transaction ${transaction_id} to finalize.`);
     if (response.result) throwOnRejection(transaction_id, response.result.result);
     return toIndexerResultShape(response);
@@ -195,7 +258,11 @@ export class DaemonAccount implements WalletAccountApi {
   /** Delegates to the daemon's own free-testnet-coins RPC — much simpler than `OotleAccount`'s
    * hand-rolled self-funding claim, since the daemon already knows how to fund its own accounts. */
   async claimTestnetXtr(): Promise<unknown> {
-    return this.client.createFreeTestCoins({ account: { ComponentAddress: this.account.component_address }, max_fee: 5000n });
+    return daemonCall(
+      this.url,
+      this.client.createFreeTestCoins({ account: { ComponentAddress: this.account.component_address }, max_fee: 5000n }),
+      "claiming testnet XTR"
+    );
   }
 }
 
