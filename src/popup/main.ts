@@ -274,8 +274,12 @@ function activeAccountSummary(status: WalletStatus): AccountSummary | undefined 
 
 async function renderHome(status: WalletStatus) {
   const activeLabel = activeAccountSummary(status)?.label ?? "Account";
-  const accountPill = h("span", { class: "account-pill" }, [`${activeLabel} ▾`]);
-  const settingsBtn = h("button", { class: "secondary", id: "settingsBtn", style: "width:auto;padding:6px 10px;margin-top:0" }, ["⚙"]);
+  const accountPill = h("button", { class: "account-pill", "aria-label": `Switch account (current: ${activeLabel})` }, [`${activeLabel} ▾`]);
+  const settingsBtn = h(
+    "button",
+    { class: "secondary", id: "settingsBtn", style: "width:auto;padding:6px 10px;margin-top:0", "aria-label": "Settings" },
+    ["⚙"]
+  );
   const nav = h("div", { class: "top-nav" }, [
     h("h1", {}, ["Tari", h("span", {}, [" Wallet"])]),
     h("div", { class: "row", style: "gap:6px" }, [accountPill, settingsBtn]),
@@ -298,13 +302,22 @@ async function renderHome(status: WalletStatus) {
 
   const initial = activeLabel.slice(0, 1).toUpperCase();
   const copyLabel = h("span", {}, [shortAddr(status.address ?? "", 8)]);
-  const addrPill = h("div", { class: "addr-pill", id: "addrPill" }, [copyLabel, h("span", { class: "icon" }, ["⧉"])]);
+  const addrPill = h("button", { class: "addr-pill", id: "addrPill", "aria-label": "Copy account address" }, [
+    copyLabel,
+    h("span", { class: "icon", "aria-hidden": "true" }, ["⧉"]),
+  ]);
   addrPill.addEventListener("click", () => copyToClipboard(status.address ?? "", copyLabel));
   const hero = h("div", { class: "hero" }, [h("div", { class: "avatar" }, [initial]), addrPill]);
 
-  const sendActionBtn = h("div", { class: "action-btn", id: "sendAction" }, [h("div", { class: "action-icon" }, ["↑"]), "Send"]);
-  const receiveActionBtn = h("div", { class: "action-btn", id: "receiveAction" }, [h("div", { class: "action-icon" }, ["↓"]), "Receive"]);
-  const claimActionBtn = h("div", { class: "action-btn", id: "claimAction" }, [h("div", { class: "action-icon" }, ["+"]), "Claim XTR"]);
+  const sendActionBtn = h("button", { class: "action-btn", id: "sendAction" }, [h("div", { class: "action-icon", "aria-hidden": "true" }, ["↑"]), "Send"]);
+  const receiveActionBtn = h("button", { class: "action-btn", id: "receiveAction" }, [
+    h("div", { class: "action-icon", "aria-hidden": "true" }, ["↓"]),
+    "Receive",
+  ]);
+  const claimActionBtn = h("button", { class: "action-btn", id: "claimAction" }, [
+    h("div", { class: "action-icon", "aria-hidden": "true" }, ["+"]),
+    "Claim XTR",
+  ]);
   const actionRow = h("div", { class: "action-row" }, [sendActionBtn, receiveActionBtn, claimActionBtn]);
 
   const claimStatusEl = h("div", { class: "status", id: "claimStatus", style: "display:none" });
@@ -326,7 +339,7 @@ async function renderHome(status: WalletStatus) {
   });
   receiveActionBtn.addEventListener("click", () => renderReceive(status));
   claimActionBtn.addEventListener("click", async () => {
-    claimActionBtn.setAttribute("style", "pointer-events:none;opacity:0.6");
+    claimActionBtn.setAttribute("disabled", "true");
     claimStatusEl.style.display = "block";
     claimStatusEl.className = "status";
     claimStatusEl.textContent = "Claiming from the testnet faucet — this submits a real transaction, usually takes a few seconds…";
@@ -341,7 +354,7 @@ async function renderHome(status: WalletStatus) {
       claimStatusEl.className = "status err";
       claimStatusEl.textContent = e instanceof Error ? e.message : String(e);
     } finally {
-      claimActionBtn.removeAttribute("style");
+      claimActionBtn.removeAttribute("disabled");
     }
   });
 
@@ -521,10 +534,11 @@ function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: 
   } else {
     balancesCard.replaceChildren(
       ...balances.map((b) => {
-        const row = h("div", { class: "balance-row clickable" }, [
+        const label = resourceLabel(b.resourceAddress, b.symbol);
+        const row = h("button", { class: "balance-row clickable", "aria-label": `${label}, ${formatBalanceAmount(b.amount, b.divisibility)} — view details` }, [
           h("div", { class: "balance-left" }, [
-            h("span", { class: "token-avatar" }, [tokenInitial(b.resourceAddress, b.symbol)]),
-            h("span", { class: "token-symbol" }, [resourceLabel(b.resourceAddress, b.symbol)]),
+            h("span", { class: "token-avatar", "aria-hidden": "true" }, [tokenInitial(b.resourceAddress, b.symbol)]),
+            h("span", { class: "token-symbol" }, [label]),
           ]),
           h("span", { class: "token-amount" }, [formatBalanceAmount(b.amount, b.divisibility)]),
         ]);

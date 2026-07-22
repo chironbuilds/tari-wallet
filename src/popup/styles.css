@@ -219,7 +219,10 @@ button + button {
   align-items: center;
 }
 .account-pill {
+  width: auto;
   font-size: 12px;
+  font-family: inherit;
+  color: var(--text);
   background: var(--box);
   border: 1px solid var(--border);
   padding: 5px 10px;
@@ -255,6 +258,7 @@ button + button {
   color: #16041a;
 }
 .addr-pill {
+  width: auto;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -347,6 +351,14 @@ button + button {
   flex-shrink: 0;
 }
 .balance-row.clickable {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
   cursor: pointer;
   transition: background 0.15s ease;
   border-radius: 8px;
