@@ -82,13 +82,20 @@ async function copyToClipboard(text: string, label: HTMLElement) {
   }, 1200);
 }
 
+// Exactly one optional whole part, exactly one optional ".frac" part, at least one digit
+// somewhere — anchored, so "1.2.3" or "1.2abc" are rejected outright instead of silently taking
+// only the first two dot-separated segments (`"1.2.3".split(".")` would otherwise destructure to
+// `["1", "2"]` and quietly drop the trailing ".3", accepting a malformed amount as "1.2").
+const DECIMAL_AMOUNT_PATTERN = /^(\d+)?(?:\.(\d+))?$/;
+
 /** Parses a decimal string (e.g. "12.5") into raw resource-native units for a given divisibility.
  * Truncates (does not round) anything past `divisibility` places, mirroring on-chain behavior. */
 function parseDecimalToRaw(input: string, divisibility: number): bigint {
   const trimmed = input.trim();
   if (!trimmed) throw new Error("Enter an amount.");
-  const [wholeStr = "", fracStr = ""] = trimmed.split(".");
-  if (!/^\d*$/.test(wholeStr) || !/^\d*$/.test(fracStr) || (!wholeStr && !fracStr)) throw new Error("Enter a valid amount.");
+  const match = DECIMAL_AMOUNT_PATTERN.exec(trimmed);
+  if (!match || (!match[1] && !match[2])) throw new Error("Enter a valid amount.");
+  const [, wholeStr = "", fracStr = ""] = match;
   const whole = wholeStr ? BigInt(wholeStr) : 0n;
   const frac = fracStr.slice(0, divisibility).padEnd(divisibility, "0");
   const raw = whole * 10n ** BigInt(divisibility) + (frac ? BigInt(frac) : 0n);
@@ -153,15 +160,15 @@ function renderSetPassword(mode: "create" | "import") {
     mode === "import"
       ? (() => {
           const label = h("label", {}, ["24-word recovery phrase"]);
-          const ta = h("textarea", { id: "mnemonic", placeholder: "word1 word2 word3 ..." });
+          const ta = h("textarea", { id: "mnemonic", placeholder: "word1 word2 word3 ...", maxlength: "1000" });
           return [label, ta];
         })()
       : [];
 
   const pwLabel = h("label", {}, ["Password"]);
-  const pw = h("input", { type: "password", id: "pw" });
+  const pw = h("input", { type: "password", id: "pw", maxlength: "256" });
   const pw2Label = h("label", {}, ["Confirm password"]);
-  const pw2 = h("input", { type: "password", id: "pw2" });
+  const pw2 = h("input", { type: "password", id: "pw2", maxlength: "256" });
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
   const submit = h("button", { class: "primary", id: "submit" }, [mode === "create" ? "Create Wallet" : "Import Wallet"]);
   const back = h("button", { class: "secondary", id: "back" }, ["Back"]);
@@ -179,6 +186,10 @@ function renderSetPassword(mode: "create" | "import") {
       statusEl.style.display = "block";
     };
     if (password.length < 8) return showStatus("Password must be at least 8 characters.");
+    // PBKDF2's cost scales with iteration count, not input length, but hashing a pathologically
+    // long input (e.g. an accidentally-pasted file) still means a real multi-second UI stall for no
+    // security benefit past a reasonable length — 256 chars is generous for an actual passphrase.
+    if (password.length > 256) return showStatus("Password must be 256 characters or fewer.");
     if (password !== password2) return showStatus("Passwords do not match.");
 
     try {
@@ -235,7 +246,7 @@ function renderUnlock(onUnlocked?: () => void) {
   render(
     h("h1", {}, ["Unlock"]),
     h("label", {}, ["Password"]),
-    h("input", { type: "password", id: "pw" }),
+    h("input", { type: "password", id: "pw", maxlength: "256" }),
     statusEl,
     h("button", { class: "primary", id: "unlock" }, ["Unlock"])
   );
@@ -441,8 +452,8 @@ function renderSend(status: WalletStatus, balances: Balance[]) {
   );
   const balanceHint = h("div", { class: "muted", id: "balanceHint", style: "margin-top:6px" }, [""]);
 
-  const toInput = h("input", { type: "text", id: "to", placeholder: "component_…" });
-  const amountInput = h("input", { type: "text", id: "amount", placeholder: "0.0" });
+  const toInput = h("input", { type: "text", id: "to", placeholder: "component_…", maxlength: "74" });
+  const amountInput = h("input", { type: "text", id: "amount", placeholder: "0.0", maxlength: "40" });
   const maxBtn = h("button", { class: "max-btn", id: "max" }, ["MAX"]);
   const amountField = h("div", { class: "amount-field" }, [amountInput, maxBtn]);
 
@@ -487,8 +498,11 @@ function renderSend(status: WalletStatus, balances: Balance[]) {
   sendBtn.addEventListener("click", async () => {
     const b = selected();
     const toAddress = (toInput as HTMLInputElement).value.trim();
-    if (!/^component_[0-9a-f]{16,}$/i.test(toAddress)) {
-      showStatus("Enter a valid recipient component address (component_…).", "err");
+    // A component address is `component_` + 64 hex chars (a 32-byte hash) — exact length, not
+    // just "looks hex-ish", so a truncated or mistyped address is caught here with a clear message
+    // instead of surfacing as a much more confusing on-chain rejection later.
+    if (!/^component_[0-9a-f]{64}$/i.test(toAddress)) {
+      showStatus("Enter a valid recipient component address (component_ + 64 hex characters).", "err");
       return;
     }
     let raw: bigint;
@@ -659,11 +673,36 @@ function renderDaemonConnections(status: WalletStatus) {
 // Connect daemon wallet (the "hardware wallet" flow — connect, then pick accounts to add)
 // ---------------------------------------------------------------------------
 
+/** The daemon's JSON-RPC endpoint is conventionally at this fixed sub-path — confirmed empirically
+ * that posting to the bare base URL instead serves the daemon's own web UI HTML and silently fails
+ * every RPC call. Appending it when a user's URL is missing it turns that footgun into a no-op. */
+const DAEMON_JSON_RPC_SUFFIX = "/json_rpc";
+
+/** Parses and normalizes a user-entered daemon URL, appending the JSON-RPC suffix if missing.
+ * Throws with a clear message for anything that isn't a plain http(s) URL. */
+function normalizeDaemonUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) throw new Error("Enter the daemon's URL.");
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("Enter a valid URL, e.g. http://127.0.0.1:5100.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("The daemon URL must start with http:// or https://.");
+  }
+  const normalized = parsed.toString().replace(/\/$/, "");
+  return normalized.endsWith(DAEMON_JSON_RPC_SUFFIX) ? normalized : `${normalized}${DAEMON_JSON_RPC_SUFFIX}`;
+}
+
+const MAX_DAEMON_LABEL_LENGTH = 60;
+
 function renderConnectDaemon(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
-  const urlInput = h("input", { type: "text", id: "url", placeholder: "http://127.0.0.1:18103" });
-  const tokenInput = h("input", { type: "text", id: "token", placeholder: "Leave blank to auto-authenticate" });
-  const labelInput = h("input", { type: "text", id: "label", placeholder: "e.g. Local walletd" });
+  const urlInput = h("input", { type: "text", id: "url", placeholder: "http://127.0.0.1:5100", maxlength: "512" });
+  const tokenInput = h("input", { type: "text", id: "token", placeholder: "Leave blank to auto-authenticate", maxlength: "4096" });
+  const labelInput = h("input", { type: "text", id: "label", placeholder: "e.g. Local walletd", maxlength: String(MAX_DAEMON_LABEL_LENGTH) });
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
   const connectBtn = h("button", { class: "primary", id: "connect" }, ["Connect"]);
 
@@ -691,10 +730,17 @@ function renderConnectDaemon(status: WalletStatus) {
   };
 
   connectBtn.addEventListener("click", async () => {
-    const url = (urlInput as HTMLInputElement).value.trim();
-    if (!url) return showStatus("Enter the daemon's URL.", "err");
+    let url: string;
+    try {
+      url = normalizeDaemonUrl((urlInput as HTMLInputElement).value);
+    } catch (e) {
+      return showStatus(e instanceof Error ? e.message : String(e), "err");
+    }
     const authToken = (tokenInput as HTMLInputElement).value.trim() || undefined;
     const label = (labelInput as HTMLInputElement).value.trim() || url;
+    if (label.length > MAX_DAEMON_LABEL_LENGTH) {
+      return showStatus(`Label must be ${MAX_DAEMON_LABEL_LENGTH} characters or fewer.`, "err");
+    }
 
     connectBtn.setAttribute("disabled", "true");
     showStatus("Connecting…", "ok");
@@ -775,7 +821,7 @@ function renderRevealMnemonic() {
     h("h1", {}, ["Reveal recovery phrase"]),
     h("p", { class: "muted" }, ["Enter your password to display your 24-word recovery phrase."]),
     h("label", {}, ["Password"]),
-    h("input", { type: "password", id: "pw" }),
+    h("input", { type: "password", id: "pw", maxlength: "256" }),
     statusEl,
     h("div", { class: "row" }, [
       h("button", { class: "secondary", id: "cancel" }, ["Cancel"]),
