@@ -69,7 +69,21 @@ export class OotleAccount implements WalletAccountApi {
 
   async getProvider(): Promise<IndexerProvider> {
     if (!this.provider) {
-      this.provider = await IndexerProvider.connect({ url: defaultIndexerUrl(this.network), network: this.network });
+      // Nothing has run yet at this point, so any failure here is by definition a connectivity
+      // problem (unlike execute()'s later errors, which are meaningful on-chain rejections this
+      // class deliberately leaves unwrapped) — mirrors the same "unreachable" framing
+      // DaemonAccount.connectClient() uses for the equivalent first-contact step.
+      const url = defaultIndexerUrl(this.network);
+      try {
+        this.provider = await withTimeout(
+          IndexerProvider.connect({ url, network: this.network }),
+          15_000,
+          "connecting to the Tari indexer"
+        );
+      } catch (e) {
+        const details = e instanceof Error ? e.message : String(e);
+        throw new Error(`Could not reach the Tari indexer at ${url}. (${details})`);
+      }
     }
     return this.provider;
   }
@@ -108,8 +122,14 @@ export class OotleAccount implements WalletAccountApi {
     let vaultIds: string[];
     try {
       vaultIds = await withTimeout(getVaultIdsForAccount(provider, account), 15_000, "looking up this account's vaults");
-    } catch {
-      return []; // account not yet on-chain (never funded), or the lookup timed out
+    } catch (e) {
+      // A real timeout here (the indexer connection above already succeeded, so this specifically
+      // means it's up but slow/overloaded) must not look identical to "this account genuinely has
+      // no vaults yet" — silently mapping both to an empty balance list would show a brand-new
+      // account and a degraded-indexer account the exact same way, with no indication anything's
+      // actually wrong in the latter case.
+      if (e instanceof Error && e.message.startsWith("Timed out")) throw e;
+      return []; // account not yet on-chain (never funded)
     }
     if (vaultIds.length === 0) return [];
 
