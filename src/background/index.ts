@@ -330,10 +330,10 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
 
     case "popup-connect-daemon": {
       const id = crypto.randomUUID();
-      // Validates connectivity/auth up front so a bad URL or token fails here, in the "connect"
-      // step, rather than silently later on the first real account operation.
-      const client = await DaemonAccount.connectClient(message.url, message.authToken);
-      await addDaemonConnection({ id, url: message.url, authToken: client.getToken() ?? message.authToken ?? "", label: message.label });
+      // Validates connectivity/the API key up front so a bad URL or key fails here, in the
+      // "connect" step, rather than silently later on the first real account operation.
+      const client = await DaemonAccount.connectClient(message.url, message.apiKey);
+      await addDaemonConnection({ id, url: message.url, apiKey: message.apiKey, label: message.label });
       const accounts = await DaemonAccount.listAccounts(client, message.url);
       const options: DaemonAccountOption[] = accounts.map((a) => ({
         componentAddress: a.component_address,

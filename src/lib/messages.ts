@@ -77,7 +77,7 @@ export type PopupRequest =
   | { kind: "popup-get-pending-approval"; approvalId: string }
   | { kind: "popup-resolve-approval"; approvalId: string; approve: boolean }
   | { kind: "popup-reset-wallet" }
-  | { kind: "popup-connect-daemon"; url: string; authToken?: string; label: string }
+  | { kind: "popup-connect-daemon"; url: string; apiKey: string; label: string }
   | { kind: "popup-list-daemon-accounts"; connectionId: string }
   | { kind: "popup-add-daemon-accounts"; connectionId: string; accounts: { componentAddress: string; label: string }[] }
   | { kind: "popup-remove-daemon-connection"; connectionId: string }

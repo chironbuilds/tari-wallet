@@ -10,7 +10,7 @@ import { WalletDaemonClient } from "@tari-project/ootle-wallet-daemon-signer";
 import type { WalletAccountApi } from "../lib/accountApi";
 import { DaemonAccount } from "../lib/daemonAccount";
 import { OotleAccount } from "../lib/wallet";
-import { type AccountId, getState, parseAccountId, updateDaemonConnectionToken } from "../lib/storage";
+import { type AccountId, getState, parseAccountId } from "../lib/storage";
 import { getUnlockedSeed } from "./session";
 
 // Cache account instances (they hold a live network connection) so repeated calls within one
@@ -51,8 +51,8 @@ function getLocalAccount(seed: Uint8Array, network: "esmeralda" | "igor", index:
 }
 
 /** Returns the cached authenticated client (and its URL) for a connection, or connects fresh using
- * its stored auth token. Kept separate from `getDaemonAccount` so the "connect + list accounts"
- * flow (before any account has been added yet) can reuse the exact same cached client. */
+ * its stored API key. Kept separate from `getDaemonAccount` so the "connect + list accounts" flow
+ * (before any account has been added yet) can reuse the exact same cached client. */
 export async function getDaemonClient(connectionId: string): Promise<{ client: WalletDaemonClient; url: string }> {
   const { daemonConnections } = await getState();
   const config = daemonConnections.find((c) => c.id === connectionId);
@@ -61,14 +61,7 @@ export async function getDaemonClient(connectionId: string): Promise<{ client: W
   const cached = daemonClientCache.get(connectionId);
   if (cached) return { client: cached, url: config.url };
 
-  const client = await DaemonAccount.connectClient(config.url, config.authToken);
-  // connectClient() silently re-authenticates when the stored token turns out to be expired —
-  // persist whatever it ended up with so the next connection (e.g. after a service worker
-  // restart) doesn't repeat that same expired-token round trip.
-  const currentToken = client.getToken();
-  if (currentToken && currentToken !== config.authToken) {
-    await updateDaemonConnectionToken(connectionId, currentToken);
-  }
+  const client = await DaemonAccount.connectClient(config.url, config.apiKey);
   daemonClientCache.set(connectionId, client);
   return { client, url: config.url };
 }

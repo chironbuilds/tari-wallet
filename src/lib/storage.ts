@@ -9,13 +9,18 @@ export interface ConnectedSite {
   connectedAt: number;
 }
 
-/** A daemon this extension has connected to as a JRPC client — the "hardware wallet" analog of a
- * seed. The auth token is persisted (not just kept in memory) so re-unlocking the extension doesn't
- * force the user through WebAuthn again every time; see `DaemonAccount`. */
+/**
+ * A daemon this extension has connected to as a JRPC client — the "hardware wallet" analog of a
+ * seed. Authenticated with a long-lived **API key** the user mints from the daemon's own web UI
+ * (which has a real browser session there), not a session token this extension logs into itself —
+ * confirmed with the tari-ootle maintainers that a `chrome-extension://` origin can't hold a
+ * daemon browser session at all (session refresh needs an HttpOnly cookie this origin never gets;
+ * WebAuthn's RP origin is locked to `http://localhost:{port}` regardless). See `DaemonAccount`.
+ */
 export interface DaemonConnectionConfig {
   id: string;
   url: string;
-  authToken: string;
+  apiKey: string;
   label: string;
 }
 
@@ -118,15 +123,6 @@ export async function removeDaemonConnection(id: string): Promise<void> {
   await setState({
     daemonConnections: state.daemonConnections.filter((c) => c.id !== id),
     daemonAccounts: state.daemonAccounts.filter((a) => a.connectionId !== id),
-  });
-}
-
-/** Persists a token `connectClient()` obtained by re-authenticating a stale stored one, so the
- * next connection doesn't repeat the same expired-token round trip. */
-export async function updateDaemonConnectionToken(id: string, authToken: string): Promise<void> {
-  const state = await getState();
-  await setState({
-    daemonConnections: state.daemonConnections.map((c) => (c.id === id ? { ...c, authToken } : c)),
   });
 }
 

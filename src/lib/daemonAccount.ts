@@ -1,6 +1,6 @@
 import { Network, TransactionBuilder, amountLiteral, defaultIndexerUrl, resolveTransaction, resourceAddressLiteral } from "@tari-project/ootle";
 import { IndexerProvider } from "@tari-project/ootle-indexer";
-import { WalletDaemonClient, authenticate } from "@tari-project/ootle-wallet-daemon-signer";
+import { WalletDaemonClient } from "@tari-project/ootle-wallet-daemon-signer";
 import type {
   Account,
   IndexerGetTransactionResultResponse,
@@ -80,47 +80,39 @@ export class DaemonAccount implements WalletAccountApi {
   }
 
   /**
-   * Connects to a running wallet daemon and authenticates, mirroring `WalletDaemonSigner.connect()`
-   * (that class isn't used directly here — relay mode calls the daemon's own account/balance/submit
-   * JRPC methods rather than composing this extension's `TransactionBuilder` with a swapped-in
-   * `Signer`, sidestepping an unverified `seal_public_key` handling path that class's own doc
-   * comment flags as untested against a real daemon).
+   * Connects to a running wallet daemon using a long-lived **API key**, not a browser session.
    *
-   * A stored `authToken` from a previous session can itself have expired — `WalletDaemonClient`
-   * already retries once via `auth.refresh` on a 401 internally, but if the refresh grant has
-   * *also* expired (confirmed empirically: "RPC Error 401: Access denied. Expired token" surfacing
-   * on a real call after the daemon had been running for hours), that self-healing gives up and the
-   * stored token is simply dead. Falling back to a fresh `authenticate()` call here means a stale
-   * persisted token degrades to "reconnect silently" instead of "this connection is now permanently
-   * broken until the user removes and re-adds it."
-   *
-   * The validity check below deliberately calls `accountsList` rather than `walletGetInfo` —
-   * confirmed empirically that `wallet.get_info` doesn't require authentication at all (it happily
-   * answers with a garbage token), so it can't detect an expired one; `accounts.list` does.
+   * This deliberately does *not* attempt `auth.request`/WebAuthn/`auth.refresh` session login —
+   * confirmed with the tari-ootle maintainers (see the PR this replaced:
+   * github.com/tari-project/tari-ootle/pull/2375) that `auth.refresh` reads an HttpOnly,
+   * SameSite=Strict session cookie set on browser login, which a `chrome-extension://` origin
+   * cannot ever hold — by design, not a bug. WebAuthn (the daemon's actual default auth method,
+   * not `none`) additionally locks its RP origin to `http://localhost:{json_rpc_port}`, which a
+   * Chrome extension page is never running on either way. Neither session-auth path can work from
+   * here, full stop — an API key (minted from the daemon's own web UI, which *does* have a real
+   * Admin browser session) is the supported way for an external client like this extension to
+   * authenticate, and needs no refresh at all.
    */
-  static async connectClient(url: string, authToken?: string): Promise<WalletDaemonClient> {
-    const client = WalletDaemonClient.usingFetchTransport(url);
-    client.setReauthenticationEnabled(true);
-    if (authToken) {
-      client.setToken(authToken);
-      try {
-        await withTimeout(client.accountsList({ offset: 0, limit: 1 }), DAEMON_TIMEOUT_MS, "checking the stored connection");
-        return client;
-      } catch (e) {
-        // An unreachable daemon fails the fresh-auth attempt below identically — surface the clear
-        // error immediately instead of waiting through a second doomed timeout for the same reason.
-        if (isDaemonUnreachable(e)) {
-          const details = e instanceof Error ? e.message : String(e);
-          throw new Error(`Could not reach the daemon at ${url} — make sure tari_ootle_walletd is running. (${details})`);
-        }
-        // Otherwise this was a real (auth-shaped) rejection — fall through to a fresh authentication.
-      }
+  static async connectClient(url: string, apiKey: string): Promise<WalletDaemonClient> {
+    if (!apiKey) {
+      throw new Error(
+        "This daemon needs an API key. Mint one from the daemon's own web UI (requires an Admin login there), then paste it in here."
+      );
     }
-    const token = await daemonCall(url, authenticate(client), "authenticating with the daemon");
-    client.setToken(token);
-    // Cheap connectivity check — throws immediately with a clear network-level error if the URL is
-    // wrong or nothing is listening, rather than surfacing a confusing failure on the first real call.
-    await daemonCall(url, client.walletGetInfo(), "connecting to the daemon");
+    const client = WalletDaemonClient.usingFetchTransport(url);
+    client.setReauthenticationEnabled(false);
+    client.setToken(apiKey);
+    try {
+      // `accounts.list` (not `wallet.get_info`, which doesn't require auth at all — confirmed
+      // empirically it answers fine with a garbage token) doubles as both the connectivity check
+      // and the "is this API key actually valid" check in one round trip.
+      await daemonCall(url, client.accountsList({ offset: 0, limit: 1 }), "connecting to the daemon");
+    } catch (e) {
+      if (!isDaemonUnreachable(e)) {
+        throw new Error(`This API key was rejected by the daemon — it may be wrong, expired, or revoked. Mint a new one and try again. (${e instanceof Error ? e.message : String(e)})`);
+      }
+      throw e;
+    }
     return client;
   }
 

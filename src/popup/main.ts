@@ -646,7 +646,7 @@ function renderDaemonConnections(status: WalletStatus) {
 function renderConnectDaemon(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
   const urlInput = h("input", { type: "text", id: "url", placeholder: "http://127.0.0.1:5100", maxlength: "512" });
-  const tokenInput = h("input", { type: "text", id: "token", placeholder: "Leave blank to auto-authenticate", maxlength: "4096" });
+  const keyInput = h("input", { type: "password", id: "apiKey", placeholder: "Paste the API key here", maxlength: "4096" });
   const labelInput = h("input", { type: "text", id: "label", placeholder: "e.g. Local walletd", maxlength: String(MAX_DAEMON_LABEL_LENGTH) });
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
   const connectBtn = h("button", { class: "primary", id: "connect" }, ["Connect"]);
@@ -656,10 +656,17 @@ function renderConnectDaemon(status: WalletStatus) {
     h("p", { class: "muted" }, [
       "Connect to a running tari_ootle_walletd — this extension will relay reads and transactions to it instead of signing locally, like a hardware wallet.",
     ]),
+    h("p", { class: "muted" }, [
+      "This extension can't log into the daemon's own browser session (WebAuthn is locked to the ",
+      "daemon's own localhost origin, and a browser extension can never hold that session's cookie ",
+      "either way) — mint an ",
+      h("b", {}, ["API key"]),
+      " from the daemon's web UI instead (requires an Admin login there once) and paste it below.",
+    ]),
     h("label", {}, ["Daemon URL"]),
     urlInput,
-    h("label", {}, ["Auth token"]),
-    tokenInput,
+    h("label", {}, ["API key"]),
+    keyInput,
     h("label", {}, ["Label"]),
     labelInput,
     statusEl,
@@ -681,7 +688,8 @@ function renderConnectDaemon(status: WalletStatus) {
     } catch (e) {
       return showStatus(e instanceof Error ? e.message : String(e), "err");
     }
-    const authToken = (tokenInput as HTMLInputElement).value.trim() || undefined;
+    const apiKey = (keyInput as HTMLInputElement).value.trim();
+    if (!apiKey) return showStatus("Paste the API key you minted from the daemon's web UI.", "err");
     const label = (labelInput as HTMLInputElement).value.trim() || url;
     if (label.length > MAX_DAEMON_LABEL_LENGTH) {
       return showStatus(`Label must be ${MAX_DAEMON_LABEL_LENGTH} characters or fewer.`, "err");
@@ -693,7 +701,7 @@ function renderConnectDaemon(status: WalletStatus) {
       const result = await send<{ connectionId: string; accounts: DaemonAccountOption[] }>({
         kind: "popup-connect-daemon",
         url,
-        authToken,
+        apiKey,
         label,
       });
       renderDaemonAccountPicker(status, result.connectionId, result.accounts);

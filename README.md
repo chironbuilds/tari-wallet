@@ -116,11 +116,26 @@ codebase, and worth knowing about if you extend this class.
 
 Local (seed-derived) and daemon-relayed accounts coexist in the same wallet, switchable from the
 same account list — Settings → "+ Connect daemon wallet", or straight from the account switcher.
-Connecting asks for the daemon's URL (`http://127.0.0.1:18103`-style) and an auth token (leave
-blank to auto-authenticate via the daemon's configured method — `none` or WebAuthn, both handled by
-`@tari-project/ootle-wallet-daemon-signer`'s `authenticate()` helper), then lists that daemon's
-accounts so you pick which ones to add — the same "connect, then choose accounts to import" shape
-as a hardware-wallet flow.
+Connecting asks for the daemon's URL (`http://127.0.0.1:5100`-style) and an **API key**, then lists
+that daemon's accounts so you pick which ones to add — the same "connect, then choose accounts to
+import" shape as a hardware-wallet flow.
+
+**Why an API key, not a login.** The first version of this connected via the daemon's normal
+session flow (`auth.request` + silent `auth.refresh`) — this was wrong, and broke as soon as a
+token actually expired. Per the tari-ootle maintainers (confirmed in review of the fix this section
+used to describe, [PR #2375](https://github.com/tari-project/tari-ootle/pull/2375)):
+`auth.refresh` reads an HttpOnly, `SameSite=Strict` session cookie set on browser login — a
+`chrome-extension://` origin can never hold that cookie, by design, not a bug. WebAuthn (the
+daemon's actual default auth method — this project's earlier testing only worked because the local
+test daemon was deliberately misconfigured with `authentication=none`) locks its RP origin to
+`http://localhost:{json_rpc_port}` regardless, which a Chrome extension page never runs on either
+way. Neither session-auth path can work from here, full stop. The supported way for an external
+client like this extension to authenticate is a long-lived **API key**, minted once from the
+daemon's own web UI (which *does* have a real Admin browser session) and pasted into the connect
+screen here — no refresh needed, ever, since it isn't a session token. Verified end-to-end against
+a live daemon: minted a real API key, connected with it exclusively (no session at all), listed
+accounts, read balances, and confirmed an invalid key gets rejected with a clear message rather
+than a raw RPC error.
 
 A daemon-relayed account (`src/lib/daemonAccount.ts`, `DaemonAccount`) never signs or derives
 anything client-side — the daemon holds the real key material. Two consequences that make this a
