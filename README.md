@@ -145,6 +145,28 @@ closes the instant it loses focus, the URL/label fields (not the API key itself)
 `chrome.storage.session` on every keystroke and restored the next time this screen renders, so
 going to mint a key and coming back doesn't lose what was already typed.
 
+**Expiry, revocation, and insufficient permissions are all handled explicitly**, not just left to
+surface as raw RPC errors:
+
+- `connectClient()` requires the key to carry the **`admin`** permission, checked *at connect time*
+  — confirmed empirically that this wallet's own daemon-relayed "Claim testnet XTR" feature
+  (`accounts.create_free_test_coins`) hard-rejects a narrower key with "Insufficient permissions.
+  Required 'Admin'" verbatim, not a finer per-resource grant, so nothing less will do. There's no
+  direct "what does this key grant" introspection available to API-key auth at all —
+  `auth.list_api_keys` explicitly refuses it ("requires an interactive user session, not an API
+  key") — so the check instead probes `settings.get`: a harmless read nothing else in this wallet
+  ever calls, gated on `Settings(Read)` specifically, which only an admin-scoped key would satisfy
+  in practice.
+- Every daemon call distinguishes **expired/invalid/revoked** from **insufficient permission** —
+  confirmed empirically that the daemon reports both as the *same* 401, distinguishable only by
+  message text (`"Access denied. ..."` vs `"Insufficient permissions. Required '...'"`) — and
+  rewrites each into an actionable message pointing at the right fix (mint a fresh key vs. mint one
+  with broader permissions), instead of a raw `RPC Error 401: ...` either way.
+- Verified all of this against a live daemon: an admin key connects cleanly, a narrowly-scoped key
+  is rejected at connect time with the permission message, and both a garbage key and a freshly
+  revoked (formerly valid) key are correctly classified as expired/invalid rather than a permission
+  problem.
+
 A daemon-relayed account (`src/lib/daemonAccount.ts`, `DaemonAccount`) never signs or derives
 anything client-side — the daemon holds the real key material. Two consequences that make this a
 genuinely different code path from `OotleAccount`, not just a swapped-in signer:

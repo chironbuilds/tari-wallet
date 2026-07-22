@@ -36,9 +36,27 @@ export function isDaemonUnreachable(e: unknown): boolean {
   return !(e.cause && typeof e.cause === "object" && "method" in e.cause && "code" in e.cause);
 }
 
+/**
+ * The daemon rejects both "this API key is invalid/expired/revoked" and "this API key lacks the
+ * permission this call needed" as the *same* HTTP-ish code (401) — confirmed empirically against a
+ * live daemon; there's no 403 involved at all. The only way to tell them apart is the message text:
+ * "Access denied. ..." for the former, "Insufficient permissions. Required '...'" for the latter.
+ * Distinguishing them matters because the fix is different — a dead key needs a fresh one, a live
+ * key with too-narrow a scope needs one minted with more permissions.
+ */
+export function classifyAuthRejection(e: unknown): "expired-or-invalid" | "insufficient-permission" | null {
+  if (!(e instanceof Error) || !e.cause || typeof e.cause !== "object" || !("code" in e.cause) || e.cause.code !== 401) {
+    return null;
+  }
+  const message = "message" in e.cause ? String(e.cause.message) : "";
+  if (/insufficient permission/i.test(message)) return "insufficient-permission";
+  return "expired-or-invalid";
+}
+
 /** Runs a daemon call with a bounded timeout and rewrites an unreachable-daemon failure (dead
- * connection or a hang past the timeout — indistinguishable from the user's point of view) into an
- * actionable message, instead of a raw "Failed to fetch" or "Timed out after ...". */
+ * connection or a hang past the timeout — indistinguishable from the user's point of view) or an
+ * auth-shaped rejection (see `classifyAuthRejection`) into an actionable message, instead of a raw
+ * "Failed to fetch" or "RPC Error 401: ...". */
 async function daemonCall<T>(url: string, promise: Promise<T>, label: string, timeoutMs = DAEMON_TIMEOUT_MS): Promise<T> {
   try {
     return await withTimeout(promise, timeoutMs, label);
@@ -46,6 +64,18 @@ async function daemonCall<T>(url: string, promise: Promise<T>, label: string, ti
     if (isDaemonUnreachable(e)) {
       const details = e instanceof Error ? e.message : String(e);
       throw new Error(`Could not reach the daemon at ${url} — make sure tari_ootle_walletd is running. (${details})`);
+    }
+    const details = e instanceof Error ? e.message : String(e);
+    const authKind = classifyAuthRejection(e);
+    if (authKind === "insufficient-permission") {
+      throw new Error(
+        `This daemon's API key doesn't have enough permission (needed while ${label}). Mint a new key with the "admin" permission from the daemon's web UI and reconnect. (${details})`
+      );
+    }
+    if (authKind === "expired-or-invalid") {
+      throw new Error(
+        `This daemon's API key was rejected while ${label} — it may have expired or been revoked. Reconnect this daemon with a fresh API key (Settings → Daemon connections). (${details})`
+      );
     }
     throw e;
   }
@@ -102,17 +132,24 @@ export class DaemonAccount implements WalletAccountApi {
     const client = WalletDaemonClient.usingFetchTransport(url);
     client.setReauthenticationEnabled(false);
     client.setToken(apiKey);
-    try {
-      // `accounts.list` (not `wallet.get_info`, which doesn't require auth at all — confirmed
-      // empirically it answers fine with a garbage token) doubles as both the connectivity check
-      // and the "is this API key actually valid" check in one round trip.
-      await daemonCall(url, client.accountsList({ offset: 0, limit: 1 }), "connecting to the daemon");
-    } catch (e) {
-      if (!isDaemonUnreachable(e)) {
-        throw new Error(`This API key was rejected by the daemon — it may be wrong, expired, or revoked. Mint a new one and try again. (${e instanceof Error ? e.message : String(e)})`);
-      }
-      throw e;
-    }
+    // `accounts.list` (not `wallet.get_info`, which doesn't require auth at all — confirmed
+    // empirically it answers fine with a garbage token) doubles as both the connectivity check and
+    // the "is this API key even valid" check in one round trip. `daemonCall`'s own auth-rejection
+    // classification already turns a dead/wrong key into a clear message from here.
+    await daemonCall(url, client.accountsList({ offset: 0, limit: 1 }), "connecting to the daemon");
+
+    // This wallet needs Admin specifically, not just read access — confirmed empirically that
+    // accounts.create_free_test_coins (the daemon-relayed "Claim testnet XTR" feature) rejects a
+    // narrowly-scoped key with "Insufficient permissions. Required 'Admin'" verbatim, not a finer
+    // per-resource grant, and transaction submission needs write access this class has no way to
+    // probe more surgically. There's no direct "what does this key grant" introspection available
+    // to API-key auth — auth.list_api_keys explicitly refuses it ("requires an interactive user
+    // session, not an API key") — so this probes settings.get instead: a harmless read nothing else
+    // in this class ever calls, gated on Settings(Read) specifically. No legitimately-scoped
+    // wallet-purpose key would have a reason to carry that permission on its own, so requiring it
+    // succeed is a reliable proxy for "this key was minted with admin" in practice, even though it
+    // isn't a direct proof of it.
+    await daemonCall(url, client.settingsGet(), "verifying this API key has admin permissions");
     return client;
   }
 

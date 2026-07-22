@@ -1,6 +1,44 @@
 import { describe, expect, it } from "vitest";
-import { isDaemonUnreachable, throwOnRejection, toIndexerResultShape } from "./daemonAccount";
+import { classifyAuthRejection, isDaemonUnreachable, throwOnRejection, toIndexerResultShape } from "./daemonAccount";
 import type { IndexerGetTransactionResultResponse, TransactionWaitResultResponse } from "@tari-project/ootle-ts-bindings";
+
+function rpcError(code: number, message: string, method = "some.method"): Error {
+  return new Error(`RPC Error ${code}: ${message}`, { cause: { method, code, message } });
+}
+
+describe("classifyAuthRejection", () => {
+  it("classifies an insufficient-permission message (confirmed against a live daemon)", () => {
+    expect(classifyAuthRejection(rpcError(401, "Insufficient permissions. Required 'Admin'"))).toBe("insufficient-permission");
+  });
+
+  it("classifies an insufficient-permission message for a scoped resource permission", () => {
+    expect(classifyAuthRejection(rpcError(401, "Insufficient permissions. Required 'Settings(Read)'"))).toBe("insufficient-permission");
+  });
+
+  it("classifies an 'Access denied' message as expired-or-invalid", () => {
+    expect(classifyAuthRejection(rpcError(401, "Access denied. Invalid bearer token"))).toBe("expired-or-invalid");
+  });
+
+  it("classifies a revoked-key message as expired-or-invalid", () => {
+    expect(classifyAuthRejection(rpcError(401, "Access denied. API key is invalid or revoked"))).toBe("expired-or-invalid");
+  });
+
+  it("is case-insensitive about the 'insufficient permission' phrasing", () => {
+    expect(classifyAuthRejection(rpcError(401, "INSUFFICIENT PERMISSIONS. Required 'Admin'"))).toBe("insufficient-permission");
+  });
+
+  it("returns null for a non-401 RPC error", () => {
+    expect(classifyAuthRejection(rpcError(500, "Internal server error"))).toBeNull();
+  });
+
+  it("returns null for an unreachable-daemon-shaped error (no method/code cause)", () => {
+    expect(classifyAuthRejection(new TypeError("Failed to fetch"))).toBeNull();
+  });
+
+  it("returns null for a non-Error value", () => {
+    expect(classifyAuthRejection("some string")).toBeNull();
+  });
+});
 
 describe("isDaemonUnreachable", () => {
   it("treats a bare TypeError (browser fetch failure) as unreachable", () => {
