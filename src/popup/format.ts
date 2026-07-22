@@ -78,6 +78,28 @@ export function normalizeDaemonUrl(input: string): string {
   return normalized.endsWith(DAEMON_JSON_RPC_SUFFIX) ? normalized : `${normalized}${DAEMON_JSON_RPC_SUFFIX}`;
 }
 
+/**
+ * The daemon's own web UI ("Tari Asset Vault") serves its API key management page at this fixed
+ * client-side route, confirmed to also work as a direct deep link (the server does SPA-fallback
+ * routing for it, not just in-app navigation) — so this extension can open it straight to the
+ * right screen instead of dropping the user on the homepage to go find it themselves. Tolerant of
+ * a not-yet-valid or empty URL input (the user may not have finished typing it yet), falling back
+ * to the same default the connect form's own placeholder suggests.
+ */
+export function deriveWebUiApiKeysUrl(input: string): string {
+  const trimmed = input.trim();
+  let origin = "http://127.0.0.1:5100";
+  if (trimmed) {
+    try {
+      origin = new URL(trimmed).origin;
+    } catch {
+      // Not a valid URL yet — fall back to the default rather than failing; this button is a
+      // convenience, not a validated form field.
+    }
+  }
+  return `${origin}/api-keys`;
+}
+
 export const MAX_DAEMON_LABEL_LENGTH = 60;
 
 /** A component address is `component_` + 64 hex chars (a 32-byte hash) — exact length, not just

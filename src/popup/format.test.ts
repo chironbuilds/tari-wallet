@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   TARI_RESOURCE_ADDRESS,
+  deriveWebUiApiKeysUrl,
   formatBalanceAmount,
   isValidComponentAddress,
   normalizeDaemonUrl,
@@ -108,6 +109,28 @@ describe("normalizeDaemonUrl", () => {
 
   it("rejects an empty string", () => {
     expect(() => normalizeDaemonUrl("")).toThrow("Enter the daemon's URL.");
+  });
+});
+
+describe("deriveWebUiApiKeysUrl", () => {
+  it("points at the /api-keys route on the same origin", () => {
+    expect(deriveWebUiApiKeysUrl("http://127.0.0.1:5100")).toBe("http://127.0.0.1:5100/api-keys");
+  });
+
+  it("strips a /json_rpc suffix down to the origin", () => {
+    expect(deriveWebUiApiKeysUrl("http://127.0.0.1:5100/json_rpc")).toBe("http://127.0.0.1:5100/api-keys");
+  });
+
+  it("falls back to the default daemon URL when the input is empty", () => {
+    expect(deriveWebUiApiKeysUrl("")).toBe("http://127.0.0.1:5100/api-keys");
+  });
+
+  it("falls back to the default daemon URL when the input isn't a valid URL yet", () => {
+    expect(deriveWebUiApiKeysUrl("still typin")).toBe("http://127.0.0.1:5100/api-keys");
+  });
+
+  it("respects a custom host/port", () => {
+    expect(deriveWebUiApiKeysUrl("https://example.com:8443")).toBe("https://example.com:8443/api-keys");
   });
 });
 

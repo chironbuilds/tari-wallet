@@ -137,6 +137,14 @@ a live daemon: minted a real API key, connected with it exclusively (no session 
 accounts, read balances, and confirmed an invalid key gets rejected with a clear message rather
 than a raw RPC error.
 
+The connect screen has an **"Open API Keys page ↗"** button that opens the daemon's own web UI
+("Tari Asset Vault") directly to `/api-keys` in a new tab — confirmed that route works as a direct
+deep link, not just in-app client-side navigation, so this doesn't just dump the user on the
+homepage to go find it themselves. Since opening a new tab steals focus and an extension popup
+closes the instant it loses focus, the URL/label fields (not the API key itself) are drafted to
+`chrome.storage.session` on every keystroke and restored the next time this screen renders, so
+going to mint a key and coming back doesn't lose what was already typed.
+
 A daemon-relayed account (`src/lib/daemonAccount.ts`, `DaemonAccount`) never signs or derives
 anything client-side — the daemon holds the real key material. Two consequences that make this a
 genuinely different code path from `OotleAccount`, not just a swapped-in signer:

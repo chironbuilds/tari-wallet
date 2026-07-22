@@ -5,6 +5,7 @@ import {
   type Balance,
   MAX_DAEMON_LABEL_LENGTH,
   TARI_RESOURCE_ADDRESS,
+  deriveWebUiApiKeysUrl,
   formatBalanceAmount,
   isValidComponentAddress,
   normalizeDaemonUrl,
@@ -643,12 +644,42 @@ function renderDaemonConnections(status: WalletStatus) {
 // Connect daemon wallet (the "hardware wallet" flow — connect, then pick accounts to add)
 // ---------------------------------------------------------------------------
 
-function renderConnectDaemon(status: WalletStatus) {
+// Opening the daemon's web UI in a new tab (see below) steals focus, and an extension popup closes
+// the instant it loses focus — so whatever the user already typed here would otherwise vanish the
+// moment they go mint their API key, the exact point of the button that sends them there. Not the
+// API key itself (that's sensitive and short-lived to copy-paste in one sitting); just the two
+// fields that are annoying to retype. chrome.storage.session (not .local) so this never persists
+// past a full browser restart.
+const DAEMON_DRAFT_KEY = "daemonConnectDraft";
+
+async function loadDaemonConnectDraft(): Promise<{ url: string; label: string }> {
+  const stored = await chrome.storage.session.get(DAEMON_DRAFT_KEY);
+  return (stored[DAEMON_DRAFT_KEY] as { url: string; label: string } | undefined) ?? { url: "", label: "" };
+}
+
+function saveDaemonConnectDraft(draft: { url: string; label: string }): void {
+  void chrome.storage.session.set({ [DAEMON_DRAFT_KEY]: draft });
+}
+
+function clearDaemonConnectDraft(): void {
+  void chrome.storage.session.remove(DAEMON_DRAFT_KEY);
+}
+
+async function renderConnectDaemon(status: WalletStatus) {
+  const draft = await loadDaemonConnectDraft();
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
-  const urlInput = h("input", { type: "text", id: "url", placeholder: "http://127.0.0.1:5100", maxlength: "512" });
+  const urlInput = h("input", { type: "text", id: "url", placeholder: "http://127.0.0.1:5100", maxlength: "512" }) as HTMLInputElement;
+  urlInput.value = draft.url;
   const keyInput = h("input", { type: "password", id: "apiKey", placeholder: "Paste the API key here", maxlength: "4096" });
-  const labelInput = h("input", { type: "text", id: "label", placeholder: "e.g. Local walletd", maxlength: String(MAX_DAEMON_LABEL_LENGTH) });
+  const labelInput = h("input", {
+    type: "text",
+    id: "label",
+    placeholder: "e.g. Local walletd",
+    maxlength: String(MAX_DAEMON_LABEL_LENGTH),
+  }) as HTMLInputElement;
+  labelInput.value = draft.label;
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
+  const openWebUiBtn = h("button", { class: "secondary", id: "openWebUi", style: "margin-top:8px" }, ["Open API Keys page ↗"]);
   const connectBtn = h("button", { class: "primary", id: "connect" }, ["Connect"]);
 
   render(
@@ -665,6 +696,7 @@ function renderConnectDaemon(status: WalletStatus) {
     ]),
     h("label", {}, ["Daemon URL"]),
     urlInput,
+    openWebUiBtn,
     h("label", {}, ["API key"]),
     keyInput,
     h("label", {}, ["Label"]),
@@ -675,6 +707,15 @@ function renderConnectDaemon(status: WalletStatus) {
   );
   document.getElementById("back")!.addEventListener("click", () => renderAccountSwitcher(status));
 
+  const saveDraft = () => saveDaemonConnectDraft({ url: urlInput.value, label: labelInput.value });
+  urlInput.addEventListener("input", saveDraft);
+  labelInput.addEventListener("input", saveDraft);
+
+  openWebUiBtn.addEventListener("click", () => {
+    saveDraft();
+    window.open(deriveWebUiApiKeysUrl(urlInput.value), "_blank");
+  });
+
   const showStatus = (msg: string, cls: "err" | "ok") => {
     statusEl.style.display = "block";
     statusEl.className = `status ${cls}`;
@@ -684,13 +725,13 @@ function renderConnectDaemon(status: WalletStatus) {
   connectBtn.addEventListener("click", async () => {
     let url: string;
     try {
-      url = normalizeDaemonUrl((urlInput as HTMLInputElement).value);
+      url = normalizeDaemonUrl(urlInput.value);
     } catch (e) {
       return showStatus(e instanceof Error ? e.message : String(e), "err");
     }
     const apiKey = (keyInput as HTMLInputElement).value.trim();
     if (!apiKey) return showStatus("Paste the API key you minted from the daemon's web UI.", "err");
-    const label = (labelInput as HTMLInputElement).value.trim() || url;
+    const label = labelInput.value.trim() || url;
     if (label.length > MAX_DAEMON_LABEL_LENGTH) {
       return showStatus(`Label must be ${MAX_DAEMON_LABEL_LENGTH} characters or fewer.`, "err");
     }
@@ -704,6 +745,7 @@ function renderConnectDaemon(status: WalletStatus) {
         apiKey,
         label,
       });
+      clearDaemonConnectDraft();
       renderDaemonAccountPicker(status, result.connectionId, result.accounts);
     } catch (e) {
       showStatus(e instanceof Error ? e.message : String(e), "err");
