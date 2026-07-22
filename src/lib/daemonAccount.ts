@@ -31,7 +31,7 @@ const DAEMON_TIMEOUT_MS = 15_000;
  * skip a doomed-to-fail retry when the daemon isn't reachable at all, instead of just being slow to
  * say so.
  */
-function isDaemonUnreachable(e: unknown): boolean {
+export function isDaemonUnreachable(e: unknown): boolean {
   if (!(e instanceof Error)) return false;
   return !(e.cause && typeof e.cause === "object" && "method" in e.cause && "code" in e.cause);
 }
@@ -266,7 +266,7 @@ export class DaemonAccount implements WalletAccountApi {
   }
 }
 
-function throwOnRejection(transactionId: string, outcome: TransactionResult): void {
+export function throwOnRejection(transactionId: string, outcome: TransactionResult): void {
   if ("Reject" in outcome) {
     throw new Error(`Transaction ${transactionId} was rejected: ${JSON.stringify(outcome.Reject)}`);
   }
@@ -286,7 +286,7 @@ function throwOnRejection(transactionId: string, outcome: TransactionResult): vo
  * has already run by the time this is called, so `response.result` being present here always means
  * a successful `Accept` outcome.
  */
-function toIndexerResultShape(response: TransactionWaitResultResponse): IndexerGetTransactionResultResponse {
+export function toIndexerResultShape(response: TransactionWaitResultResponse): IndexerGetTransactionResultResponse {
   if (!response.result) return { result: "Pending" };
   return {
     result: {

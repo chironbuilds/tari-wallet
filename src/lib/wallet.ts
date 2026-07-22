@@ -512,7 +512,7 @@ const MISSING_SUBSTATE_PATTERNS = [
   /not found:\s*([a-z_]+_[0-9a-f]{16,})\b/i,
 ];
 
-function extractMissingSubstateAddress(message: string): string | null {
+export function extractMissingSubstateAddress(message: string): string | null {
   for (const pattern of MISSING_SUBSTATE_PATTERNS) {
     const match = pattern.exec(message);
     if (match) return match[1]!;
@@ -525,7 +525,7 @@ function extractMissingSubstateAddress(message: string): string | null {
 // instead of re-querying a possibly-still-lagging indexer.
 const STALE_LOCK_PATTERN = /Substate ([a-z_]+_[0-9a-f]{16,}):(\d+) is DOWN/i;
 
-function extractStaleLockVersion(message: string): { substateId: string; version: number } | null {
+export function extractStaleLockVersion(message: string): { substateId: string; version: number } | null {
   const match = STALE_LOCK_PATTERN.exec(message);
   return match ? { substateId: match[1]!, version: Number(match[2]) } : null;
 }

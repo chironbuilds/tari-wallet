@@ -8,7 +8,9 @@
     "build": "vite build",
     "dev": "vite build --watch",
     "typecheck": "tsc --noEmit",
-    "test": "tsx scripts/test-crypto.ts"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:crypto": "tsx scripts/test-crypto.ts"
   },
   "license": "BSD-3-Clause",
   "dependencies": {
@@ -26,6 +28,7 @@
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
     "vite-plugin-top-level-await": "^1.6.0",
-    "vite-plugin-wasm": "^3.6.0"
+    "vite-plugin-wasm": "^3.6.0",
+    "vitest": "^4.1.10"
   }
 }
