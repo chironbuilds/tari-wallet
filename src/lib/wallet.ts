@@ -197,7 +197,14 @@ export class OotleAccount implements WalletAccountApi {
     const provider = await this.getProvider();
     const account = await this.getComponentAddress();
     const maxFee = opts.maxFee ?? 5000n;
-    const maxRetries = opts.maxRetries ?? 20;
+    // A first-time transaction into brand-new resources needs one retry per previously-unknown
+    // substate it discovers (each pool, each pool's own internal vaults, and any new vault the
+    // account itself needs created to hold a token it's never held before) — confirmed empirically
+    // that a single-hop swap into a new resource needed more than the original budget of 12, and a
+    // routed (multi-hop) swap touches roughly double the substates a direct one does (two pools
+    // instead of one, up to two new account vaults instead of one for the intermediate *and* final
+    // tokens) — hit exactly this exhausting 20 on a real 2-hop swap.
+    const maxRetries = opts.maxRetries ?? 30;
     const seenAddresses = new Set<string>();
     let inputs = await applyKnownVersions(opts.inputs ? [...opts.inputs] : []);
 
