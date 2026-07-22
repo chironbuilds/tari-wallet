@@ -920,7 +920,18 @@ async function renderApprovalDetails(approvalId: string) {
   }
 
   const resolve = async (approve: boolean) => {
-    await send({ kind: "popup-resolve-approval", approvalId, approve });
+    const { resolved } = await send<{ resolved: boolean }>({ kind: "popup-resolve-approval", approvalId, approve });
+    if (!resolved) {
+      // The background service worker restarted while this popup sat open (MV3 tears workers down
+      // after ~30s idle) — the page's own original request already died with it, so this click
+      // didn't do anything. Say so instead of closing and letting the user believe it went through.
+      render(
+        h("div", { class: "status err" }, [
+          "This request expired before you responded (the connection to the site was lost). Nothing was sent — try again from the site.",
+        ])
+      );
+      return;
+    }
     window.close();
   };
 

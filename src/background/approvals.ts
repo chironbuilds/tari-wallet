@@ -42,13 +42,23 @@ export function getPendingApproval(id: string): PendingApproval | undefined {
   return pending.get(id)?.approval;
 }
 
-export function resolveApproval(id: string, approved: boolean): void {
+/**
+ * Resolves a pending approval, returning whether it actually found one to resolve. A missed
+ * lookup here (`pending` is a plain in-memory Map) doesn't just mean "unknown id" — it happens for
+ * real whenever the service worker restarts (Chrome tears MV3 workers down after ~30s idle) while
+ * an approval popup is still open and unanswered: the *page's own* original request has already
+ * died with it (its `sendResponse` closure died the same way), so the popup clicking Approve here
+ * would otherwise silently no-op and close, falsely implying the click did something. The caller
+ * uses this return value to tell the user that instead of just closing the window.
+ */
+export function resolveApproval(id: string, approved: boolean): boolean {
   const entry = pending.get(id);
-  if (!entry) return;
+  if (!entry) return false;
   entry.resolve(approved);
   if (entry.windowId !== undefined) {
     chrome.windows.remove(entry.windowId).catch(() => {});
   }
+  return true;
 }
 
 // If the user closes the approval window without clicking a button, treat it as a rejection.

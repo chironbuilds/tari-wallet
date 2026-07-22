@@ -319,8 +319,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       return getPendingApproval(message.approvalId) ?? null;
 
     case "popup-resolve-approval":
-      resolveApproval(message.approvalId, message.approve);
-      return {};
+      return { resolved: resolveApproval(message.approvalId, message.approve) };
 
     case "popup-reset-wallet": {
       await clearUnlockedSeed();
