@@ -296,6 +296,13 @@ button + button {
   display: flex;
   gap: 8px;
 }
+/* Without this, the generic `button + button { margin-top: 8px }` rule (meant for vertically-
+   stacked full-width buttons elsewhere) still matches these adjacent-sibling buttons, and that
+   margin-top eats into the stretched flex item's height — so every button after the first ends up
+   visibly shorter than Send instead of matching it. */
+.action-row > button {
+  margin-top: 0;
+}
 .action-btn {
   flex: 1;
   display: flex;
