@@ -56,38 +56,25 @@ the one way this silently produces a wrong-but-plausible address instead of fail
 
 ## Design notes
 
-**Seed & derivation are this extension's own scheme, not Tari's official one.** The 24-word
-mnemonic uses the standard, audited BIP-39 wordlist/checksum (`src/lib/mnemonic.ts` — cross-checked
-against BIP-39's own all-zero-entropy test vector, see `scripts/test-crypto.ts`). What happens
-*after* decoding — deriving each account's owner/view keypair from the seed
-(`src/lib/derivation.ts`) — is a clean-room domain-separated BLAKE2b + mod-L-reduction scheme, not
-a reimplementation of Tari's official `tari_key_manager`/CipherSeed algorithm. We looked for a
-WASM-ready build of that crate to depend on instead and didn't find one (see project history) —
-reimplementing it by hand from the Rust source, byte-for-byte, would have been a larger and
-higher-risk undertaking than a scheme with the same security properties. **Practical consequence:**
-a recovery phrase from this extension will not import into (or export to) the official Tari wallet
-daemon / Aurora / desktop wallet. It only recovers accounts within this extension.
+**Seed & derivation use Tari's official CipherSeed format (implemented 2026-07-23).** The 24-word
+recovery phrase is a real `CipherSeed` (`src/lib/cipherSeed.ts`, reproducing
+`base_layer/common_types/src/seeds/cipher_seed.rs` byte-for-byte: version‖birthday‖16-byte
+entropy‖MAC, ChaCha20-encrypted with a key derived via Argon2d — 46 MiB memory cost — and CRC32
+checksummed) and account keys are derived with Ootle's own `derive_ristretto_key`
+(`src/lib/derivation.ts`, reproducing `tari-ootle`'s `crates/wallet/crypto/src/derive.rs`: a
+domain-separated Blake2b-512 hash under `KeyManagerDomain`, wide-reduced to a Ristretto scalar).
+**Practical consequence:** a recovery phrase created here imports into the official wallet
+daemon/Aurora/desktop wallet, and phrases from those import here — verified byte-exact against the
+real `tari_common_types`/`tari_crypto`/`tari_hashing` crates (see `scripts/test-crypto.ts`'s golden
+vectors, generated via a throwaway `cargo` harness against those crates at tari-ootle's exact pinned
+versions, since no known-answer vectors exist upstream for this format).
 
-**Investigated official-seed compatibility (2026-07-22), not yet implemented.** Confirmed feasible,
-should a future session take it on:
-
-- Ootle's own account-key derivation (`tari-ootle`'s `crates/wallet/crypto/src/derive.rs`,
-  `derive_ristretto_key`) is `Blake2b-512(domain_tag("com.tari.base_layer.key_manager", v1,
-  "derive_key") ‖ entropy ‖ branch ‖ index_u64_LE)`, wide-reduced to a Ristretto scalar — branches
-  `"account"` / `"view_only_key"` (`crates/wallet/sdk/src/models/key.rs`, `KeyBranch::as_str`). The
-  domain-tag framing is byte-identical to what `componentAddress.ts` already implements and
-  verifies (`u64LE(len) ‖ "domain.vN.label"`), so this half is low-risk to port.
-- The seed format itself (`CipherSeed`, `tari/base_layer/common_types/src/seeds/cipher_seed.rs`) is
-  the hard part: `version‖birthday‖entropy‖MAC` encrypted with ChaCha20, keyed via **Argon2d (46
-  MiB memory cost)** derived from the user's password (or a fixed default passphrase if none is
-  set), plus a CRC32 checksum, mapped onto the BIP-39 wordlist. No known-answer test vectors exist
-  upstream for this — every Rust test is a self-consistent round-trip — so verifying a port means
-  generating our own golden vectors by compiling a small harness against the real crate (`cargo`
-  is available in this environment) with fixed inputs, the same way the component-address golden
-  vectors were sourced, just self-generated instead of upstream-provided.
-- Net: verifiable, but a substantial multi-file port (new ChaCha20/Argon2d/CRC32 primitives — Argon2d
-  needs a WASM library, e.g. `hash-wasm`, since pure-JS Argon2 is impractically slow — plus changes
-  across `derivation.ts`, `mnemonic.ts`, and onboarding/reveal/import flows), not a quick patch.
+**Scope limit: no separate seed passphrase.** Tari's CipherSeed supports an optional passphrase
+distinct from whatever encrypts the wallet at rest (like BIP-39's optional 25th word). This
+extension doesn't expose that as a feature — it always enciphers/deciphers with the documented
+default (`None` → `"TARI_CIPHER_SEED"`), same as the official console wallet's own default when the
+user hasn't set one. Importing a phrase that was created elsewhere *with* a custom seed passphrase
+will fail to decrypt here with a clear error, not silently derive the wrong keys.
 
 **`window.tari`, not WalletConnect v2.** Real WalletConnect requires registering a project with
 Reown's relay network and implementing the wallet side of that pairing protocol (which,
@@ -265,8 +252,11 @@ Notes for dApp authors, learned building `tari-dex/swap-ui` against this wallet:
 ```
 src/
   lib/
-    mnemonic.ts      24-word BIP-39 encode/decode
-    derivation.ts    seed + account index -> (owner, view) Ristretto scalars (our own scheme)
+    domainHash.ts    DomainSeparatedHasher<Blake2b> byte-exact port (tari_crypto's hashing.rs)
+    crc32.ts         standalone CRC-32 (IEEE 802.3), CipherSeed's checksum
+    mnemonic.ts      33 bytes <-> 24 words, Tari's radix-2048 codec (not BIP-39)
+    cipherSeed.ts    Tari's official CipherSeed format: encipher/decipher, mnemonic <-> seed
+    derivation.ts    entropy + account index -> (owner, view) Ristretto scalars (Ootle's own scheme, byte-exact)
     componentAddress.ts  owner public key -> on-chain component_<hex> address (Tari's own scheme, byte-exact)
     vault.ts         password -> AES-256-GCM encrypt/decrypt of the seed (WebCrypto, PBKDF2 600k)
     wallet.ts         OotleAccount: wraps SecretKeyWallet (signing) + IndexerProvider (network)
@@ -333,10 +323,12 @@ Pure display/validation logic that a popup screen needs is kept in a plain modul
 importable in a test file without pulling in `main.ts`'s side effects (it calls `main()` — which
 touches `document` — at module load).
 
-`npm run test:crypto` verifies mnemonic round-tripping, the BIP-39 known-answer test vector,
-derivation determinism (same seed+index always derives the same keys; different index/seed always
-derives different keys; derived scalars are correctly reduced mod the Ristretto group order), and
-component-address derivation against three golden vectors generated by the real upstream Rust
-engine. This doesn't touch the WASM module (Node needs `--experimental-wasm-modules`-style native
+`npm run test:crypto` verifies CipherSeed enciphering/deciphering and mnemonic encoding against
+golden vectors generated from the real `tari_common_types`/`tari_crypto`/`tari_hashing` crates,
+account-key derivation against golden vectors from the same run (derivation determinism: same
+entropy+index always derives the same keys; different index/seed always derives different keys;
+derived scalars are correctly reduced mod the Ristretto group order), and component-address
+derivation against three golden vectors generated by the real upstream Rust engine. This doesn't
+touch the `@tari-project/ootle-wasm` module (Node needs `--experimental-wasm-modules`-style native
 support for that, which is a separate concern from whether Chrome's bundler-target import works —
-see Design notes).
+see Design notes) — it does exercise `hash-wasm`'s Argon2d WASM, which loads fine under plain Node.

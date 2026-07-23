@@ -60,9 +60,10 @@ export class OotleAccount implements WalletAccountApi {
     this.signer = signer;
   }
 
-  static fromSeed(masterSeed: Uint8Array, index: number, networkName: NetworkName): OotleAccount {
+  /** `entropy` is the 16-byte CipherSeed entropy (see cipherSeed.ts), not a raw 32-byte seed. */
+  static fromSeed(entropy: Uint8Array, index: number, networkName: NetworkName): OotleAccount {
     const network = toOotleNetwork(networkName);
-    const { ownerSecret, viewSecret } = deriveAccountKeys(masterSeed, index);
+    const { ownerSecret, viewSecret } = deriveAccountKeys(entropy, index);
     const signer = SecretKeyWallet.fromSecretKey(ownerSecret, network, viewSecret);
     return new OotleAccount(index, network, signer);
   }

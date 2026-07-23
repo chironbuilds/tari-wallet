@@ -1,6 +1,6 @@
 import "./styles.css";
 import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest, WalletStatus } from "../lib/messages";
-import { validateMnemonic } from "../lib/mnemonic";
+import { isPlausibleMnemonic } from "../lib/cipherSeed";
 import {
   type Balance,
   MAX_DAEMON_LABEL_LENGTH,
@@ -214,7 +214,7 @@ function renderSetPassword(mode: "create" | "import") {
         renderBackupMnemonic(mnemonic);
       } else {
         const mnemonic = (document.getElementById("mnemonic") as HTMLTextAreaElement).value.trim();
-        if (!validateMnemonic(mnemonic)) return showStatus("That recovery phrase doesn't look valid — check spelling and word count.");
+        if (!isPlausibleMnemonic(mnemonic)) return showStatus("That recovery phrase doesn't look valid — check spelling and word count.");
         await send({ kind: "popup-import-wallet", password, mnemonic });
         renderLoading("Deriving your account…");
         const status = await send<WalletStatus>({ kind: "popup-get-status" });

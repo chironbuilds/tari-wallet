@@ -1,77 +1,60 @@
-// Standard BIP-39 mnemonic encode/decode (24 words <-> 256-bit entropy), used only to give the
-// user a human-writable backup of the wallet's master seed. The wordlist and checksum format are
-// the widely-audited BIP-39 spec; what happens to the entropy AFTER decoding (the HD derivation
-// in derivation.ts) is our own scheme, not Tari's official one — see the note there.
-import { sha256 } from "@noble/hashes/sha2.js";
-import { randomBytes } from "@noble/hashes/utils.js";
+// Byte-string <-> mnemonic-word codec, reproducing Tari's `to_bytes`/`from_bytes`
+// (base_layer/common_types/src/seeds/mnemonic.rs) for the one length this codebase ever uses it
+// at: exactly 33 bytes <-> 24 words (264 bits, divides evenly both ways: 33*8 = 24*11 = 264) —
+// NOT the standard BIP-39 codec. Each word encodes 11 bits (log2(2048)); the byte array and the
+// word sequence both represent the same 264-bit integer, just in base-256 and base-2048
+// respectively, least-significant digit first. There's no embedded checksum here (CipherSeed's own
+// CRC32 + MAC are the integrity checks — see cipherSeed.ts); Tari's own codec instead zero-pads
+// misaligned lengths, a case that can't arise for our fixed 33-byte input, so mismatched lengths
+// are treated as a bug and rejected outright rather than silently padded.
+//
+// The wordlist itself is confirmed byte-identical, same order, to Tari's `MNEMONIC_ENGLISH_WORDS`
+// (both are the standard public-domain BIP-39 English list) — only the packing algorithm differs
+// from BIP-39, so WORDLIST is reused as-is.
 import { WORDLIST } from "./wordlist";
 
 const WORD_INDEX = new Map(WORDLIST.map((w, i) => [w, i]));
-const ENTROPY_BYTES = 32; // 256 bits -> 24 words; BIP-39 checksum length is ENT_bits / 32 = 8 bits.
+const BITS_PER_WORD = 11;
 
-function bytesToBinary(bytes: Uint8Array): string {
-  let out = "";
-  for (const b of bytes) out += b.toString(2).padStart(8, "0");
-  return out;
-}
-
-function binaryToBytes(bin: string): Uint8Array {
-  const bytes = new Uint8Array(bin.length / 8);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(bin.slice(i * 8, i * 8 + 8), 2);
+export function bytesToWords(bytes: Uint8Array): string[] {
+  if ((bytes.length * 8) % BITS_PER_WORD !== 0) {
+    throw new Error(`Internal error: ${bytes.length} bytes does not pack into a whole number of words`);
   }
-  return bytes;
-}
-
-export function entropyToMnemonic(entropy: Uint8Array): string {
-  if (entropy.length !== ENTROPY_BYTES) {
-    throw new Error(`entropy must be ${ENTROPY_BYTES} bytes`);
-  }
-  const checksumByte = sha256(entropy);
-  const bits = bytesToBinary(entropy) + bytesToBinary(checksumByte).slice(0, 8);
+  let rest = 0n;
+  let restBits = 0;
   const words: string[] = [];
-  for (let i = 0; i < bits.length / 11; i++) {
-    const idx = parseInt(bits.slice(i * 11, i * 11 + 11), 2);
-    const word = WORDLIST[idx];
-    if (word === undefined) throw new Error(`Internal error: wordlist index ${idx} out of range`);
-    words.push(word);
+  for (const byte of bytes) {
+    rest |= BigInt(byte) << BigInt(restBits);
+    restBits += 8;
+    while (restBits >= BITS_PER_WORD) {
+      const index = Number(rest & 0x7ffn);
+      const word = WORDLIST[index];
+      if (word === undefined) throw new Error(`Internal error: wordlist index ${index} out of range`);
+      words.push(word);
+      rest >>= BigInt(BITS_PER_WORD);
+      restBits -= BITS_PER_WORD;
+    }
   }
-  return words.join(" ");
+  return words;
 }
 
-export function mnemonicToEntropy(mnemonic: string): Uint8Array {
-  const words = mnemonic
-    .trim()
-    .split(/\s+/)
-    .map((w) => w.toLowerCase());
-  if (words.length !== 24) {
-    throw new Error("Recovery phrase must be exactly 24 words");
+export function wordsToBytes(words: string[]): Uint8Array {
+  if ((words.length * BITS_PER_WORD) % 8 !== 0) {
+    throw new Error(`Internal error: ${words.length} words does not pack into a whole number of bytes`);
   }
-  let bits = "";
-  for (const w of words) {
-    const idx = WORD_INDEX.get(w);
-    if (idx === undefined) throw new Error(`"${w}" is not a valid recovery-phrase word`);
-    bits += idx.toString(2).padStart(11, "0");
+  const bytes: number[] = [];
+  let rest = 0n;
+  let restBits = 0;
+  for (const rawWord of words) {
+    const index = WORD_INDEX.get(rawWord.toLowerCase());
+    if (index === undefined) throw new Error(`"${rawWord}" is not a valid recovery-phrase word`);
+    rest |= BigInt(index) << BigInt(restBits);
+    restBits += BITS_PER_WORD;
+    while (restBits >= 8) {
+      bytes.push(Number(rest & 0xffn));
+      rest >>= 8n;
+      restBits -= 8;
+    }
   }
-  const entropyBits = bits.slice(0, ENTROPY_BYTES * 8);
-  const checksumBits = bits.slice(ENTROPY_BYTES * 8);
-  const entropy = binaryToBytes(entropyBits);
-  const expectedChecksum = bytesToBinary(sha256(entropy)).slice(0, 8);
-  if (checksumBits !== expectedChecksum) {
-    throw new Error("Recovery phrase is invalid (checksum mismatch) — check the word order and spelling");
-  }
-  return entropy;
-}
-
-export function generateMnemonic(): string {
-  return entropyToMnemonic(randomBytes(ENTROPY_BYTES));
-}
-
-export function validateMnemonic(mnemonic: string): boolean {
-  try {
-    mnemonicToEntropy(mnemonic);
-    return true;
-  } catch {
-    return false;
-  }
+  return new Uint8Array(bytes);
 }

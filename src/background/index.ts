@@ -1,4 +1,4 @@
-import { entropyToMnemonic, generateMnemonic, mnemonicToEntropy, validateMnemonic } from "../lib/mnemonic";
+import { createWalletSeed, deserializeSeed, importWalletSeed, seedToMnemonic, serializeSeed } from "../lib/cipherSeed";
 import { decryptVault, encryptVault } from "../lib/vault";
 import {
   addConnectedSite,
@@ -228,28 +228,26 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       return buildStatus();
 
     case "popup-create-wallet": {
-      const mnemonic = generateMnemonic();
-      const entropy = mnemonicToEntropy(mnemonic); // round-trip validates our own encoder
-      const vault = await encryptVault(message.password, entropy);
+      const { seed, mnemonic } = await createWalletSeed();
+      const vault = await encryptVault(message.password, serializeSeed(seed));
       await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0) });
-      await setUnlockedSeed(entropy);
+      await setUnlockedSeed(seed.entropy);
       return { mnemonic };
     }
 
     case "popup-import-wallet": {
-      if (!validateMnemonic(message.mnemonic)) throw new Error("Invalid recovery phrase.");
-      const entropy = mnemonicToEntropy(message.mnemonic);
-      const vault = await encryptVault(message.password, entropy);
+      const seed = await importWalletSeed(message.mnemonic);
+      const vault = await encryptVault(message.password, serializeSeed(seed));
       await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0) });
-      await setUnlockedSeed(entropy);
+      await setUnlockedSeed(seed.entropy);
       return {};
     }
 
     case "popup-unlock": {
       const { vault } = await getState();
       if (!vault) throw new Error("No wallet set up yet.");
-      const entropy = await decryptVault(message.password, vault);
-      await setUnlockedSeed(entropy);
+      const seed = deserializeSeed(await decryptVault(message.password, vault));
+      await setUnlockedSeed(seed.entropy);
       return {};
     }
 
@@ -262,8 +260,8 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     case "popup-reveal-mnemonic": {
       const { vault } = await getState();
       if (!vault) throw new Error("No wallet set up yet.");
-      const entropy = await decryptVault(message.password, vault);
-      return { mnemonic: entropyToMnemonic(entropy) };
+      const seed = deserializeSeed(await decryptVault(message.password, vault));
+      return { mnemonic: await seedToMnemonic(seed) };
     }
 
     case "popup-get-balances": {
