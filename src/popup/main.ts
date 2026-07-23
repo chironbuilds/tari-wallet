@@ -51,6 +51,36 @@ async function send<T = unknown>(message: PopupRequest, retries = 3): Promise<T>
   }
 }
 
+// Feather Icons (MIT) path data, inlined as raw SVG markup — `h()` can't build real SVG elements
+// (document.createElement has no SVG namespace), but the HTML parser used by innerHTML handles
+// inline <svg> fine, and these are fixed, non-user-controlled strings.
+const ICON_ARROW_UP = '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>';
+const ICON_ARROW_DOWN = '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>';
+const ICON_PLUS = '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>';
+const ICON_CHEVRON_RIGHT = '<polyline points="9 18 15 12 9 6"/>';
+const ICON_COPY =
+  '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
+const ICON_SETTINGS =
+  '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>';
+
+function icon(paths: string): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.className = "icon-svg";
+  span.setAttribute("aria-hidden", "true");
+  span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+  return span;
+}
+
+function skeletonBalanceRow(): HTMLElement {
+  return h("div", { class: "balance-row" }, [
+    h("div", { class: "balance-left" }, [
+      h("span", { class: "token-avatar skeleton", style: "width:28px;height:28px" }, [""]),
+      h("span", { class: "skeleton", style: "display:inline-block;width:64px;height:13px" }, [""]),
+    ]),
+    h("span", { class: "skeleton", style: "display:inline-block;width:46px;height:13px" }, [""]),
+  ]);
+}
+
 function h<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   attrs: Record<string, string> = {},
@@ -279,7 +309,7 @@ async function renderHome(status: WalletStatus) {
   const settingsBtn = h(
     "button",
     { class: "secondary", id: "settingsBtn", style: "width:auto;padding:6px 10px;margin-top:0", "aria-label": "Settings" },
-    ["⚙"]
+    [icon(ICON_SETTINGS)]
   );
   const nav = h("div", { class: "top-nav" }, [
     h("h1", {}, ["Tari", h("span", {}, [" Wallet"])]),
@@ -305,18 +335,20 @@ async function renderHome(status: WalletStatus) {
   const copyLabel = h("span", {}, [shortAddr(status.address ?? "", 8)]);
   const addrPill = h("button", { class: "addr-pill", id: "addrPill", "aria-label": "Copy account address" }, [
     copyLabel,
-    h("span", { class: "icon", "aria-hidden": "true" }, ["⧉"]),
+    h("span", { class: "icon", "aria-hidden": "true" }, [icon(ICON_COPY)]),
   ]);
   addrPill.addEventListener("click", () => copyToClipboard(status.address ?? "", copyLabel));
-  const hero = h("div", { class: "hero" }, [h("div", { class: "avatar" }, [initial]), addrPill]);
+  const heroBalanceAmount = h("span", { class: "hero-balance-amount skeleton", style: "display:inline-block;width:90px;height:26px" }, [""]);
+  const heroBalance = h("div", { class: "hero-balance" }, [heroBalanceAmount, h("span", { class: "hero-balance-unit" }, ["XTR"])]);
+  const hero = h("div", { class: "hero" }, [h("div", { class: "avatar" }, [initial]), addrPill, heroBalance]);
 
-  const sendActionBtn = h("button", { class: "action-btn", id: "sendAction" }, [h("div", { class: "action-icon", "aria-hidden": "true" }, ["↑"]), "Send"]);
+  const sendActionBtn = h("button", { class: "action-btn", id: "sendAction" }, [h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_ARROW_UP)]), "Send"]);
   const receiveActionBtn = h("button", { class: "action-btn", id: "receiveAction" }, [
-    h("div", { class: "action-icon", "aria-hidden": "true" }, ["↓"]),
+    h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_ARROW_DOWN)]),
     "Receive",
   ]);
   const claimActionBtn = h("button", { class: "action-btn", id: "claimAction" }, [
-    h("div", { class: "action-icon", "aria-hidden": "true" }, ["+"]),
+    h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_PLUS)]),
     "Claim XTR",
   ]);
   const actionRow = h("div", { class: "action-row" }, [sendActionBtn, receiveActionBtn, claimActionBtn]);
@@ -324,9 +356,16 @@ async function renderHome(status: WalletStatus) {
   const claimStatusEl = h("div", { class: "status", id: "claimStatus", style: "display:none" });
 
   const balancesTitle = h("div", { class: "section-title" }, ["Assets"]);
-  const balancesCard = h("div", { class: "card balances-card" }, [h("div", { class: "muted" }, ["Loading balances…"])]);
+  const balancesCard = h("div", { class: "card balances-card" }, [skeletonBalanceRow(), skeletonBalanceRow()]);
 
   render(nav, hero, actionRow, claimStatusEl, balancesTitle, balancesCard);
+
+  const updateHeroBalance = (balances: Balance[]) => {
+    const xtr = balances.find((b) => b.resourceAddress === TARI_RESOURCE_ADDRESS);
+    heroBalanceAmount.className = "hero-balance-amount";
+    heroBalanceAmount.removeAttribute("style");
+    heroBalanceAmount.textContent = formatBalanceAmount(xtr?.amount ?? "0", xtr?.divisibility ?? 6);
+  };
 
   sendActionBtn.addEventListener("click", async () => {
     try {
@@ -350,6 +389,7 @@ async function renderHome(status: WalletStatus) {
       claimStatusEl.textContent = "Claimed! Refreshing balances…";
       const balances = await send<Balance[]>({ kind: "popup-get-balances" });
       renderBalances(balancesCard, balances, status);
+      updateHeroBalance(balances);
       claimStatusEl.textContent = "Claimed testnet XTR.";
     } catch (e) {
       claimStatusEl.className = "status err";
@@ -362,21 +402,40 @@ async function renderHome(status: WalletStatus) {
   try {
     const balances = await send<Balance[]>({ kind: "popup-get-balances" });
     renderBalances(balancesCard, balances, status);
+    updateHeroBalance(balances);
   } catch (e) {
     balancesCard.replaceChildren(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
+    heroBalanceAmount.className = "hero-balance-amount";
+    heroBalanceAmount.removeAttribute("style");
+    heroBalanceAmount.textContent = "—";
   }
+}
+
+function settingsRow(id: string, label: string, trailing?: string): HTMLButtonElement {
+  return h("button", { class: "settings-row", id }, [
+    h("span", {}, [label]),
+    h("span", { class: "settings-row-right" }, [
+      trailing ? h("span", { class: "settings-row-trailing" }, [trailing]) : "",
+      icon(ICON_CHEVRON_RIGHT),
+    ]),
+  ]);
 }
 
 function renderSettings(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
-  const addAccountBtn = h("button", { class: "secondary", id: "addAccount" }, ["+ Add account"]);
-  const connectDaemonBtn = h("button", { class: "secondary", id: "connectDaemon" }, ["+ Connect daemon wallet"]);
-  const daemonsBtn = h("button", { class: "secondary", id: "daemons" }, [`Daemon connections (${status.daemonConnections.length})`]);
-  const sitesBtn = h("button", { class: "secondary", id: "sites" }, ["Connected sites"]);
-  const backupBtn = h("button", { class: "secondary", id: "backup" }, ["Reveal recovery phrase"]);
+  const addAccountBtn = settingsRow("addAccount", "Add account");
+  const connectDaemonBtn = settingsRow("connectDaemon", "Connect daemon wallet");
+  const daemonsBtn = settingsRow("daemons", "Daemon connections", String(status.daemonConnections.length));
+  const sitesBtn = settingsRow("sites", "Connected sites");
+  const backupBtn = settingsRow("backup", "Reveal recovery phrase");
   const lockBtn = h("button", { class: "danger", id: "lock" }, ["Lock wallet"]);
 
-  render(h("h1", {}, ["Settings"]), back, addAccountBtn, connectDaemonBtn, daemonsBtn, sitesBtn, backupBtn, lockBtn);
+  render(
+    h("h1", {}, ["Settings"]),
+    back,
+    h("div", { class: "card settings-card" }, [addAccountBtn, connectDaemonBtn, daemonsBtn, sitesBtn, backupBtn]),
+    lockBtn
+  );
 
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
   document.getElementById("lock")!.addEventListener("click", async () => {
@@ -407,12 +466,12 @@ function renderReceive(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
 
   const componentLabel = h("span", {}, ["Copy"]);
-  const componentCopyBtn = h("button", { class: "icon-btn" }, [componentLabel]);
+  const componentCopyBtn = h("button", { class: "icon-btn" }, [icon(ICON_COPY), componentLabel]);
   const componentRow = h("div", { class: "copy-row" }, [h("div", { class: "addr" }, [status.address ?? "—"]), componentCopyBtn]);
   componentCopyBtn.addEventListener("click", () => copyToClipboard(status.address ?? "", componentLabel));
 
   const walletLabel = h("span", {}, ["Copy"]);
-  const walletCopyBtn = h("button", { class: "icon-btn" }, [walletLabel]);
+  const walletCopyBtn = h("button", { class: "icon-btn" }, [icon(ICON_COPY), walletLabel]);
   const walletRow = h("div", { class: "copy-row" }, [h("div", { class: "addr" }, [status.receiveAddress ?? "—"]), walletCopyBtn]);
   walletCopyBtn.addEventListener("click", () => copyToClipboard(status.receiveAddress ?? "", walletLabel));
 
@@ -531,7 +590,9 @@ function renderSend(status: WalletStatus, balances: Balance[]) {
 
 function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: WalletStatus) {
   if (balances.length === 0) {
-    balancesCard.replaceChildren(h("div", { class: "muted" }, ["No tokens yet."]));
+    balancesCard.replaceChildren(
+      h("div", { class: "empty-state" }, [h("div", { class: "muted" }, ["No tokens yet — claim some testnet XTR above to get started."])])
+    );
   } else {
     balancesCard.replaceChildren(
       ...balances.map((b) => {
@@ -554,7 +615,7 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
 
   const addrLabel = h("span", {}, ["Copy"]);
-  const addrCopyBtn = h("button", { class: "icon-btn" }, [addrLabel]);
+  const addrCopyBtn = h("button", { class: "icon-btn" }, [icon(ICON_COPY), addrLabel]);
   const addrRow = h("div", { class: "copy-row" }, [h("div", { class: "addr" }, [balance.resourceAddress]), addrCopyBtn]);
   addrCopyBtn.addEventListener("click", () => copyToClipboard(balance.resourceAddress, addrLabel));
 
@@ -612,7 +673,7 @@ function renderDaemonConnections(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
   const list =
     status.daemonConnections.length === 0
-      ? h("div", { class: "muted" }, ["No daemon connections yet."])
+      ? h("div", { class: "empty-state" }, [h("div", { class: "muted" }, ["No daemon connections yet."])])
       : h(
           "div",
           {},
@@ -869,7 +930,7 @@ async function renderConnectedSites() {
   const sites = await send<{ origin: string }[]>({ kind: "popup-get-connected-sites" });
   const list =
     sites.length === 0
-      ? h("div", { class: "muted" }, ["No connected sites."])
+      ? h("div", { class: "empty-state" }, [h("div", { class: "muted" }, ["No connected sites."])])
       : h(
           "div",
           {},
