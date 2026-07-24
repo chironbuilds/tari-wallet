@@ -3,6 +3,8 @@ import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest
 import { isPlausibleMnemonic } from "../lib/cipherSeed";
 import { AUTO_LOCK_OPTIONS, formatAutoLockOption } from "../lib/autoLock";
 import { summarizeArgs, summarizeInstruction } from "../lib/instructionSummary";
+import { avatarSvg } from "../lib/avatar";
+import { qrCodeSvg } from "../lib/qr";
 import {
   type Balance,
   MAX_DAEMON_LABEL_LENGTH,
@@ -71,6 +73,20 @@ function icon(paths: string): HTMLSpanElement {
   span.setAttribute("aria-hidden", "true");
   span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
   return span;
+}
+
+// Deterministic per-address avatar (see src/lib/avatar.ts for why) -- innerHTML here is safe the
+// same way `icon()` above is: the SVG markup comes entirely from our own generator over data this
+// extension already computed (the account's own address), never from a page or dApp.
+function accountAvatar(address: string | null): HTMLDivElement {
+  const div = document.createElement("div");
+  div.className = "avatar";
+  if (address) {
+    div.innerHTML = avatarSvg(address, 44);
+  } else {
+    div.textContent = "T";
+  }
+  return div;
 }
 
 function skeletonBalanceRow(): HTMLElement {
@@ -379,7 +395,6 @@ async function renderHome(status: WalletStatus) {
     return;
   }
 
-  const initial = activeLabel.slice(0, 1).toUpperCase();
   const copyLabel = h("span", {}, [shortAddr(status.address ?? "", 8)]);
   const addrPill = h("button", { class: "addr-pill", id: "addrPill", "aria-label": "Copy account address" }, [
     copyLabel,
@@ -388,7 +403,7 @@ async function renderHome(status: WalletStatus) {
   addrPill.addEventListener("click", () => copyToClipboard(status.address ?? "", copyLabel));
   const heroBalanceAmount = h("span", { class: "hero-balance-amount skeleton", style: "display:inline-block;width:90px;height:26px" }, [""]);
   const heroBalance = h("div", { class: "hero-balance" }, [heroBalanceAmount, h("span", { class: "hero-balance-unit" }, ["XTR"])]);
-  const hero = h("div", { class: "hero" }, [h("div", { class: "avatar" }, [initial]), addrPill, heroBalance]);
+  const hero = h("div", { class: "hero" }, [accountAvatar(status.address), addrPill, heroBalance]);
 
   const sendActionBtn = h("button", { class: "action-btn", id: "sendAction" }, [h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_ARROW_UP)]), "Send"]);
   const receiveActionBtn = h("button", { class: "action-btn", id: "receiveAction" }, [
@@ -540,10 +555,19 @@ function renderReceive(status: WalletStatus) {
   const walletRow = h("div", { class: "copy-row" }, [h("div", { class: "addr" }, [status.receiveAddress ?? "—"]), walletCopyBtn]);
   walletCopyBtn.addEventListener("click", () => copyToClipboard(status.receiveAddress ?? "", walletLabel));
 
+  const qrCard = h("div", { class: "card qr-card" }, []);
+  if (status.address) {
+    qrCard.innerHTML = qrCodeSvg(status.address);
+    qrCard.classList.add("qr-card-filled");
+  } else {
+    qrCard.textContent = "No address available";
+  }
+
   render(
     h("h1", {}, ["Receive"]),
     h("p", { class: "muted" }, ["Share your account address to receive any token on Tari Ootle."]),
-    h("div", { class: "hero" }, [h("div", { class: "avatar" }, [(activeAccountSummary(status)?.label ?? "Account").slice(0, 1).toUpperCase()])]),
+    h("div", { class: "hero" }, [accountAvatar(status.address)]),
+    qrCard,
     h("div", { class: "card" }, [
       h("div", { class: "muted", style: "margin-bottom:8px" }, ["Component address"]),
       componentRow,
