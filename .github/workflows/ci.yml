@@ -11,21 +11,28 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
       - uses: actions/setup-node@v5
         with:
           node-version: 26
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: pnpm audit --audit-level=moderate
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Unit tests
-        run: npm run test
+        run: pnpm run test
 
       - name: Crypto golden-vector tests
-        run: npm run test:crypto
+        run: pnpm run test:crypto
 
       - name: Build extension
-        run: npm run build
+        run: pnpm run build

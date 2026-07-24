@@ -284,9 +284,11 @@ a plain module variable would not have survived that.
 
 ## Building
 
+Uses [pnpm](https://pnpm.io) (see "Supply chain" below for why), not npm/yarn:
+
 ```
-npm install
-npm run build      # -> dist/
+pnpm install
+pnpm run build      # -> dist/
 ```
 
 Wasm handling needs `vite-plugin-wasm` + `vite-plugin-top-level-await` — `@tari-project/ootle-wasm`
@@ -295,9 +297,30 @@ integration for WebAssembly" pattern; verified empirically against a real browse
 development, not assumed), which only a bundler with a dedicated transform can handle. Plain esbuild
 cannot; that's why this project uses Vite specifically.
 
+## Supply chain
+
+Package installs go through **pnpm**, not npm, specifically for one property npm can't give you:
+pnpm blocks every dependency's install-time (`preinstall`/`install`/`postinstall`) scripts by
+default — the single most common real-world npm supply-chain attack vector, since a compromised
+package's postinstall script runs with full filesystem/network access at install time, no
+different from executing arbitrary code. `pnpm-workspace.yaml`'s `allowBuilds` is the explicit,
+committed allowlist of the only two dependencies that legitimately need one (`@swc/core` and
+`esbuild`, both downloading their own platform-specific native binary — confirmed by inspecting
+every installed package's own `package.json` for a lifecycle script before allowing it, not
+assumed). Anything else pulled in later that tries to run an install script stays blocked until
+someone deliberately adds it here — that's a deliberate speed bump, not an oversight.
+
+Also: `pnpm-lock.yaml` is the only lockfile (no `package-lock.json` — having both invites
+installing with whichever tool someone has handy, silently drifting from what CI actually
+verified), CI runs `pnpm install --frozen-lockfile` (fails outright on any lockfile drift, never
+silently re-resolves) followed by `pnpm audit`, and a known vulnerability in a transitive,
+build-time-only dependency (`uuid`, pulled in by `vite-plugin-top-level-await`) is pinned to a
+patched version via `pnpm-workspace.yaml`'s `overrides` rather than by changing the wasm build
+plugin itself, which this project is deliberately pinned to (see above).
+
 ## Loading it in Chrome
 
-1. `npm run build`
+1. `pnpm run build`
 2. Open `chrome://extensions`, enable **Developer mode** (top right)
 3. **Load unpacked** → select the `dist/` folder
 4. Click the extension icon to open the popup and create or import a wallet
@@ -305,12 +328,12 @@ cannot; that's why this project uses Vite specifically.
 ## Testing
 
 ```
-npm test              # unit tests (vitest) — pure logic: parsing, validation, error classification
-npm run test:watch    # same, in watch mode
-npm run test:crypto   # scripts/test-crypto.ts — see below
+pnpm test              # unit tests (vitest) — pure logic: parsing, validation, error classification
+pnpm run test:watch    # same, in watch mode
+pnpm run test:crypto   # scripts/test-crypto.ts — see below
 ```
 
-`npm test` covers the pieces that are easy to get subtly wrong and hard to notice when they are:
+`pnpm test` covers the pieces that are easy to get subtly wrong and hard to notice when they are:
 `parseDecimalToRaw`/`normalizeDaemonUrl`/`isValidComponentAddress` (`src/popup/format.ts`),
 `extractMissingSubstateAddress`/`extractStaleLockVersion` (the regexes `OotleAccount.execute()`'s
 retry loop depends on), `isDaemonUnreachable`/`toIndexerResultShape` (`DaemonAccount`'s error
@@ -323,7 +346,7 @@ Pure display/validation logic that a popup screen needs is kept in a plain modul
 importable in a test file without pulling in `main.ts`'s side effects (it calls `main()` — which
 touches `document` — at module load).
 
-`npm run test:crypto` verifies CipherSeed enciphering/deciphering and mnemonic encoding against
+`pnpm run test:crypto` verifies CipherSeed enciphering/deciphering and mnemonic encoding against
 golden vectors generated from the real `tari_common_types`/`tari_crypto`/`tari_hashing` crates,
 account-key derivation against golden vectors from the same run (derivation determinism: same
 entropy+index always derives the same keys; different index/seed always derives different keys;

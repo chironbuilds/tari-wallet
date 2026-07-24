@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Tari Ootle Wallet — preview</title>
+<link rel="stylesheet" href="/src/popup/styles.css" />
+</head>
+<body>
+<div id="app">Loading…</div>
+<script>
+// Mocks just enough of the chrome.* extension API surface that the REAL, unmodified
+// src/popup/main.ts renders against fake data — see popup-preview.html for why this exists
+// (Chrome extension popups can't be screenshotted via browser automation directly).
+(function () {
+  const params = new URLSearchParams(location.search);
+  const scenario = params.get("scenario") || "home";
+
+  const ADDR = "component_" + "ab12cd34ef56".repeat(5) + "ab12cd";
+  const WALLET_ADDR = "01" + "a1b2c3d4e5f6".repeat(5) + "a1b2c3";
+
+  const baseStatus = {
+    hasWallet: true,
+    isUnlocked: true,
+    network: "esmeralda",
+    activeAccountId: "local:0",
+    accountCount: 1,
+    address: ADDR,
+    receiveAddress: WALLET_ADDR,
+    activeAccountError: null,
+    accounts: [{ id: "local:0", label: "Account 1", kind: "local" }],
+    daemonConnections: [],
+    autoLockMinutes: 15,
+  };
+
+  const balances = [
+    { resourceAddress: "resource_0101010101010101010101010101010101010101010101010101010101010101", kind: "Fungible", amount: "1250000000", divisibility: 6, symbol: "XTR", name: "Tari" },
+    { resourceAddress: "resource_demo000000000000000000000000000000000000000000000000000", kind: "Fungible", amount: "42000000000", divisibility: 8, symbol: "DEMO", name: "DemoToken" },
+  ];
+
+  const statusByScenario = {
+    onboarding: { ...baseStatus, hasWallet: false, isUnlocked: false, address: null, receiveAddress: null, accounts: [] },
+    unlock: { ...baseStatus, isUnlocked: false, address: null, receiveAddress: null },
+    "forgot-password": { ...baseStatus, isUnlocked: false, address: null, receiveAddress: null },
+    home: baseStatus,
+    send: baseStatus,
+    settings: baseStatus,
+    "approval-connect": baseStatus,
+    "approval-transaction": baseStatus,
+  };
+
+  const pendingApprovalByScenario = {
+    "approval-connect": { kind: "connect", id: "preview-1", origin: "https://tari-dex.example" },
+    "approval-transaction": {
+      kind: "transaction",
+      id: "preview-2",
+      origin: "https://tari-dex.example",
+      maxFee: "5000",
+      dryRun: false,
+      instructions: [
+        { CallMethod: { call: { Address: "resource_xtr0000000000000000000000000000000000000000000000000000" }, method: "withdraw", args: [{ Literal: "aGVsbG8=" }] } },
+        { PutLastInstructionOutputOnWorkspace: { key: 0 } },
+        { CallMethod: { call: { Address: ADDR }, method: "deposit", args: [{ Workspace: { id: 0, offset: null } }] } },
+        { CallMethod: { call: { Address: ADDR }, method: "pay_fee", args: [{ Literal: "AAAAAAAAE4A=" }] } },
+      ],
+    },
+  };
+
+  if (scenario.startsWith("approval-")) {
+    location.hash = `#/approve/preview`;
+  }
+
+  window.chrome = {
+    runtime: {
+      lastError: undefined,
+      sendMessage(message, callback) {
+        setTimeout(() => {
+          try {
+            const result = handle(message);
+            callback({ ok: true, result });
+          } catch (e) {
+            callback({ ok: false, error: String(e && e.message ? e.message : e) });
+          }
+        }, 120); // small delay so loading/skeleton states are visible too
+      },
+      onMessage: { addListener() {} },
+    },
+  };
+
+  function handle(message) {
+    switch (message.kind) {
+      case "popup-get-status":
+        return statusByScenario[scenario] ?? baseStatus;
+      case "popup-get-balances":
+        return scenario === "send" || scenario === "home" ? balances : [];
+      case "popup-get-pending-approval":
+        return pendingApprovalByScenario[scenario] ?? null;
+      case "popup-resolve-approval":
+        return { resolved: true };
+      case "popup-get-connected-sites":
+        return [];
+      case "popup-lock":
+      case "popup-set-auto-lock-minutes":
+        return {};
+      default:
+        return {};
+    }
+  }
+})();
+</script>
+<script type="module" src="/src/popup/main.ts"></script>
+<script>
+  // Auto-navigate into Send from the home screen for the "send" scenario, once main.ts has
+  // rendered — a plain click on the real button, exercising the real click handler.
+  if (new URLSearchParams(location.search).get("scenario") === "send") {
+    const wait = setInterval(() => {
+      const btn = document.getElementById("sendAction");
+      if (btn) { clearInterval(wait); btn.click(); }
+    }, 100);
+  }
+  if (new URLSearchParams(location.search).get("scenario") === "settings") {
+    const wait = setInterval(() => {
+      const btn = document.getElementById("settingsBtn");
+      if (btn) { clearInterval(wait); btn.click(); }
+    }, 100);
+  }
+  if (new URLSearchParams(location.search).get("scenario") === "forgot-password") {
+    const wait = setInterval(() => {
+      const btn = document.getElementById("forgot");
+      if (btn) { clearInterval(wait); btn.click(); }
+    }, 100);
+  }
+</script>
+</body>
+</html>

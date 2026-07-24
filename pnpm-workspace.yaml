@@ -1,0 +1,20 @@
+# pnpm blocks every dependency's install-time (preinstall/install/postinstall) scripts by
+# default -- the single most common real-world npm supply-chain attack vector, since a
+# compromised package's postinstall script runs with full filesystem/network access at install
+# time, no different from running arbitrary code. Everything not listed here stays blocked.
+#
+# Only two dependencies in this project legitimately need one, both to download the correct
+# platform-specific native binary for a well-known build tool (verified by inspecting every
+# installed package's own package.json for a preinstall/install/postinstall script before adding
+# it here -- see README.md's "Supply chain" section):
+allowBuilds:
+  '@swc/core': true
+  esbuild: true
+
+# Forces the transitive `uuid` dependency (pulled in by vite-plugin-top-level-await, build-time
+# only, never shipped in the extension itself) up to a patched version -- GHSA-w5hq-g745-h8pq,
+# a missing bounds check when a caller supplies its own output buffer. Scoped to this one
+# package via an override rather than up/downgrading vite-plugin-top-level-await itself, which
+# this project's wasm build pipeline is deliberately pinned to (see README "Building").
+overrides:
+  uuid: ^11.1.1

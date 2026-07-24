@@ -218,6 +218,78 @@ button + button {
   color: var(--muted-dim);
   margin-right: 4px;
 }
+.instruction-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.instruction-card {
+  display: flex;
+  gap: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.instruction-index {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--box);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.instruction-body {
+  min-width: 0;
+  flex: 1;
+}
+.instruction-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.instruction-detail {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin-top: 2px;
+  word-break: break-all;
+}
+.instruction-args {
+  font-size: 11px;
+  color: var(--muted-dim);
+  margin-top: 2px;
+}
+.raw-details {
+  font-size: 12px;
+}
+.raw-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  padding: 4px 0;
+  list-style: none;
+}
+.raw-details summary::-webkit-details-marker {
+  display: none;
+}
+.raw-details summary::before {
+  content: "▸ ";
+  color: var(--muted-dim);
+}
+.raw-details[open] summary::before {
+  content: "▾ ";
+}
+.raw-details .instruction-list {
+  margin-top: 6px;
+}
 .instruction-list {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
@@ -638,6 +710,41 @@ select {
   gap: 8px;
   color: var(--muted);
   font-weight: 400;
+}
+.settings-row-static {
+  cursor: default;
+}
+.link-btn {
+  width: auto;
+  display: block;
+  margin: 12px auto 0;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 8px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition:
+    color 0.15s ease,
+    text-decoration-color 0.15s ease;
+}
+.link-btn:hover:not(:disabled) {
+  color: var(--text);
+  text-decoration-color: var(--muted);
+  filter: none;
+}
+.link-btn:active:not(:disabled) {
+  transform: none;
+  filter: none;
+}
+.settings-row-select {
+  width: auto;
+  padding: 6px 26px 6px 10px;
+  font-size: 12.5px;
+  border-radius: 8px;
 }
 @media (prefers-reduced-motion: reduce) {
   * {

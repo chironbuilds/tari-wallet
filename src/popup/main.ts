@@ -1,6 +1,8 @@
 import "./styles.css";
 import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest, WalletStatus } from "../lib/messages";
 import { isPlausibleMnemonic } from "../lib/cipherSeed";
+import { AUTO_LOCK_OPTIONS, formatAutoLockOption } from "../lib/autoLock";
+import { summarizeArgs, summarizeInstruction } from "../lib/instructionSummary";
 import {
   type Balance,
   MAX_DAEMON_LABEL_LENGTH,
@@ -259,14 +261,18 @@ function renderBackupMnemonic(mnemonic: string) {
 
 function renderUnlock(onUnlocked?: () => void) {
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
+  const forgotLink = h("button", { class: "link-btn", id: "forgot" }, ["Forgot password?"]);
   render(
-    h("h1", {}, ["Unlock"]),
+    h("div", { class: "hero" }, [h("div", { class: "avatar" }, ["T"])]),
+    h("h1", { style: "text-align:center" }, ["Welcome back"]),
     h("label", {}, ["Password"]),
-    h("input", { type: "password", id: "pw", maxlength: "256" }),
+    h("input", { type: "password", id: "pw", maxlength: "256", autofocus: "true" }),
     statusEl,
-    h("button", { class: "primary", id: "unlock" }, ["Unlock"])
+    h("button", { class: "primary", id: "unlock" }, ["Unlock"]),
+    forgotLink
   );
   const pw = document.getElementById("pw") as HTMLInputElement;
+  pw.focus();
   pw.addEventListener("keydown", (e) => {
     if (e.key === "Enter") document.getElementById("unlock")!.click();
   });
@@ -292,6 +298,48 @@ function renderUnlock(onUnlocked?: () => void) {
     } catch (e) {
       render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
     }
+  });
+  forgotLink.addEventListener("click", renderForgotPassword);
+}
+
+// A locked wallet with a forgotten password was previously a dead end — `popup-reset-wallet`
+// existed (wired from Settings) but nothing reachable from the lock screen itself could ever
+// call it, so there was no way back in without knowing devtools/chrome://extensions storage
+// wiping. This is the escape hatch, gated behind a typed confirmation (not just a click) since
+// it's irreversible and destroys the local seed if it isn't backed up elsewhere.
+function renderForgotPassword() {
+  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const confirmInput = h("input", { type: "text", id: "confirm", placeholder: "RESET", maxlength: "16" });
+  const resetBtn = h("button", { class: "danger", id: "reset", disabled: "true" }, ["Erase this wallet"]);
+  const statusEl = h("div", { class: "status err", id: "status", style: "display:none" });
+
+  render(
+    h("h1", {}, ["Forgot password?"]),
+    h("p", { class: "muted" }, [
+      "There's no password recovery for a self-custody wallet — resetting ",
+      h("b", {}, ["permanently erases this wallet from this device"]),
+      ", including every local account. You can only get back in afterward by importing your 24-word recovery phrase, so make sure you have it before continuing.",
+    ]),
+    h("label", {}, ['Type "RESET" to confirm']),
+    confirmInput,
+    statusEl,
+    resetBtn,
+    back
+  );
+
+  document.getElementById("back")!.addEventListener("click", () => renderUnlock());
+  confirmInput.addEventListener("input", () => {
+    (resetBtn as HTMLButtonElement).disabled = (confirmInput as HTMLInputElement).value !== "RESET";
+  });
+  resetBtn.addEventListener("click", async () => {
+    try {
+      await send({ kind: "popup-reset-wallet" });
+    } catch (e) {
+      statusEl.textContent = e instanceof Error ? e.message : String(e);
+      statusEl.style.display = "block";
+      return;
+    }
+    renderWelcome();
   });
 }
 
@@ -430,10 +478,24 @@ function renderSettings(status: WalletStatus) {
   const backupBtn = settingsRow("backup", "Reveal recovery phrase");
   const lockBtn = h("button", { class: "danger", id: "lock" }, ["Lock wallet"]);
 
+  const autoLockSelect = h(
+    "select",
+    { id: "autoLock", class: "settings-row-select", "aria-label": "Auto-lock after" },
+    AUTO_LOCK_OPTIONS.map((minutes) =>
+      h("option", { value: String(minutes), ...(minutes === status.autoLockMinutes ? { selected: "true" } : {}) }, [
+        formatAutoLockOption(minutes),
+      ])
+    )
+  );
+  const autoLockRow = h("div", { class: "settings-row settings-row-static" }, [
+    h("span", {}, ["Auto-lock after"]),
+    autoLockSelect,
+  ]);
+
   render(
     h("h1", {}, ["Settings"]),
     back,
-    h("div", { class: "card settings-card" }, [addAccountBtn, connectDaemonBtn, daemonsBtn, sitesBtn, backupBtn]),
+    h("div", { class: "card settings-card" }, [addAccountBtn, connectDaemonBtn, daemonsBtn, sitesBtn, backupBtn, autoLockRow]),
     lockBtn
   );
 
@@ -441,6 +503,9 @@ function renderSettings(status: WalletStatus) {
   document.getElementById("lock")!.addEventListener("click", async () => {
     await send({ kind: "popup-lock" });
     renderUnlock();
+  });
+  autoLockSelect.addEventListener("change", () => {
+    void send({ kind: "popup-set-auto-lock-minutes", minutes: Number((autoLockSelect as HTMLSelectElement).value) });
   });
   document.getElementById("addAccount")!.addEventListener("click", async () => {
     await send({ kind: "popup-add-account" });
@@ -1001,13 +1066,34 @@ async function renderApprovalDetails(approvalId: string) {
       h("button", { class: "secondary", id: "reject" }, ["Cancel"])
     );
   } else {
-    const summary = JSON.stringify(approval.instructions, null, 2);
+    const instructionCards = approval.instructions.map((instr, i) => {
+      const { title, detail } = summarizeInstruction(instr);
+      const args = summarizeArgs(instr);
+      return h("div", { class: "instruction-card" }, [
+        h("div", { class: "instruction-index" }, [String(i + 1)]),
+        h("div", { class: "instruction-body" }, [
+          h("div", { class: "instruction-title" }, [title]),
+          detail ? h("div", { class: "instruction-detail" }, [detail]) : "",
+          args.length > 0
+            ? h("div", { class: "instruction-args" }, [`with ${args.length} argument${args.length === 1 ? "" : "s"}`])
+            : "",
+        ]),
+      ]);
+    });
+
+    const rawJson = JSON.stringify(approval.instructions, null, 2);
+    const rawDetails = h("details", { class: "raw-details" }, [
+      h("summary", {}, ["View raw instruction data"]),
+      h("div", { class: "instruction-list" }, [rawJson]),
+    ]);
+
     render(
       h("h1", {}, ["Transaction request"]),
       h("p", { class: "muted" }, [h("b", {}, [approval.origin]), " wants you to sign and submit a transaction."]),
       approval.maxFee ? h("p", { class: "muted" }, [`Max fee: ${approval.maxFee}`]) : "",
       approval.dryRun ? h("p", { class: "muted" }, ["This is a dry run — nothing will be spent."]) : "",
-      h("div", { class: "instruction-list" }, [summary]),
+      h("div", { class: "instruction-cards" }, instructionCards),
+      rawDetails,
       h("button", { class: "primary", id: "approve" }, [approval.dryRun ? "Simulate" : "Approve & Sign"]),
       h("button", { class: "secondary", id: "reject" }, ["Reject"])
     );

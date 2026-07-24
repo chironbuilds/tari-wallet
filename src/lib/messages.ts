@@ -81,7 +81,8 @@ export type PopupRequest =
   | { kind: "popup-list-daemon-accounts"; connectionId: string }
   | { kind: "popup-add-daemon-accounts"; connectionId: string; accounts: { componentAddress: string; label: string }[] }
   | { kind: "popup-remove-daemon-connection"; connectionId: string }
-  | { kind: "popup-remove-daemon-account"; connectionId: string; componentAddress: string };
+  | { kind: "popup-remove-daemon-account"; connectionId: string; componentAddress: string }
+  | { kind: "popup-set-auto-lock-minutes"; minutes: number };
 
 export interface AccountSummary {
   id: string;
@@ -104,6 +105,7 @@ export interface WalletStatus {
   activeAccountError: string | null;
   accounts: AccountSummary[];
   daemonConnections: { id: string; url: string; label: string }[];
+  autoLockMinutes: number;
 }
 
 /** One account as reported by a wallet daemon's `accounts.list`/`accounts.get` JRPC, surfaced to

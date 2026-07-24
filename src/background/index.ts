@@ -27,8 +27,10 @@ import type {
 } from "../lib/messages";
 import { DaemonAccount } from "../lib/daemonAccount";
 import { clearAccountCache, getAccountById, getActiveAccount, getDaemonClient } from "./accounts";
-import { clearUnlockedSeed, getUnlockedSeed, isUnlocked, setUnlockedSeed } from "./session";
+import { clearUnlockedSeed, getLastActivity, getUnlockedSeed, isUnlocked, setUnlockedSeed, touchActivity } from "./session";
 import { getPendingApproval, requestApproval, resolveApproval } from "./approvals";
+import { shouldAutoLock } from "../lib/autoLock";
+import { encryptSecret } from "../lib/secretAtRest";
 
 // chrome.runtime.sendMessage serializes its payload as JSON, not a full structured clone — a
 // BigInt anywhere in a response (transaction results, token amounts) makes the whole send fail
@@ -70,6 +72,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handlePageRequest(message: PageRequestMessage, _sender: chrome.runtime.MessageSender): Promise<unknown> {
   const { origin, method, params } = message;
+  await touchActivity();
 
   switch (method) {
     case "tari_getNetwork": {
@@ -219,10 +222,12 @@ async function buildStatus(): Promise<WalletStatus> {
     activeAccountError,
     accounts: [...localAccounts, ...daemonAccounts],
     daemonConnections: state.daemonConnections.map((c) => ({ id: c.id, url: c.url, label: c.label })),
+    autoLockMinutes: state.autoLockMinutes,
   };
 }
 
 async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
+  await touchActivity();
   switch (message.kind) {
     case "popup-get-status":
       return buildStatus();
@@ -327,11 +332,19 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     }
 
     case "popup-connect-daemon": {
+      // Adding a daemon connection requires the wallet to be unlocked -- its API key is
+      // encrypted with a key derived from the seed (see secretAtRest.ts), so there's nothing to
+      // derive that encryption key from otherwise. In practice Settings (where this is reached
+      // from) is already unreachable while locked, so this should never actually trip; it's here
+      // so the failure is a clear message rather than a confusing crash if that ever changes.
+      const seed = await getUnlockedSeed();
+      if (!seed) throw new Error("Wallet is locked.");
       const id = crypto.randomUUID();
       // Validates connectivity/the API key up front so a bad URL or key fails here, in the
       // "connect" step, rather than silently later on the first real account operation.
       const client = await DaemonAccount.connectClient(message.url, message.apiKey);
-      await addDaemonConnection({ id, url: message.url, apiKey: message.apiKey, label: message.label });
+      const encryptedApiKey = await encryptSecret(seed, message.apiKey);
+      await addDaemonConnection({ id, url: message.url, encryptedApiKey, label: message.label });
       const accounts = await DaemonAccount.listAccounts(client, message.url);
       const options: DaemonAccountOption[] = accounts.map((a) => ({
         componentAddress: a.component_address,
@@ -341,7 +354,9 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     }
 
     case "popup-list-daemon-accounts": {
-      const { client, url } = await getDaemonClient(message.connectionId);
+      const seed = await getUnlockedSeed();
+      if (!seed) throw new Error("Wallet is locked.");
+      const { client, url } = await getDaemonClient(message.connectionId, seed);
       const accounts = await DaemonAccount.listAccounts(client, url);
       const options: DaemonAccountOption[] = accounts.map((a) => ({
         componentAddress: a.component_address,
@@ -371,6 +386,11 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       return {};
     }
 
+    case "popup-set-auto-lock-minutes": {
+      await setState({ autoLockMinutes: message.minutes });
+      return {};
+    }
+
     default:
       throw new Error(`Unknown popup message: ${JSON.stringify(message)}`);
   }
@@ -382,3 +402,30 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
 chrome.runtime.onStartup.addListener(() => {
   clearAccountCache();
 });
+
+// ---------------------------------------------------------------------------
+// Auto-lock on inactivity
+// ---------------------------------------------------------------------------
+// Before this, there was no auto-lock at all: chrome.storage.session (see session.ts) keeps the
+// decrypted seed alive until the whole browser closes, no matter how long the wallet sat idle —
+// real exposure on a shared or unattended machine. chrome.alarms (not setInterval/setTimeout) is
+// what actually works here: MV3 kills this service worker after ~30s of inactivity, and a plain
+// timer dies with it, while an alarm persists and re-fires even across a worker restart.
+const AUTO_LOCK_ALARM = "tari-auto-lock-check";
+
+chrome.alarms.create(AUTO_LOCK_ALARM, { periodInMinutes: 1 });
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== AUTO_LOCK_ALARM) return;
+  void checkAutoLock();
+});
+
+async function checkAutoLock(): Promise<void> {
+  if (!(await isUnlocked())) return;
+  const lastActivity = await getLastActivity();
+  if (lastActivity === null) return; // defensive: shouldn't happen while unlocked
+  const { autoLockMinutes } = await getState();
+  if (!shouldAutoLock(lastActivity, Date.now(), autoLockMinutes)) return;
+  await clearUnlockedSeed();
+  clearAccountCache();
+}

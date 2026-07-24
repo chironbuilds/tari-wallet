@@ -5,6 +5,7 @@
 // browser fully closes), but it survives service-worker restarts within a browsing session. This
 // is the same pattern other MV3 wallet extensions use for exactly this reason.
 const SEED_KEY = "unlockedSeedHex";
+const ACTIVITY_KEY = "lastActivityMs";
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes)
@@ -19,7 +20,7 @@ function fromHex(hex: string): Uint8Array {
 }
 
 export async function setUnlockedSeed(seed: Uint8Array): Promise<void> {
-  await chrome.storage.session.set({ [SEED_KEY]: toHex(seed) });
+  await chrome.storage.session.set({ [SEED_KEY]: toHex(seed), [ACTIVITY_KEY]: Date.now() });
 }
 
 export async function getUnlockedSeed(): Promise<Uint8Array | null> {
@@ -28,9 +29,22 @@ export async function getUnlockedSeed(): Promise<Uint8Array | null> {
 }
 
 export async function clearUnlockedSeed(): Promise<void> {
-  await chrome.storage.session.remove(SEED_KEY);
+  await chrome.storage.session.remove([SEED_KEY, ACTIVITY_KEY]);
 }
 
 export async function isUnlocked(): Promise<boolean> {
   return (await getUnlockedSeed()) !== null;
+}
+
+/** Marks the wallet as just-used, resetting the auto-lock countdown. Call on every real request
+ * handled while unlocked (see background/index.ts) — opening the popup, a dApp call, sending,
+ * etc. all count as "in use." */
+export async function touchActivity(): Promise<void> {
+  await chrome.storage.session.set({ [ACTIVITY_KEY]: Date.now() });
+}
+
+/** Null if the wallet has never been unlocked this session. */
+export async function getLastActivity(): Promise<number | null> {
+  const { [ACTIVITY_KEY]: v } = await chrome.storage.session.get(ACTIVITY_KEY);
+  return typeof v === "number" ? v : null;
 }

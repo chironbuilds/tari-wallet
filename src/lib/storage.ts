@@ -1,6 +1,10 @@
 // Thin wrapper around chrome.storage.local for everything the wallet persists between browser
-// restarts. Only the encrypted vault blob is sensitive; everything else here is metadata.
+// restarts. The encrypted vault blob and every daemon connection's API key are the sensitive
+// pieces here — see vault.ts and secretAtRest.ts respectively for how each is protected;
+// everything else in this file is plain metadata.
 import type { EncryptedVault } from "./vault";
+import type { EncryptedSecret } from "./secretAtRest";
+import { DEFAULT_AUTO_LOCK_MINUTES } from "./autoLock";
 
 export interface ConnectedSite {
   origin: string;
@@ -16,11 +20,16 @@ export interface ConnectedSite {
  * confirmed with the tari-ootle maintainers that a `chrome-extension://` origin can't hold a
  * daemon browser session at all (session refresh needs an HttpOnly cookie this origin never gets;
  * WebAuthn's RP origin is locked to `http://localhost:{port}` regardless). See `DaemonAccount`.
+ *
+ * `encryptedApiKey` (not a plain `apiKey: string`) -- this key carries the daemon's `admin`
+ * permission (see README "Daemon-relayed accounts"), the same severity of credential as the
+ * wallet seed itself, so it gets the same "unreadable without the unlocked wallet" protection
+ * via secretAtRest.ts rather than sitting in chrome.storage.local as plain text.
  */
 export interface DaemonConnectionConfig {
   id: string;
   url: string;
-  apiKey: string;
+  encryptedApiKey: EncryptedSecret;
   label: string;
 }
 
@@ -41,6 +50,8 @@ export interface WalletState {
   connectedSites: ConnectedSite[];
   daemonConnections: DaemonConnectionConfig[];
   daemonAccounts: DaemonAccountRef[];
+  /** Minutes of inactivity before the wallet auto-locks; 0 = never. See src/lib/autoLock.ts. */
+  autoLockMinutes: number;
 }
 
 const DEFAULTS: WalletState = {
@@ -51,6 +62,7 @@ const DEFAULTS: WalletState = {
   connectedSites: [],
   daemonConnections: [],
   daemonAccounts: [],
+  autoLockMinutes: DEFAULT_AUTO_LOCK_MINUTES,
 };
 
 export function localAccountId(index: number): string {
