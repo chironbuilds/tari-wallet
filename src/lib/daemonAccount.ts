@@ -211,6 +211,12 @@ export class DaemonAccount implements WalletAccountApi {
       resourceAddress: b.resource_address,
       kind: b.resource_type,
       amount: BigInt(b.balance),
+      // The daemon computes this server-side with its own view-key access (BalanceEntry's
+      // own `confidential_balance` field) — no client-side decryption needed or possible here,
+      // unlike OotleAccount.getBalances(). confidentialDecryptFailures has no daemon-side
+      // equivalent to report, so it's always 0 for this account type.
+      confidentialAmount: BigInt(b.confidential_balance),
+      confidentialDecryptFailures: 0,
       divisibility: b.divisibility,
       symbol: b.token_symbol,
       name: nameByResource.get(b.resource_address) ?? null,

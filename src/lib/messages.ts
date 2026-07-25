@@ -70,6 +70,18 @@ export type PopupRequest =
   | { kind: "popup-get-balances" }
   | { kind: "popup-claim-testnet-xtr" }
   | { kind: "popup-send"; toAddress: string; resourceAddress: string; amount: string }
+  | { kind: "popup-shield"; resourceAddress: string; amount: string; maxFee?: string }
+  | { kind: "popup-unshield"; resourceAddress: string; commitment: string; revealedAmount: string; maxFee?: string }
+  | {
+      kind: "popup-send-privately";
+      resourceAddress: string;
+      commitment: string;
+      recipientWalletAddress: string;
+      amount: string;
+      maxFee?: string;
+    }
+  | { kind: "popup-list-shielded-outputs"; resourceAddress: string }
+  | { kind: "popup-claim-private-payment"; resourceAddress: string; commitment: string }
   | { kind: "popup-add-account" }
   | { kind: "popup-set-active-account"; accountId: string }
   | { kind: "popup-get-connected-sites" }

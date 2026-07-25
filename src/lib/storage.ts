@@ -40,6 +40,58 @@ export interface DaemonAccountRef {
   label: string;
 }
 
+/**
+ * A stealth (confidential) output this wallet created via a shield transfer, recorded so a
+ * later unshield can find it — there is no way to scan/list stealth UTXOs by view key alone
+ * (see confidential.ts / OotleAccount.shield()'s doc comment), so this local record is the
+ * *only* lead back to the commitment once the shield transaction finalizes.
+ *
+ * `commitment` is public on-chain data (derivable from the resulting utxo_{resource}_{commitment}
+ * substate id) — no more sensitive than a resource/vault address, so this is plain metadata, not
+ * `secretAtRest.ts`-encrypted like the daemon API key or the seed.
+ */
+export interface ShieldedOutputRecord {
+  accountId: string;
+  resourceAddress: string;
+  /** 32-byte Pedersen commitment, hex. */
+  commitment: string;
+  /** Raw, resource-native units (matches TokenBalance.amount's convention). */
+  amount: string;
+  transactionId: string;
+  createdAt: number;
+  /** Set true once this output has been spent via unshield. */
+  spent: boolean;
+}
+
+/**
+ * A shield or unshield submitted but not yet confirmed recorded in `shieldedOutputs` — carries
+ * every field `recordShieldedOutput`/`markShieldedOutputSpent` need to complete the write on
+ * recovery (see `OotleAccount.shield()`'s doc comment for why this exists: a killed service
+ * worker between finalization and the storage write would otherwise strand the only lead to a
+ * real commitment). A bare transaction-id list wouldn't be enough to recover from — the
+ * account/resource/amount aren't otherwise recoverable from the id alone.
+ */
+export interface PendingShield {
+  transactionId: string;
+  accountId: string;
+  resourceAddress: string;
+  amount: string;
+  /** Set for an unshield's pending entry: the now-spent commitment to mark on recovery, once the
+   * new (change) `ShieldedOutputRecord` above has been written. Absent for a plain shield. */
+  spentCommitment?: string;
+  /**
+   * This account's own new commitment, if this operation creates one — known locally (read from
+   * the outputs statement built *before* submission, since a stealth output's commitment is
+   * generated client-side during `prepare()`) rather than inferred after the fact by scanning
+   * the finalized transaction's `up_substates`. Set for shield (the shielded amount itself),
+   * unshield (the private remainder), and a private send that leaves change; absent for a
+   * private send that spends an entire record with no change, where there is genuinely nothing
+   * new to record for this account (its `up_substates` contains only the *recipient's* new
+   * stealth output, which must never be attributed to us).
+   */
+  ownCommitment?: string;
+}
+
 export interface WalletState {
   vault: EncryptedVault | null;
   accountCount: number; // how many *local* (seed-derived) accounts have been derived/revealed
@@ -52,6 +104,16 @@ export interface WalletState {
   daemonAccounts: DaemonAccountRef[];
   /** Minutes of inactivity before the wallet auto-locks; 0 = never. See src/lib/autoLock.ts. */
   autoLockMinutes: number;
+  /** Every stealth output this wallet has shielded, local-account only (see ShieldedOutputRecord). */
+  shieldedOutputs: ShieldedOutputRecord[];
+  /** Shields submitted but not yet confirmed written to `shieldedOutputs` — see PendingShield's
+   * doc comment for why this recovery ledger exists. */
+  pendingShields: PendingShield[];
+  /** Per-account cursor for `OotleAccount.scanForPrivatePayments()` -- the newest transaction id
+   * seen on the last scan, keyed by accountId. Lets a scan that runs opportunistically on every
+   * `popup-get-status` only walk transactions newer than the last one it already looked at,
+   * instead of re-scanning the indexer's whole recent-transactions feed every time. */
+  privatePaymentScanCursors: Record<string, string>;
 }
 
 const DEFAULTS: WalletState = {
@@ -63,6 +125,9 @@ const DEFAULTS: WalletState = {
   daemonConnections: [],
   daemonAccounts: [],
   autoLockMinutes: DEFAULT_AUTO_LOCK_MINUTES,
+  shieldedOutputs: [],
+  pendingShields: [],
+  privatePaymentScanCursors: {},
 };
 
 export function localAccountId(index: number): string {
@@ -155,4 +220,47 @@ export async function removeDaemonAccount(connectionId: string, componentAddress
 
 export async function wipeWallet(): Promise<void> {
   await chrome.storage.local.clear();
+}
+
+export async function listShieldedOutputs(accountId: string): Promise<ShieldedOutputRecord[]> {
+  const { shieldedOutputs } = await getState();
+  return shieldedOutputs.filter((r) => r.accountId === accountId);
+}
+
+export async function addShieldedOutput(record: ShieldedOutputRecord): Promise<void> {
+  const state = await getState();
+  await setState({ shieldedOutputs: [...state.shieldedOutputs, record] });
+}
+
+export async function markShieldedOutputSpent(accountId: string, commitment: string): Promise<void> {
+  const state = await getState();
+  await setState({
+    shieldedOutputs: state.shieldedOutputs.map((r) => (r.accountId === accountId && r.commitment === commitment ? { ...r, spent: true } : r)),
+  });
+}
+
+export async function listPendingShields(): Promise<PendingShield[]> {
+  const { pendingShields } = await getState();
+  return pendingShields;
+}
+
+export async function addPendingShield(pending: PendingShield): Promise<void> {
+  const state = await getState();
+  if (state.pendingShields.some((p) => p.transactionId === pending.transactionId)) return;
+  await setState({ pendingShields: [...state.pendingShields, pending] });
+}
+
+export async function removePendingShield(transactionId: string): Promise<void> {
+  const state = await getState();
+  await setState({ pendingShields: state.pendingShields.filter((p) => p.transactionId !== transactionId) });
+}
+
+export async function getPrivatePaymentScanCursor(accountId: string): Promise<string | null> {
+  const { privatePaymentScanCursors } = await getState();
+  return privatePaymentScanCursors[accountId] ?? null;
+}
+
+export async function setPrivatePaymentScanCursor(accountId: string, transactionId: string): Promise<void> {
+  const state = await getState();
+  await setState({ privatePaymentScanCursors: { ...state.privatePaymentScanCursors, [accountId]: transactionId } });
 }

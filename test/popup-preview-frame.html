@@ -33,8 +33,47 @@
   };
 
   const balances = [
-    { resourceAddress: "resource_0101010101010101010101010101010101010101010101010101010101010101", kind: "Fungible", amount: "1250000000", divisibility: 6, symbol: "XTR", name: "Tari" },
-    { resourceAddress: "resource_demo000000000000000000000000000000000000000000000000000", kind: "Fungible", amount: "42000000000", divisibility: 8, symbol: "DEMO", name: "DemoToken" },
+    {
+      resourceAddress: "resource_0101010101010101010101010101010101010101010101010101010101010101",
+      kind: "Confidential",
+      amount: "1250000000",
+      confidentialAmount: "3400000",
+      confidentialDecryptFailures: 0,
+      divisibility: 6,
+      symbol: "XTR",
+      name: "Tari",
+    },
+    {
+      resourceAddress: "resource_demo000000000000000000000000000000000000000000000000000",
+      kind: "Fungible",
+      amount: "42000000000",
+      confidentialAmount: "0",
+      confidentialDecryptFailures: 0,
+      divisibility: 8,
+      symbol: "DEMO",
+      name: "DemoToken",
+    },
+  ];
+
+  const shieldedOutputs = [
+    {
+      accountId: "local:0",
+      resourceAddress: "resource_0101010101010101010101010101010101010101010101010101010101010101",
+      commitment: "aa11".repeat(16),
+      amount: "2000000",
+      transactionId: "tx-preview-shield-1",
+      createdAt: Date.now() - 3600_000,
+      spent: false,
+    },
+    {
+      accountId: "local:0",
+      resourceAddress: "resource_0101010101010101010101010101010101010101010101010101010101010101",
+      commitment: "bb22".repeat(16),
+      amount: "1400000",
+      transactionId: "tx-preview-shield-2",
+      createdAt: Date.now() - 7200_000,
+      spent: false,
+    },
   ];
 
   const statusByScenario = {
@@ -46,6 +85,9 @@
     settings: baseStatus,
     "approval-connect": baseStatus,
     "approval-transaction": baseStatus,
+    "token-detail": baseStatus,
+    shield: baseStatus,
+    unshield: baseStatus,
   };
 
   const pendingApprovalByScenario = {
@@ -91,13 +133,18 @@
       case "popup-get-status":
         return statusByScenario[scenario] ?? baseStatus;
       case "popup-get-balances":
-        return scenario === "send" || scenario === "home" ? balances : [];
+        return ["send", "home", "token-detail", "shield", "unshield", "send-privately"].includes(scenario) ? balances : [];
       case "popup-get-pending-approval":
         return pendingApprovalByScenario[scenario] ?? null;
       case "popup-resolve-approval":
         return { resolved: true };
       case "popup-get-connected-sites":
         return [];
+      case "popup-list-shielded-outputs":
+        return { outputs: shieldedOutputs.filter((o) => o.resourceAddress === message.resourceAddress) };
+      case "popup-shield":
+      case "popup-unshield":
+        return { transactionId: "tx-preview-fake" };
       case "popup-lock":
       case "popup-set-auto-lock-minutes":
         return {};
@@ -128,6 +175,42 @@
       const btn = document.getElementById("forgot");
       if (btn) { clearInterval(wait); btn.click(); }
     }, 100);
+  }
+  // token-detail / shield / unshield / send-privately all start by clicking into the first
+  // balance row (XTR, the Confidential-kind fixture) from the home screen, then optionally into
+  // Shield/Unshield/Send-privately.
+  const scenarioParam = new URLSearchParams(location.search).get("scenario");
+  if (
+    scenarioParam === "token-detail" ||
+    scenarioParam === "shield" ||
+    scenarioParam === "unshield" ||
+    scenarioParam === "send-privately"
+  ) {
+    const clickWhenPresent = (selector, root = document) =>
+      new Promise((resolve) => {
+        const wait = setInterval(() => {
+          const el = root.querySelector(selector);
+          if (el) { clearInterval(wait); el.click(); resolve(); }
+        }, 100);
+      });
+    (async () => {
+      await clickWhenPresent(".balance-row.clickable");
+      if (scenarioParam === "shield") {
+        await clickWhenPresent("button.secondary"); // "Shield XTR" (first secondary button on token detail)
+      } else if (scenarioParam === "unshield") {
+        const wait = setInterval(() => {
+          const buttons = [...document.querySelectorAll("button.secondary")];
+          const btn = buttons.find((b) => b.textContent && b.textContent.includes("Unshield"));
+          if (btn) { clearInterval(wait); btn.click(); }
+        }, 100);
+      } else if (scenarioParam === "send-privately") {
+        const wait = setInterval(() => {
+          const buttons = [...document.querySelectorAll("button.secondary")];
+          const btn = buttons.find((b) => b.textContent && b.textContent.includes("privately"));
+          if (btn) { clearInterval(wait); btn.click(); }
+        }, 100);
+      }
+    })();
   }
 </script>
 </body>

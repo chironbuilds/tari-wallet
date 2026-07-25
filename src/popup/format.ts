@@ -2,7 +2,16 @@
 // main.ts (which has DOM side effects on import — it calls main() at module load) specifically so
 // this file can be unit tested directly.
 
-export type Balance = { resourceAddress: string; kind: string; amount: string; divisibility: number; symbol: string | null; name: string | null };
+export type Balance = {
+  resourceAddress: string;
+  kind: string;
+  amount: string;
+  confidentialAmount: string;
+  confidentialDecryptFailures: number;
+  divisibility: number;
+  symbol: string | null;
+  name: string | null;
+};
 
 // Mirrors `TARI_RESOURCE_ADDRESS` from `@tari-project/ootle` (not imported directly here — that
 // would pull the whole wasm-backed SDK into the popup bundle just for one constant string).
@@ -107,4 +116,11 @@ export const MAX_DAEMON_LABEL_LENGTH = 60;
  * a much more confusing on-chain rejection later. */
 export function isValidComponentAddress(address: string): boolean {
   return /^component_[0-9a-f]{64}$/i.test(address);
+}
+
+/** A bech32m Ootle wallet address ("otl_<network>_<data>", e.g. "otl_esm_1v3sn...") — a loose
+ * shape check, not full bech32m checksum validation (that happens wasm-side on submission
+ * regardless); this just catches an obviously wrong or truncated paste before it gets that far. */
+export function isValidOotleWalletAddress(address: string): boolean {
+  return /^otl_[a-z0-9]+_[a-z0-9]{20,}$/i.test(address.trim());
 }

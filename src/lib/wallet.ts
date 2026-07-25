@@ -1,10 +1,16 @@
 import {
   Network,
+  OotleWallet,
+  StealthTransfer,
   TransactionBuilder,
+  WalletStealthAuthorizer,
+  WasmStealthCrypto,
   XTR_FAUCET_CLAIM_RESOURCE_ADDRESS,
   XTR_FAUCET_COMPONENT_ADDRESS,
   XTR_FAUCET_VAULT_ADDRESS,
   amountLiteral,
+  createOutput,
+  decryptOwnedUtxo,
   defaultIndexerUrl,
   getVaultIdsForAccount,
   resolveTransaction,
@@ -12,12 +18,15 @@ import {
   sealTransaction,
   sendTransaction,
   signTransaction,
+  stealthUtxoSubstateId,
+  submitTransaction,
 } from "@tari-project/ootle";
-import type { UnsignedTransactionWithBlobs } from "@tari-project/ootle";
+import type { StealthTransferSpec, UnsignedTransactionWithBlobs } from "@tari-project/ootle";
 import type {
   IndexerGetTransactionResultResponse,
   IndexerSubmitTransactionResponse,
   Instruction,
+  OutputBody,
   Substate,
   SubstateRequirement,
 } from "@tari-project/ootle-ts-bindings";
@@ -25,14 +34,38 @@ import { IndexerProvider } from "@tari-project/ootle-indexer";
 import { SecretKeyWallet } from "@tari-project/ootle-secret-key-wallet";
 import type { WalletAccountApi } from "./accountApi";
 import { deriveAccountComponentAddress } from "./componentAddress";
+import { scanTransactionsForOwnedOutputs, sumConfidentialCommitments } from "./confidential";
 import { deriveAccountKeys } from "./derivation";
 import { type NetworkName, toOotleNetwork } from "./ootleNetwork";
+import {
+  addPendingShield,
+  addShieldedOutput,
+  getPrivatePaymentScanCursor,
+  listPendingShields,
+  listShieldedOutputs,
+  localAccountId,
+  markShieldedOutputSpent,
+  removePendingShield,
+  setPrivatePaymentScanCursor,
+} from "./storage";
+import type { ShieldedOutputRecord } from "./storage";
 import { withTimeout } from "./timeout";
+import { fromHex } from "./vault";
 
 export interface TokenBalance {
   resourceAddress: string;
   kind: string; // "Fungible" | "NonFungible" | "Confidential" | "Stealth"
+  /** The plain, public (revealed) amount — what this vault shows on-chain to anyone. */
   amount: bigint;
+  /** Value hidden inside this vault's Pedersen commitments, decrypted with this account's own
+   * view key (see confidential.ts) — 0n for every kind except Confidential, and for a
+   * Confidential vault with no commitments. Never requires a network call beyond what
+   * getBalances() already fetches. */
+  confidentialAmount: bigint;
+  /** Commitments that failed to decrypt against this account's view key. Expected to be 0 for a
+   * vault's own commitments map (every entry there should be ours) — nonzero is worth surfacing,
+   * not silently swallowing. */
+  confidentialDecryptFailures: number;
   /** The resource's on-chain decimal precision (e.g. 6 for XTR, 8 for a typical DemoToken) —
    * a real `Resource.divisibility` field, not a guessed convention. */
   divisibility: number;
@@ -135,7 +168,7 @@ export class OotleAccount implements WalletAccountApi {
     if (vaultIds.length === 0) return [];
 
     const { substates } = await withTimeout(provider.fetchSubstates(vaultIds), 15_000, "fetching vault balances");
-    const parsed: { resourceAddress: string; kind: string; amount: bigint }[] = [];
+    const parsed: { resourceAddress: string; kind: string; amount: bigint; commitments?: Record<string, OutputBody> }[] = [];
     for (const id of vaultIds) {
       const substate: Substate | undefined = substates[id];
       const value = substate?.substate;
@@ -143,9 +176,26 @@ export class OotleAccount implements WalletAccountApi {
       const container = value.Vault.resource_container;
       const [kind, data] = Object.entries(container)[0] as [string, Record<string, unknown>];
       const rawAmount = (data.amount ?? data.revealed_amount ?? 0) as string | number | bigint;
-      parsed.push({ resourceAddress: data.address as string, kind, amount: BigInt(rawAmount) });
+      const commitments = kind === "Confidential" ? (data.commitments as Record<string, OutputBody> | undefined) : undefined;
+      parsed.push({ resourceAddress: data.address as string, kind, amount: BigInt(rawAmount), commitments });
     }
     if (parsed.length === 0) return [];
+
+    // Decrypt each Confidential vault's hidden commitments with this account's own view key —
+    // pure local decryption of data already fetched above, no new network calls. One crypto
+    // provider + one view-secret fetch is reused across every confidential vault in this
+    // account rather than re-deriving per vault.
+    const confidentialByIndex = new Map<number, { total: bigint; failedCount: number }>();
+    const hasConfidential = parsed.some((p) => p.commitments && Object.keys(p.commitments).length > 0);
+    if (hasConfidential) {
+      const crypto = new WasmStealthCrypto(this.network);
+      const viewSecret = await this.signer.getViewSecret();
+      for (const [i, p] of parsed.entries()) {
+        const commitments = p.commitments;
+        if (!commitments || Object.keys(commitments).length === 0) continue;
+        confidentialByIndex.set(i, await sumConfidentialCommitments(crypto, viewSecret, commitments));
+      }
+    }
 
     // Batch-fetch each distinct resource's own substate for its real `divisibility` and metadata
     // symbol/name — decimal precision and display name are both on-chain data, not a client-side
@@ -165,8 +215,24 @@ export class OotleAccount implements WalletAccountApi {
       nameByResource.set(id, typeof metadata?.name === "string" ? metadata.name : null);
     }
 
-    const balances: TokenBalance[] = parsed.map((p) => ({
-      ...p,
+    // Fold in this account's own known-good stealth outputs (from shield()/unshield() -- see
+    // ShieldedOutputRecord's doc comment for why this local ledger is the only lead to them at
+    // all: they're freestanding `utxo_{resource}_{commitment}` substates, never entries in a
+    // vault's own `Confidential.commitments` map, so nothing above this point ever sees them.
+    // Without this, a token whose *only* private value came from shield() would show a private
+    // balance of 0 despite genuinely holding some.
+    const shieldedByResource = new Map<string, bigint>();
+    for (const record of await listShieldedOutputs(localAccountId(this.index))) {
+      if (record.spent) continue;
+      shieldedByResource.set(record.resourceAddress, (shieldedByResource.get(record.resourceAddress) ?? 0n) + BigInt(record.amount));
+    }
+
+    const balances: TokenBalance[] = parsed.map((p, i) => ({
+      resourceAddress: p.resourceAddress,
+      kind: p.kind,
+      amount: p.amount,
+      confidentialAmount: (confidentialByIndex.get(i)?.total ?? 0n) + (shieldedByResource.get(p.resourceAddress) ?? 0n),
+      confidentialDecryptFailures: confidentialByIndex.get(i)?.failedCount ?? 0,
       divisibility: divisibilityByResource.get(p.resourceAddress) ?? 0,
       symbol: symbolByResource.get(p.resourceAddress) ?? null,
       name: nameByResource.get(p.resourceAddress) ?? null,
@@ -334,30 +400,7 @@ export class OotleAccount implements WalletAccountApi {
     const signed = await signTransaction([this.signer], resolved);
     const envelope = sealTransaction(signed);
     const { transaction_id } = await provider.submitTransaction(envelope);
-
-    const deadline = Date.now() + 60_000;
-    for (;;) {
-      const response = await provider.getTransactionResult(transaction_id);
-      const result = response.result;
-      if (result === "Pending") {
-        if (Date.now() > deadline) throw new Error(`Timed out waiting for transaction ${transaction_id} to finalize.`);
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        continue;
-      }
-      if ("Rejected" in result) {
-        throw new Error(`Transaction ${transaction_id} was rejected: ${result.Rejected.details}`);
-      }
-      const outcome = result.Finalized.execution_result?.finalize.result;
-      if (outcome && typeof outcome === "object") {
-        if ("Reject" in outcome) {
-          throw new Error(`Transaction ${transaction_id} was rejected: ${JSON.stringify(outcome.Reject)}`);
-        }
-        if ("AcceptFeeRejectRest" in outcome) {
-          throw new Error(`Transaction ${transaction_id} accepted the fee but rejected the rest: ${JSON.stringify(outcome.AcceptFeeRejectRest)}`);
-        }
-      }
-      return response;
-    }
+    return pollTransactionResult(provider, transaction_id);
   }
 
   /**
@@ -441,6 +484,437 @@ export class OotleAccount implements WalletAccountApi {
       }
     }
   }
+
+  /**
+   * Shields (moves from revealed to private/confidential) `amount` of `resourceAddress`, held as
+   * a new stealth output owned by this same account. Uses an entirely separate submission
+   * pipeline from `execute()`: the SDK's `StealthTransfer` builder produces its own
+   * `TransactionEnvelope` directly (via `WalletStealthAuthorizer`/`AuthorizedTransfer`), not
+   * through `TransactionBuilder`/`resolveTransaction`/`signTransaction`/`sealTransaction`.
+   *
+   * The one genuinely new failure mode this adds beyond `send()`: if the extension's service
+   * worker is killed *after* the transaction finalizes on-chain but *before* the resulting
+   * commitment is written to storage, the shield succeeds financially but the wallet loses its
+   * only lead back to that output — worse than a failed `send()`, whose destination is always a
+   * known component address. `pendingShieldTransactionIds` (written before polling, cleared only
+   * after the commitment record is stored) narrows that window to "killed between finalization
+   * and one storage write" and gives `recoverPendingShields()` (background/index.ts) something
+   * to reconcile on next launch.
+   *
+   * `maxFee` defaults far higher than `send()`'s 5000 -- confirmed live that 5000 gets
+   * "AcceptFeeRejectRest" with `ExecutionFailure: "Insufficient fees to fund native
+   * verification"` (the stealth balance proof / range proof verification costs real compute
+   * points beyond the engine's free grace allowance). Unused fee is refunded on success, so
+   * erring high just wastes nothing; erring low burns the small fee-intent cost with nothing to
+   * show for it, since only the fee half of the transaction gets committed.
+   */
+  async shield(resourceAddress: string, amount: bigint, maxFee = 50000n): Promise<{ transactionId: string }> {
+    const accountId = localAccountId(this.index);
+    const provider = await this.getProvider();
+    const account = await this.getComponentAddress();
+    // Output.destination decodes as a bech32m wallet address (owner_key + view_key), NOT the
+    // on-chain component address -- passing `account` here throws "Bech32 decode error" (confirmed
+    // live). See getWalletAddress()'s doc comment for why these two addresses are easy to conflate.
+    const walletAddress = await this.getWalletAddress();
+
+    const spec = await new StealthTransfer(provider, resourceAddress)
+      .spendRevealedInput(account, amount)
+      .toStealthOutput(createOutput({ destination: walletAddress, amount, resourceAddress }))
+      .payFeeFromRevealed(maxFee)
+      .prepare();
+    const ownCommitment = extractOutputCommitment(spec, 0);
+
+    const wallet = new OotleWallet().registerKeyProvider(account, this.signer).setDefaultSigner(account);
+    // No stealth inputs to unblind for a shield (revealed-only source), so no viewSecret needed.
+    // `fromSpec`'s own default crypto is `new WasmStealthCrypto()` -- Network.LocalNet, NOT this
+    // account's real network -- which produced an "Invalid transaction signature" server-side
+    // rejection (confirmed live) since the balance proof it computes is network-domain-separated.
+    // Must match the network StealthTransfer itself used when it built the outputs statement.
+    const authorized = await WalletStealthAuthorizer.fromSpec(wallet, spec, { crypto: new WasmStealthCrypto(this.network) }).prepare(
+      provider
+    );
+    const envelope = await authorized.seal();
+    const transactionId = await submitTransaction(provider, envelope);
+
+    await addPendingShield({ transactionId, accountId, resourceAddress, amount: amount.toString(), ownCommitment });
+    try {
+      const response = await withTimeout(pollTransactionResult(provider, transactionId), 60_000, "submitting the shield transaction");
+      await recordKnownVersions(response);
+      await recordKnownShieldedOutput(accountId, resourceAddress, ownCommitment, amount, transactionId);
+    } finally {
+      await removePendingShield(transactionId);
+    }
+    return { transactionId };
+  }
+
+  /**
+   * Unshields (moves from private/confidential back to revealed) a stealth output this account
+   * previously shielded — see `ShieldedOutputRecord`'s doc comment for why a known local record
+   * is the only way to spend one (no client-side scan-by-view-key API exists for stealth UTXOs).
+   *
+   * Two `StealthTransfer` builder requirements, confirmed directly against its `validate()`/
+   * `emitInstructions()` source (not assumed from the docs alone), shape this method:
+   *
+   * 1. `toRevealedOutput`/`payFeeFromRevealed` both require a revealed source account already
+   *    registered via `spendRevealedInput`, which itself requires an amount `> 0` — there is no
+   *    way to register just the account without withdrawing something. This method withdraws a
+   *    trivial `1n`-unit "dust" amount for that sole purpose and folds it straight back into the
+   *    revealed output (`revealedOutAmount + 1n`), so it costs nothing beyond the tx fee.
+   * 2. The builder always requires at least one stealth output — a "pure" 100%-revealed spend
+   *    with zero private remainder cannot be constructed in one step. This method always creates
+   *    a new stealth output for `record.amount - revealedOutAmount` back to this same account, so
+   *    `revealedOutAmount` must be strictly less than the spent record's full amount.
+   *
+   * Shares `shield()`'s mid-flight crash safety: the pending-shield ledger entry carries
+   * `spentCommitment` so `recoverPendingShields()` can both record the new change output *and*
+   * mark the spent one, even if the service worker dies between finalization and the storage
+   * writes.
+   */
+  async unshield(
+    resourceAddress: string,
+    commitmentHex: string,
+    revealedOutAmount: bigint,
+    maxFee = 100000n
+  ): Promise<{ transactionId: string }> {
+    const accountId = localAccountId(this.index);
+    const records = await listShieldedOutputs(accountId);
+    const { remainder } = resolveUnshieldPlan(records, resourceAddress, commitmentHex, revealedOutAmount);
+    const dust = 1n;
+
+    const provider = await this.getProvider();
+    const account = await this.getComponentAddress();
+    // See shield()'s comment: Output.destination needs the bech32m wallet address, not the
+    // on-chain component address.
+    const walletAddress = await this.getWalletAddress();
+
+    const spec = await new StealthTransfer(provider, resourceAddress)
+      .spendRevealedInput(account, dust)
+      .spendStealthInput(account, fromHex(commitmentHex))
+      .toStealthOutput(createOutput({ destination: walletAddress, amount: remainder, resourceAddress }))
+      .toRevealedOutput(revealedOutAmount + dust)
+      .payFeeFromRevealed(maxFee)
+      .prepare();
+    const ownCommitment = extractOutputCommitment(spec, 0);
+
+    const wallet = new OotleWallet().registerKeyProvider(account, this.signer).setDefaultSigner(account);
+    const viewSecret = await this.signer.getViewSecret();
+    // See shield()'s comment: must pass this account's real network, not fromSpec's LocalNet default.
+    const authorized = await WalletStealthAuthorizer.fromSpec(wallet, spec, { viewSecret, crypto: new WasmStealthCrypto(this.network) }).prepare(
+      provider
+    );
+    const envelope = await authorized.seal();
+    const transactionId = await submitTransaction(provider, envelope);
+
+    await addPendingShield({
+      transactionId,
+      accountId,
+      resourceAddress,
+      amount: remainder.toString(),
+      spentCommitment: commitmentHex,
+      ownCommitment,
+    });
+    try {
+      const response = await withTimeout(pollTransactionResult(provider, transactionId), 60_000, "submitting the unshield transaction");
+      await recordKnownVersions(response);
+      await recordKnownShieldedOutput(accountId, resourceAddress, ownCommitment, remainder, transactionId);
+      await markShieldedOutputSpent(accountId, commitmentHex);
+    } finally {
+      await removePendingShield(transactionId);
+    }
+    return { transactionId };
+  }
+
+  /**
+   * Sends `amount` of a previously-shielded output directly to `recipientWalletAddress` — a
+   * private-to-private transfer, unlike `shield()` (which always targets this same account's own
+   * wallet address). The recipient never appears on-chain in the clear; only they (holding the
+   * matching view key) can discover the payment, and only by being told the resulting commitment
+   * out of band — same "no scan API" caveat as everywhere else stealth outputs are spent.
+   *
+   * Unlike `unshield()`, sending the *entire* record with no remainder is possible in one step
+   * here: the builder's "at least one stealth output" requirement is trivially satisfied by the
+   * recipient's own output, with no need for a same-account dust/change output to satisfy it.
+   * Change (if `amount < record.amount`) is a second stealth output back to this account.
+   *
+   * The fee-paying "dust" trick from `unshield()` still applies for the same reason: pay_fee and
+   * (when there's change) the *concept* of "this account received a new output" both need a
+   * revealed source account registered via `spendRevealedInput`, which requires amount `> 0`.
+   *
+   * Crash-safety: this account's own change commitment (if any) is read directly from the
+   * locally-built outputs statement, *not* inferred from the finalized transaction's
+   * `up_substates` — those also contain the recipient's brand-new stealth output, and naively
+   * grabbing "the first new stealth output" would risk recording the recipient's payment as our
+   * own. See `PendingShield.ownCommitment`'s doc comment.
+   */
+  async sendPrivately(
+    resourceAddress: string,
+    commitmentHex: string,
+    recipientWalletAddress: string,
+    amount: bigint,
+    maxFee = 100000n
+  ): Promise<{ transactionId: string; recipientCommitment: string }> {
+    const accountId = localAccountId(this.index);
+    const records = await listShieldedOutputs(accountId);
+    const { changeAmount } = resolveSendPrivatelyPlan(records, resourceAddress, commitmentHex, amount);
+    const dust = 1n;
+
+    const provider = await this.getProvider();
+    const account = await this.getComponentAddress();
+    const ownWalletAddress = await this.getWalletAddress();
+
+    let builder = new StealthTransfer(provider, resourceAddress)
+      .spendRevealedInput(account, dust)
+      .spendStealthInput(account, fromHex(commitmentHex))
+      .toStealthOutput(createOutput({ destination: recipientWalletAddress, amount, resourceAddress }));
+    if (changeAmount > 0n) {
+      builder = builder.toStealthOutput(createOutput({ destination: ownWalletAddress, amount: changeAmount, resourceAddress }));
+    }
+    const spec = await builder.toRevealedOutput(dust).payFeeFromRevealed(maxFee).prepare();
+    // Output 0 is the recipient's; output 1 (only present when there's change) is ours. The
+    // recipient has no way to discover their new output on their own (no scan-by-view-key API
+    // exists) -- this commitment must be handed back to the caller so it can be shared with them
+    // out of band; without it, the payment is invisible to them even though it succeeded on-chain.
+    const recipientCommitment = extractOutputCommitment(spec, 0);
+    const ownCommitment = changeAmount > 0n ? extractOutputCommitment(spec, 1) : undefined;
+
+    const wallet = new OotleWallet().registerKeyProvider(account, this.signer).setDefaultSigner(account);
+    const viewSecret = await this.signer.getViewSecret();
+    const authorized = await WalletStealthAuthorizer.fromSpec(wallet, spec, { viewSecret, crypto: new WasmStealthCrypto(this.network) }).prepare(
+      provider
+    );
+    const envelope = await authorized.seal();
+    const transactionId = await submitTransaction(provider, envelope);
+
+    await addPendingShield({
+      transactionId,
+      accountId,
+      resourceAddress,
+      amount: changeAmount.toString(),
+      spentCommitment: commitmentHex,
+      ownCommitment,
+    });
+    try {
+      const response = await withTimeout(pollTransactionResult(provider, transactionId), 60_000, "submitting the private send");
+      await recordKnownVersions(response);
+      if (ownCommitment) await recordKnownShieldedOutput(accountId, resourceAddress, ownCommitment, changeAmount, transactionId);
+      await markShieldedOutputSpent(accountId, commitmentHex);
+    } finally {
+      await removePendingShield(transactionId);
+    }
+    return { transactionId, recipientCommitment };
+  }
+
+  /**
+   * The recipient-side counterpart to `sendPrivately()`'s commitment hand-off: given a commitment
+   * shared out of band, fetches the corresponding `utxo_{resource}_{commitment}` substate and
+   * tries to decrypt it with this account's own view secret. `decryptOwnedUtxo` swallows the
+   * "not ours" throw and returns `null` instead, so a wrong/foreign commitment fails cleanly here
+   * rather than looking like a network error. Success both *proves* ownership and recovers the
+   * amount in one step (no need to be told the amount separately) -- recorded exactly like a
+   * self-shield's output, so it then just shows up in this account's private balance and
+   * shielded-outputs picker.
+   */
+  async claimPrivatePayment(resourceAddress: string, commitmentHex: string): Promise<{ amount: bigint }> {
+    const accountId = localAccountId(this.index);
+    const existing = await listShieldedOutputs(accountId);
+    if (existing.some((r) => r.resourceAddress === resourceAddress && r.commitment === commitmentHex)) {
+      throw new Error("You've already claimed this payment.");
+    }
+    const provider = await this.getProvider();
+    const substateId = stealthUtxoSubstateId(resourceAddress, fromHex(commitmentHex));
+    const substate = await provider.getSubstate(substateId);
+    const viewSecret = await this.signer.getViewSecret();
+    const decrypted = await decryptOwnedUtxo(new WasmStealthCrypto(this.network), viewSecret, substate, substateId);
+    if (!decrypted) {
+      throw new Error("This commitment doesn't belong to your account, or wasn't found on-chain.");
+    }
+    // No originating transaction id is available from a bare commitment -- the substate id is
+    // itself a stable, deterministic reference back to this exact output, so it fills that slot.
+    await recordKnownShieldedOutput(accountId, resourceAddress, commitmentHex, decrypted.value, substateId);
+    return { amount: decrypted.value };
+  }
+
+  /**
+   * Automatic counterpart to `claimPrivatePayment()`: instead of requiring the recipient be told a
+   * commitment out of band, walks the indexer's recent-transaction history looking for
+   * `StealthTransfer` outputs this account can decrypt with its own view key (see
+   * `scanTransactionsForOwnedOutputs`'s doc comment for why the data needed to do this is present
+   * even in the *pruned* form `listRecentTransactions` returns).
+   *
+   * Cursor-based (`privatePaymentScanCursors[accountId]`, the newest transaction id seen last time)
+   * so this can run cheaply and opportunistically on every `popup-get-status` — see
+   * `buildStatus()`'s `recoverPendingShields()` call for the same pattern. Walks backward in pages
+   * of `pageSize` (oldest-paging via `last_id`, per the indexer's own "recent" convention) up to
+   * `maxPages`, stopping early once it reaches the transaction id it left off at last time. A very
+   * active chain producing more than `maxPages * pageSize` new transactions between scans will
+   * only be caught up partway; the next scan resumes from the same cursor and continues.
+   */
+  async scanForPrivatePayments(maxPages = 3, pageSize = 50): Promise<{ claimed: number }> {
+    const accountId = localAccountId(this.index);
+    const provider = await this.getProvider();
+    const viewSecret = await this.signer.getViewSecret();
+    const crypto = new WasmStealthCrypto(this.network);
+    const known = await listShieldedOutputs(accountId);
+    const knownCommitments = new Set(known.map((r) => r.commitment));
+
+    const previousCursor = await getPrivatePaymentScanCursor(accountId);
+    let newestSeen: string | null = null;
+    let lastId: string | null = null;
+    let claimed = 0;
+
+    pages: for (let page = 0; page < maxPages; page++) {
+      const { transactions } = await provider.listRecentTransactions({ limit: pageSize, last_id: lastId });
+      if (transactions.length === 0) break;
+      if (page === 0) newestSeen = transactions[0]!.transaction_id;
+
+      for (const entry of transactions) {
+        if (entry.transaction_id === previousCursor) break pages;
+        const found = await scanTransactionsForOwnedOutputs(crypto, viewSecret, [entry], knownCommitments);
+        for (const output of found) {
+          await recordKnownShieldedOutput(accountId, output.resourceAddress, output.commitment, output.amount, output.transactionId);
+          knownCommitments.add(output.commitment);
+          claimed++;
+        }
+      }
+      lastId = transactions[transactions.length - 1]!.transaction_id;
+    }
+
+    if (newestSeen) await setPrivatePaymentScanCursor(accountId, newestSeen);
+    return { claimed };
+  }
+}
+
+/**
+ * Reads the commitment of the output at `outputIndex` (in the order `toStealthOutput()` was
+ * called) directly from the outputs statement `StealthTransfer.prepare()` already built —
+ * generated client-side, so it's known *before* submission, not inferred afterward by scanning
+ * the finalized transaction's `up_substates`. That scan-based approach is unambiguous when a
+ * transfer only ever creates one new stealth output belonging to this account (shield, unshield),
+ * but breaks down the moment a transfer also creates a *different* account's new stealth output
+ * in the same transaction (a private send's recipient output) — grabbing "the first new stealth
+ * output" from `up_substates` would then risk attributing someone else's payment to us.
+ */
+function extractOutputCommitment(spec: StealthTransferSpec, outputIndex: number): string {
+  const parsed = spec.statement.outputsStatement.parsed() as { outputs?: { output?: { commitment?: string } }[] };
+  const commitment = parsed.outputs?.[outputIndex]?.output?.commitment;
+  if (typeof commitment !== "string" || commitment.length === 0) {
+    throw new Error(`Failed to read output ${outputIndex}'s commitment from the locally-built outputs statement.`);
+  }
+  return commitment;
+}
+
+/**
+ * Pure lookup + validation for `unshield()`: finds the caller's unspent record for a commitment
+ * and checks the reveal amount is within the `[1, record.amount)` range the protocol allows (see
+ * `unshield()`'s doc comment for why the upper bound is strict, not `<=`). Extracted so this
+ * decision logic is unit-testable without a live provider/WASM crypto, same reasoning as
+ * `pollTransactionResult`'s extraction.
+ */
+export function resolveUnshieldPlan(
+  records: ShieldedOutputRecord[],
+  resourceAddress: string,
+  commitmentHex: string,
+  revealedOutAmount: bigint
+): { remainder: bigint } {
+  const record = records.find((r) => r.resourceAddress === resourceAddress && r.commitment === commitmentHex && !r.spent);
+  if (!record) throw new Error("No known unspent shielded output matches that commitment.");
+  const recordAmount = BigInt(record.amount);
+  if (revealedOutAmount <= 0n) throw new Error("The amount to reveal must be greater than zero.");
+  if (revealedOutAmount >= recordAmount) {
+    throw new Error(
+      `Can't unshield the full amount in one transaction -- at least 1 unit must remain private as change (this output holds ${recordAmount}).`
+    );
+  }
+  return { remainder: recordAmount - revealedOutAmount };
+}
+
+/**
+ * Pure lookup + validation for `sendPrivately()`: finds the caller's unspent record for a
+ * commitment and checks the send amount is within `(0, record.amount]` — unlike
+ * `resolveUnshieldPlan`, sending the *entire* record (zero change) is allowed, since the
+ * recipient's own stealth output already satisfies the builder's "at least one stealth output"
+ * requirement (no same-account dust output is needed to satisfy it, unlike unshield's revealed
+ * destination). Extracted for the same unit-testability reasons as `resolveUnshieldPlan`.
+ */
+export function resolveSendPrivatelyPlan(
+  records: ShieldedOutputRecord[],
+  resourceAddress: string,
+  commitmentHex: string,
+  amount: bigint
+): { changeAmount: bigint } {
+  const record = records.find((r) => r.resourceAddress === resourceAddress && r.commitment === commitmentHex && !r.spent);
+  if (!record) throw new Error("No known unspent shielded output matches that commitment.");
+  const recordAmount = BigInt(record.amount);
+  if (amount <= 0n) throw new Error("The amount to send must be greater than zero.");
+  if (amount > recordAmount) {
+    throw new Error(`Amount exceeds this output's private balance (holds ${recordAmount}).`);
+  }
+  return { changeAmount: recordAmount - amount };
+}
+
+/**
+ * Reconciles shields whose `pollTransactionResult` never got to finish (the extension's service
+ * worker was killed between submission and the storage write) — see `PendingShield`'s doc
+ * comment. Checks each pending shield's current status *once* (not a blocking poll-to-finalize
+ * loop — if it's still genuinely pending, this leaves it for the next check rather than stalling
+ * whatever triggered recovery, typically `popup-get-status`) and either completes the storage
+ * write (finalized successfully), drops it (rejected — no stealth output was ever created, so
+ * there's nothing to recover), or leaves it alone (still pending). One provider is reused across
+ * every pending shield, whichever local account they belong to — this is a read-only connection,
+ * not account/signing-specific.
+ */
+export async function recoverPendingShields(provider: IndexerProvider): Promise<void> {
+  const pending = await listPendingShields();
+  for (const p of pending) {
+    try {
+      const response = await provider.getTransactionResult(p.transactionId);
+      const result = response.result;
+      if (result === "Pending") continue; // still in flight -- leave it for next time
+      if ("Rejected" in result) {
+        await removePendingShield(p.transactionId);
+        continue;
+      }
+      const outcome = result.Finalized.execution_result?.finalize.result;
+      const succeeded = outcome && typeof outcome === "object" && "Accept" in outcome;
+      if (succeeded) {
+        await recordKnownVersions(response);
+        if (p.ownCommitment) {
+          await recordKnownShieldedOutput(p.accountId, p.resourceAddress, p.ownCommitment, BigInt(p.amount), p.transactionId);
+        }
+        if (p.spentCommitment) await markShieldedOutputSpent(p.accountId, p.spentCommitment);
+      }
+      // Reject / AcceptFeeRejectRest: no stealth output was created either way, nothing to
+      // recover -- just stop waiting on it.
+      await removePendingShield(p.transactionId);
+    } catch {
+      // A transient network/indexer error checking one pending shield must not stop the rest
+      // from being reconciled -- leave this one in the list, it'll be retried next time.
+    }
+  }
+}
+
+/**
+ * Persists a `ShieldedOutputRecord` for a commitment already known locally (see
+ * `extractOutputCommitment`'s doc comment for why this is preferred over scanning the finalized
+ * transaction's `up_substates`) — the only lead back to it, since there is no client-side
+ * scan/list API for stealth UTXOs (see confidential.ts's module doc).
+ */
+async function recordKnownShieldedOutput(
+  accountId: string,
+  resourceAddress: string,
+  commitment: string,
+  amount: bigint,
+  transactionId: string
+): Promise<void> {
+  await addShieldedOutput({
+    accountId,
+    resourceAddress,
+    commitment,
+    amount: amount.toString(),
+    transactionId,
+    createdAt: Date.now(),
+    spent: false,
+  });
 }
 
 // The indexer's own view of a substate an account keeps touching (above all its own fee vault,
@@ -495,6 +969,43 @@ async function recordKnownVersions(response: IndexerGetTransactionResultResponse
   const known = await loadKnownVersions();
   for (const [id, substate] of upSubstates) known.set(id, substate.version);
   await chrome.storage.local.set({ [KNOWN_VERSIONS_STORAGE_KEY]: Object.fromEntries(known) });
+}
+
+/**
+ * Polls a submitted transaction's result to finalization (or rejection/timeout). Extracted from
+ * `OotleAccount.submitReal()` so `shield()`/`unshield()` — which submit via a completely
+ * different pipeline (`StealthTransfer`/`WalletStealthAuthorizer`/`submitTransaction`, not
+ * `TransactionBuilder`) — share the exact same hardened Reject/AcceptFeeRejectRest/timeout
+ * handling instead of a second, potentially-drifting copy of it.
+ */
+export async function pollTransactionResult(
+  provider: IndexerProvider,
+  transactionId: string,
+  timeoutMs = 60_000
+): Promise<IndexerGetTransactionResultResponse> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const response = await provider.getTransactionResult(transactionId);
+    const result = response.result;
+    if (result === "Pending") {
+      if (Date.now() > deadline) throw new Error(`Timed out waiting for transaction ${transactionId} to finalize.`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      continue;
+    }
+    if ("Rejected" in result) {
+      throw new Error(`Transaction ${transactionId} was rejected: ${result.Rejected.details}`);
+    }
+    const outcome = result.Finalized.execution_result?.finalize.result;
+    if (outcome && typeof outcome === "object") {
+      if ("Reject" in outcome) {
+        throw new Error(`Transaction ${transactionId} was rejected: ${JSON.stringify(outcome.Reject)}`);
+      }
+      if ("AcceptFeeRejectRest" in outcome) {
+        throw new Error(`Transaction ${transactionId} accepted the fee but rejected the rest: ${JSON.stringify(outcome.AcceptFeeRejectRest)}`);
+      }
+    }
+    return response;
+  }
 }
 
 function bytesToHex(bytes: Uint8Array): string {

@@ -7,6 +7,7 @@ import {
   daemonAccountId,
   getConnectedSite,
   getState,
+  listShieldedOutputs,
   localAccountId,
   removeAllConnectedSites,
   removeConnectedSite,
@@ -25,7 +26,9 @@ import type {
   PopupRequest,
   WalletStatus,
 } from "../lib/messages";
+import { isStealthTransferInstruction } from "@tari-project/ootle";
 import { DaemonAccount } from "../lib/daemonAccount";
+import { OotleAccount, recoverPendingShields } from "../lib/wallet";
 import { clearAccountCache, getAccountById, getActiveAccount, getDaemonClient } from "./accounts";
 import { clearUnlockedSeed, getLastActivity, getUnlockedSeed, isUnlocked, setUnlockedSeed, touchActivity } from "./session";
 import { getPendingApproval, requestApproval, resolveApproval } from "./approvals";
@@ -60,7 +63,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && typeof message.kind === "string" && message.kind.startsWith("popup-")) {
     handlePopupRequest(message as PopupRequest)
       .then((result) => sendResponse({ ok: true, result: sanitizeForMessage(result) }))
-      .catch((err) => sendResponse({ ok: false, error: String(err?.message ?? err) }));
+      .catch((err) => {
+        console.error(`[popup-request:${message.kind}]`, err); // TEMP diagnostic -- see wallet.ts shield() debugging
+        sendResponse({ ok: false, error: String(err?.message ?? err) });
+      });
     return true;
   }
   return false;
@@ -137,6 +143,15 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
         dryRun?: boolean;
         inputs?: import("@tari-project/ootle-ts-bindings").SubstateRequirement[];
       };
+      // account.execute() only builds/signs/seals via TransactionBuilder -- it never runs
+      // WalletStealthAuthorizer, so it can't produce the balance proof or per-input one-time
+      // authorizations a real StealthTransfer instruction needs. The engine would reject an
+      // incomplete statement anyway (no fund-loss risk), but failing fast with a clear message
+      // beats a confusing late rejection, and skips popping an approval window for a tx that
+      // can never succeed via this path.
+      if (p.instructions.some(isStealthTransferInstruction)) {
+        throw new Error("Stealth transfers aren't supported via a connected app yet — use the wallet's own Shield/Unshield screens.");
+      }
       // Dry runs are read-only simulations (quotes, balance-adjacent lookups) — a DEX price quote
       // that reprices on every keystroke would otherwise pop an approval window per keystroke.
       // Only a real submission spends anything, so only that needs the user's sign-off.
@@ -196,6 +211,30 @@ async function buildStatus(): Promise<WalletStatus> {
       if (account) {
         receiveAddress = await account.getWalletAddress();
         address = await account.getComponentAddress();
+        // Best-effort reconciliation of any shield that finalized on-chain but never got its
+        // ShieldedOutputRecord written (service worker killed mid-flight — see
+        // OotleAccount.shield()'s doc comment). Any local account's provider works here: a
+        // transaction result lookup isn't account-scoped, so this recovers pending shields from
+        // every local account, not just the currently active one. Silently skipped if the
+        // active account happens to be daemon-connected this round — it'll get another chance
+        // once a local account is active again; this is a safety net, not the primary write path
+        // (shield() already writes the record itself right after polling, in the same call).
+        if (account instanceof OotleAccount) {
+          try {
+            await recoverPendingShields(await account.getProvider());
+          } catch {
+            // Don't let a recovery hiccup (indexer down, etc.) break the whole status fetch.
+          }
+          // Best-effort, incremental scan for incoming private payments this account can decrypt
+          // with its own view key -- see OotleAccount.scanForPrivatePayments()'s doc comment. Runs
+          // on every status fetch (i.e. every popup open) rather than needing the recipient to be
+          // told a commitment out of band first.
+          try {
+            await account.scanForPrivatePayments();
+          } catch {
+            // Don't let a scan hiccup (indexer down, etc.) break the whole status fetch.
+          }
+        }
       }
     } catch (e) {
       activeAccountError = e instanceof Error ? e.message : String(e);
@@ -285,6 +324,64 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       const account = await getActiveAccount();
       if (!account) throw new Error("Wallet is locked.");
       return account.send(message.toAddress, message.resourceAddress, BigInt(message.amount));
+    }
+
+    case "popup-shield": {
+      const account = await getActiveAccount();
+      if (!account) throw new Error("Wallet is locked.");
+      // Shield/unshield needs this account's own view secret and one-time stealth signing
+      // (SecretKeyWallet), neither of which a daemon-relayed account can provide -- the daemon
+      // never exports its view secret to clients (see WalletDaemonSigner's own doc comment).
+      // Not on WalletAccountApi at all (unlike claimTestnetXtr, which DaemonAccount genuinely
+      // can do via a different RPC) -- this is a real capability gap, not just an unwired one.
+      if (!(account instanceof OotleAccount)) {
+        throw new Error("Shielding isn't available for daemon-connected accounts -- switch to a local account first.");
+      }
+      const maxFee = message.maxFee ? BigInt(message.maxFee) : undefined;
+      return account.shield(message.resourceAddress, BigInt(message.amount), maxFee);
+    }
+
+    case "popup-unshield": {
+      const account = await getActiveAccount();
+      if (!account) throw new Error("Wallet is locked.");
+      if (!(account instanceof OotleAccount)) {
+        throw new Error("Unshielding isn't available for daemon-connected accounts -- switch to a local account first.");
+      }
+      const maxFee = message.maxFee ? BigInt(message.maxFee) : undefined;
+      return account.unshield(message.resourceAddress, message.commitment, BigInt(message.revealedAmount), maxFee);
+    }
+
+    case "popup-send-privately": {
+      const account = await getActiveAccount();
+      if (!account) throw new Error("Wallet is locked.");
+      if (!(account instanceof OotleAccount)) {
+        throw new Error("Sending privately isn't available for daemon-connected accounts -- switch to a local account first.");
+      }
+      const maxFee = message.maxFee ? BigInt(message.maxFee) : undefined;
+      return account.sendPrivately(
+        message.resourceAddress,
+        message.commitment,
+        message.recipientWalletAddress,
+        BigInt(message.amount),
+        maxFee
+      );
+    }
+
+    case "popup-list-shielded-outputs": {
+      const account = await getActiveAccount();
+      if (!account) throw new Error("Wallet is locked.");
+      if (!(account instanceof OotleAccount)) return { outputs: [] };
+      const outputs = await listShieldedOutputs(localAccountId(account.index));
+      return { outputs: outputs.filter((o) => o.resourceAddress === message.resourceAddress && !o.spent) };
+    }
+
+    case "popup-claim-private-payment": {
+      const account = await getActiveAccount();
+      if (!account) throw new Error("Wallet is locked.");
+      if (!(account instanceof OotleAccount)) {
+        throw new Error("Claiming a private payment isn't available for daemon-connected accounts -- switch to a local account first.");
+      }
+      return account.claimPrivatePayment(message.resourceAddress, message.commitment);
     }
 
     case "popup-add-account": {
