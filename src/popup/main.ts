@@ -132,8 +132,12 @@ async function copyToClipboard(text: string, label: HTMLElement) {
   }
   const original = label.textContent;
   label.textContent = "Copied!";
+  label.classList.remove("copy-flash");
+  void label.offsetWidth;
+  label.classList.add("copy-flash");
   setTimeout(() => {
     label.textContent = original;
+    label.classList.remove("copy-flash");
   }, 1200);
 }
 

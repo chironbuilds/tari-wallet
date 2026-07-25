@@ -164,7 +164,8 @@ button + button {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: 0;
+  overflow: hidden;
 }
 .qr-card-filled {
   background: #fff;
@@ -173,7 +174,6 @@ button + button {
   width: 160px;
   height: 160px;
   display: block;
-  border-radius: 6px;
 }
 .balance-row {
   display: flex;
@@ -188,6 +188,7 @@ button + button {
 .balances-card {
   max-height: 220px;
   overflow-y: auto;
+  scroll-behavior: smooth;
 }
 .balances-card::-webkit-scrollbar,
 .instruction-list::-webkit-scrollbar {
@@ -239,6 +240,7 @@ button + button {
   gap: 6px;
   max-height: 220px;
   overflow-y: auto;
+  scroll-behavior: smooth;
 }
 .instruction-card {
   display: flex;
@@ -314,6 +316,7 @@ button + button {
   padding: 10px;
   max-height: 180px;
   overflow-y: auto;
+  scroll-behavior: smooth;
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -767,6 +770,19 @@ select {
   padding: 6px 26px 6px 10px;
   font-size: 12.5px;
   border-radius: 8px;
+}
+.copy-flash {
+  animation: copy-flash 0.25s ease;
+}
+@keyframes copy-flash {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   * {
