@@ -1765,14 +1765,16 @@ async function renderConnectedSites() {
           "div",
           {},
           sites.map((s) => {
-            const row = h("div", { class: "balance-row" }, [s.origin]);
+            // Wrapped in list-row-info (not a bare string) for the same reason as the address
+            // book/daemon connections rows -- an unusually long origin shouldn't be able to
+            // blow out the row width and squeeze the Disconnect button off-screen.
+            const info = h("div", { class: "list-row-info" }, [h("div", { class: "list-row-title", title: s.origin }, [s.origin])]);
             const removeBtn = h("button", { class: "secondary", style: "width:auto;padding:4px 8px" }, ["Disconnect"]);
             removeBtn.addEventListener("click", async () => {
               await send({ kind: "popup-disconnect-site", origin: s.origin });
               await renderConnectedSites();
             });
-            row.append(removeBtn);
-            return row;
+            return h("div", { class: "balance-row" }, [info, removeBtn]);
           })
         );
   const back = h("button", { class: "secondary", id: "back" }, ["Back"]);
