@@ -26,6 +26,7 @@ import type {
   IndexerGetTransactionResultResponse,
   IndexerSubmitTransactionResponse,
   Instruction,
+  Memo,
   OutputBody,
   Substate,
   SubstateRequirement,
@@ -75,6 +76,18 @@ export interface TokenBalance {
   /** The resource's `metadata.name` (a longer display name, distinct from the ticker-style
    * `symbol`), if it set one — null otherwise. */
   name: string | null;
+}
+
+/**
+ * `Output.memo`/`OutputInit.memo` is typed `object` in `@tari-project/ootle` (untyped there), but
+ * is actually the tagged `Memo` union from `@tari-project/ootle-ts-bindings` -- confirmed by
+ * reading that package's generated `Memo.d.ts` directly rather than assuming the Rust SDK docs'
+ * `.with_memo_message(...)` name maps 1:1 onto this TS binding. `{ Message: text }` is the plain
+ * free-text variant; the other variants (`U256`, `Bytes`, `PayRefAndBytes`) aren't used by this
+ * wallet's UI, which only ever offers a plain text note.
+ */
+function toMemo(memo: string | undefined): Memo | undefined {
+  return memo ? { Message: memo } : undefined;
 }
 
 /**
@@ -165,21 +178,37 @@ export class OotleAccount implements WalletAccountApi {
       if (e instanceof Error && e.message.startsWith("Timed out")) throw e;
       return []; // account not yet on-chain (never funded)
     }
-    if (vaultIds.length === 0) return [];
 
-    const { substates } = await withTimeout(provider.fetchSubstates(vaultIds), 15_000, "fetching vault balances");
-    const parsed: { resourceAddress: string; kind: string; amount: bigint; commitments?: Record<string, OutputBody> }[] = [];
-    for (const id of vaultIds) {
-      const substate: Substate | undefined = substates[id];
-      const value = substate?.substate;
-      if (!value || !("Vault" in value)) continue;
-      const container = value.Vault.resource_container;
-      const [kind, data] = Object.entries(container)[0] as [string, Record<string, unknown>];
-      const rawAmount = (data.amount ?? data.revealed_amount ?? 0) as string | number | bigint;
-      const commitments = kind === "Confidential" ? (data.commitments as Record<string, OutputBody> | undefined) : undefined;
-      parsed.push({ resourceAddress: data.address as string, kind, amount: BigInt(rawAmount), commitments });
+    // Fold in this account's own known-good stealth outputs (from shield()/unshield(), or from
+    // redeeming someone else's shared commitment via the "Advanced" unshield flow) up front, not
+    // gated behind a vault existing -- see ShieldedOutputRecord's doc comment for why this local
+    // ledger is the only lead to them at all: they're freestanding `utxo_{resource}_{commitment}`
+    // substates, never entries in a vault's own `Confidential.commitments` map, so nothing below
+    // this point would otherwise see them. A resource whose *only* balance came from redeeming a
+    // shared commitment has no on-chain vault at all (`vaultIds.length === 0` for it), so this
+    // can't be computed only after confirming a vault exists.
+    const shieldedByResource = new Map<string, bigint>();
+    for (const record of await listShieldedOutputs(localAccountId(this.index))) {
+      if (record.spent) continue;
+      shieldedByResource.set(record.resourceAddress, (shieldedByResource.get(record.resourceAddress) ?? 0n) + BigInt(record.amount));
     }
-    if (parsed.length === 0) return [];
+    if (vaultIds.length === 0 && shieldedByResource.size === 0) return [];
+
+    const parsed: { resourceAddress: string; kind: string; amount: bigint; commitments?: Record<string, OutputBody> }[] = [];
+    if (vaultIds.length > 0) {
+      const { substates } = await withTimeout(provider.fetchSubstates(vaultIds), 15_000, "fetching vault balances");
+      for (const id of vaultIds) {
+        const substate: Substate | undefined = substates[id];
+        const value = substate?.substate;
+        if (!value || !("Vault" in value)) continue;
+        const container = value.Vault.resource_container;
+        const [kind, data] = Object.entries(container)[0] as [string, Record<string, unknown>];
+        const rawAmount = (data.amount ?? data.revealed_amount ?? 0) as string | number | bigint;
+        const commitments = kind === "Confidential" ? (data.commitments as Record<string, OutputBody> | undefined) : undefined;
+        parsed.push({ resourceAddress: data.address as string, kind, amount: BigInt(rawAmount), commitments });
+      }
+    }
+    if (parsed.length === 0 && shieldedByResource.size === 0) return [];
 
     // Decrypt each Confidential vault's hidden commitments with this account's own view key —
     // pure local decryption of data already fetched above, no new network calls. One crypto
@@ -201,7 +230,9 @@ export class OotleAccount implements WalletAccountApi {
     // symbol/name — decimal precision and display name are both on-chain data, not a client-side
     // guess (confirmed empirically: XTR is 6, a typical DemoToken defaults to 8, and assuming one
     // divisibility for both silently misprices trades by orders of magnitude).
-    const resourceIds = [...new Set(parsed.map((p) => p.resourceAddress))];
+    // Union with shielded-only resources (computed up front, before the vault check above) so a
+    // resource with no vault at all still gets its real divisibility/symbol/name looked up.
+    const resourceIds = [...new Set([...parsed.map((p) => p.resourceAddress), ...shieldedByResource.keys()])];
     const { substates: resourceSubstates } = await withTimeout(provider.fetchSubstates(resourceIds), 15_000, "reading token decimal precision");
     const divisibilityByResource = new Map<string, number>();
     const symbolByResource = new Map<string, string | null>();
@@ -215,18 +246,6 @@ export class OotleAccount implements WalletAccountApi {
       nameByResource.set(id, typeof metadata?.name === "string" ? metadata.name : null);
     }
 
-    // Fold in this account's own known-good stealth outputs (from shield()/unshield() -- see
-    // ShieldedOutputRecord's doc comment for why this local ledger is the only lead to them at
-    // all: they're freestanding `utxo_{resource}_{commitment}` substates, never entries in a
-    // vault's own `Confidential.commitments` map, so nothing above this point ever sees them.
-    // Without this, a token whose *only* private value came from shield() would show a private
-    // balance of 0 despite genuinely holding some.
-    const shieldedByResource = new Map<string, bigint>();
-    for (const record of await listShieldedOutputs(localAccountId(this.index))) {
-      if (record.spent) continue;
-      shieldedByResource.set(record.resourceAddress, (shieldedByResource.get(record.resourceAddress) ?? 0n) + BigInt(record.amount));
-    }
-
     const balances: TokenBalance[] = parsed.map((p, i) => ({
       resourceAddress: p.resourceAddress,
       kind: p.kind,
@@ -237,6 +256,19 @@ export class OotleAccount implements WalletAccountApi {
       symbol: symbolByResource.get(p.resourceAddress) ?? null,
       name: nameByResource.get(p.resourceAddress) ?? null,
     }));
+
+    // Resources whose only balance is a shielded output with no on-chain vault at all (e.g.
+    // redeemed via the "Advanced" unshield flow from someone else's shared commitment) never
+    // appear in `parsed` above -- synthesize an entry for each so they aren't silently dropped.
+    balances.push(
+      ...synthesizeShieldedOnlyBalances(
+        new Set(parsed.map((p) => p.resourceAddress)),
+        shieldedByResource,
+        divisibilityByResource,
+        symbolByResource,
+        nameByResource,
+      ),
+    );
     return balances;
   }
 
@@ -443,8 +475,15 @@ export class OotleAccount implements WalletAccountApi {
    * (confirmed empirically: "Lock failure: Substate vault_...:8 is DOWN" — someone else's claim
    * landed first). This isn't a bug to fix, just contention to ride out: catch that specific
    * rejection and retry with freshly-resolved versions and a new transaction id.
+   *
+   * Retries back off (`retryDelayMs * (attempt + 1)`, so 300ms, 600ms, 900ms, ...) rather than
+   * resubmitting back-to-back: confirmed empirically that hammering `resolveInputs()` immediately
+   * after a rejection can keep handing back the same already-stale version every time (the
+   * indexer's own view of a shared, heavily-contended substate can lag behind consensus by more
+   * than one round trip takes) — a short, growing pause gives that view time to catch up instead
+   * of burning the whole retry budget re-observing the same stale state.
    */
-  async claimTestnetXtr(maxFee = 5000n, retries = 4) {
+  async claimTestnetXtr(maxFee = 5000n, retries = 10, retryDelayMs = 300) {
     const provider = await this.getProvider();
     const publicKeyHex = bytesToHex(await this.getPublicKey());
     const account = await this.getComponentAddress();
@@ -481,6 +520,7 @@ export class OotleAccount implements WalletAccountApi {
       } catch (e) {
         const isStaleVersionRace = e instanceof Error && e.message.includes("Lock failure");
         if (!isStaleVersionRace || attempt >= retries) throw e;
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (attempt + 1)));
       }
     }
   }
@@ -508,7 +548,7 @@ export class OotleAccount implements WalletAccountApi {
    * erring high just wastes nothing; erring low burns the small fee-intent cost with nothing to
    * show for it, since only the fee half of the transaction gets committed.
    */
-  async shield(resourceAddress: string, amount: bigint, maxFee = 50000n): Promise<{ transactionId: string }> {
+  async shield(resourceAddress: string, amount: bigint, maxFee = 50000n, memo?: string): Promise<{ transactionId: string }> {
     const accountId = localAccountId(this.index);
     const provider = await this.getProvider();
     const account = await this.getComponentAddress();
@@ -519,7 +559,7 @@ export class OotleAccount implements WalletAccountApi {
 
     const spec = await new StealthTransfer(provider, resourceAddress)
       .spendRevealedInput(account, amount)
-      .toStealthOutput(createOutput({ destination: walletAddress, amount, resourceAddress }))
+      .toStealthOutput(createOutput({ destination: walletAddress, amount, resourceAddress, memo: toMemo(memo) }))
       .payFeeFromRevealed(maxFee)
       .prepare();
     const ownCommitment = extractOutputCommitment(spec, 0);
@@ -548,9 +588,13 @@ export class OotleAccount implements WalletAccountApi {
   }
 
   /**
-   * Unshields (moves from private/confidential back to revealed) a stealth output this account
-   * previously shielded — see `ShieldedOutputRecord`'s doc comment for why a known local record
-   * is the only way to spend one (no client-side scan-by-view-key API exists for stealth UTXOs).
+   * Unshields (moves from private/confidential back to revealed) `revealedOutAmount` of this
+   * account's shielded balance for `resourceAddress` — see `ShieldedOutputRecord`'s doc comment
+   * for why a known local record is the only way to spend one (no client-side scan-by-view-key
+   * API exists for stealth UTXOs). Which specific output(s) to spend is decided internally by
+   * `resolveUnshieldPlan`'s coin selection (largest-first, spending more than one in the same
+   * transaction via repeated `spendStealthInput()` calls if a single output isn't enough) — the
+   * caller only supplies an amount, not a commitment.
    *
    * Two `StealthTransfer` builder requirements, confirmed directly against its `validate()`/
    * `emitInstructions()` source (not assumed from the docs alone), shape this method:
@@ -562,23 +606,18 @@ export class OotleAccount implements WalletAccountApi {
    *    revealed output (`revealedOutAmount + 1n`), so it costs nothing beyond the tx fee.
    * 2. The builder always requires at least one stealth output — a "pure" 100%-revealed spend
    *    with zero private remainder cannot be constructed in one step. This method always creates
-   *    a new stealth output for `record.amount - revealedOutAmount` back to this same account, so
-   *    `revealedOutAmount` must be strictly less than the spent record's full amount.
+   *    a new stealth output for the selected inputs' total minus `revealedOutAmount` back to this
+   *    same account, so `resolveUnshieldPlan` guarantees that remainder is always `> 0`.
    *
    * Shares `shield()`'s mid-flight crash safety: the pending-shield ledger entry carries
-   * `spentCommitment` so `recoverPendingShields()` can both record the new change output *and*
-   * mark the spent one, even if the service worker dies between finalization and the storage
+   * `spentCommitments` so `recoverPendingShields()` can both record the new change output *and*
+   * mark the spent ones, even if the service worker dies between finalization and the storage
    * writes.
    */
-  async unshield(
-    resourceAddress: string,
-    commitmentHex: string,
-    revealedOutAmount: bigint,
-    maxFee = 100000n
-  ): Promise<{ transactionId: string }> {
+  async unshield(resourceAddress: string, revealedOutAmount: bigint, maxFee = 100000n, memo?: string): Promise<{ transactionId: string }> {
     const accountId = localAccountId(this.index);
     const records = await listShieldedOutputs(accountId);
-    const { remainder } = resolveUnshieldPlan(records, resourceAddress, commitmentHex, revealedOutAmount);
+    const { commitments, remainder } = resolveUnshieldPlan(records, resourceAddress, revealedOutAmount);
     const dust = 1n;
 
     const provider = await this.getProvider();
@@ -587,10 +626,12 @@ export class OotleAccount implements WalletAccountApi {
     // on-chain component address.
     const walletAddress = await this.getWalletAddress();
 
-    const spec = await new StealthTransfer(provider, resourceAddress)
-      .spendRevealedInput(account, dust)
-      .spendStealthInput(account, fromHex(commitmentHex))
-      .toStealthOutput(createOutput({ destination: walletAddress, amount: remainder, resourceAddress }))
+    let builder = new StealthTransfer(provider, resourceAddress).spendRevealedInput(account, dust);
+    for (const commitment of commitments) {
+      builder = builder.spendStealthInput(account, fromHex(commitment));
+    }
+    const spec = await builder
+      .toStealthOutput(createOutput({ destination: walletAddress, amount: remainder, resourceAddress, memo: toMemo(memo) }))
       .toRevealedOutput(revealedOutAmount + dust)
       .payFeeFromRevealed(maxFee)
       .prepare();
@@ -610,14 +651,16 @@ export class OotleAccount implements WalletAccountApi {
       accountId,
       resourceAddress,
       amount: remainder.toString(),
-      spentCommitment: commitmentHex,
+      spentCommitments: commitments,
       ownCommitment,
     });
     try {
       const response = await withTimeout(pollTransactionResult(provider, transactionId), 60_000, "submitting the unshield transaction");
       await recordKnownVersions(response);
       await recordKnownShieldedOutput(accountId, resourceAddress, ownCommitment, remainder, transactionId);
-      await markShieldedOutputSpent(accountId, commitmentHex);
+      for (const commitment of commitments) {
+        await markShieldedOutputSpent(accountId, commitment);
+      }
     } finally {
       await removePendingShield(transactionId);
     }
@@ -625,16 +668,21 @@ export class OotleAccount implements WalletAccountApi {
   }
 
   /**
-   * Sends `amount` of a previously-shielded output directly to `recipientWalletAddress` — a
-   * private-to-private transfer, unlike `shield()` (which always targets this same account's own
-   * wallet address). The recipient never appears on-chain in the clear; only they (holding the
-   * matching view key) can discover the payment, and only by being told the resulting commitment
-   * out of band — same "no scan API" caveat as everywhere else stealth outputs are spent.
+   * Sends `amount` of this account's shielded balance for `resourceAddress` directly to
+   * `recipientWalletAddress` — a private-to-private transfer, unlike `shield()` (which always
+   * targets this same account's own wallet address). The recipient never appears on-chain in the
+   * clear; only they (holding the matching view key) can discover the payment, and only by being
+   * told the resulting commitment out of band — same "no scan API" caveat as everywhere else
+   * stealth outputs are spent. Which specific output(s) to spend is decided internally by
+   * `resolveSendPrivatelyPlan`'s coin selection (largest-first, spending more than one in the same
+   * transaction via repeated `spendStealthInput()` calls if a single output isn't enough) — the
+   * caller only supplies an amount, not a commitment.
    *
-   * Unlike `unshield()`, sending the *entire* record with no remainder is possible in one step
-   * here: the builder's "at least one stealth output" requirement is trivially satisfied by the
-   * recipient's own output, with no need for a same-account dust/change output to satisfy it.
-   * Change (if `amount < record.amount`) is a second stealth output back to this account.
+   * Unlike `unshield()`, sending the *entire* selected total with no remainder is possible in one
+   * step here: the builder's "at least one stealth output" requirement is trivially satisfied by
+   * the recipient's own output, with no need for a same-account dust/change output to satisfy it.
+   * Change (if `amount` is less than the selected inputs' total) is a second stealth output back
+   * to this account.
    *
    * The fee-paying "dust" trick from `unshield()` still applies for the same reason: pay_fee and
    * (when there's change) the *concept* of "this account received a new output" both need a
@@ -648,24 +696,25 @@ export class OotleAccount implements WalletAccountApi {
    */
   async sendPrivately(
     resourceAddress: string,
-    commitmentHex: string,
     recipientWalletAddress: string,
     amount: bigint,
-    maxFee = 100000n
+    maxFee = 100000n,
+    memo?: string
   ): Promise<{ transactionId: string; recipientCommitment: string }> {
     const accountId = localAccountId(this.index);
     const records = await listShieldedOutputs(accountId);
-    const { changeAmount } = resolveSendPrivatelyPlan(records, resourceAddress, commitmentHex, amount);
+    const { commitments, changeAmount } = resolveSendPrivatelyPlan(records, resourceAddress, amount);
     const dust = 1n;
 
     const provider = await this.getProvider();
     const account = await this.getComponentAddress();
     const ownWalletAddress = await this.getWalletAddress();
 
-    let builder = new StealthTransfer(provider, resourceAddress)
-      .spendRevealedInput(account, dust)
-      .spendStealthInput(account, fromHex(commitmentHex))
-      .toStealthOutput(createOutput({ destination: recipientWalletAddress, amount, resourceAddress }));
+    let builder = new StealthTransfer(provider, resourceAddress).spendRevealedInput(account, dust);
+    for (const commitment of commitments) {
+      builder = builder.spendStealthInput(account, fromHex(commitment));
+    }
+    builder = builder.toStealthOutput(createOutput({ destination: recipientWalletAddress, amount, resourceAddress, memo: toMemo(memo) }));
     if (changeAmount > 0n) {
       builder = builder.toStealthOutput(createOutput({ destination: ownWalletAddress, amount: changeAmount, resourceAddress }));
     }
@@ -690,14 +739,16 @@ export class OotleAccount implements WalletAccountApi {
       accountId,
       resourceAddress,
       amount: changeAmount.toString(),
-      spentCommitment: commitmentHex,
+      spentCommitments: commitments,
       ownCommitment,
     });
     try {
       const response = await withTimeout(pollTransactionResult(provider, transactionId), 60_000, "submitting the private send");
       await recordKnownVersions(response);
       if (ownCommitment) await recordKnownShieldedOutput(accountId, resourceAddress, ownCommitment, changeAmount, transactionId);
-      await markShieldedOutputSpent(accountId, commitmentHex);
+      for (const commitment of commitments) {
+        await markShieldedOutputSpent(accountId, commitment);
+      }
     } finally {
       await removePendingShield(transactionId);
     }
@@ -804,52 +855,128 @@ function extractOutputCommitment(spec: StealthTransferSpec, outputIndex: number)
 }
 
 /**
- * Pure lookup + validation for `unshield()`: finds the caller's unspent record for a commitment
- * and checks the reveal amount is within the `[1, record.amount)` range the protocol allows (see
- * `unshield()`'s doc comment for why the upper bound is strict, not `<=`). Extracted so this
- * decision logic is unit-testable without a live provider/WASM crypto, same reasoning as
- * `pollTransactionResult`'s extraction.
+ * Synthesizes a `TokenBalance` entry for each resource whose only balance is a shielded output
+ * with no on-chain vault at all (e.g. redeemed via the "Advanced" unshield flow from someone
+ * else's shared commitment) -- these never appear in `getBalances()`'s vault-derived `parsed`
+ * list, since they're freestanding `utxo_{resource}_{commitment}` substates, not vault entries.
+ * Skips any resource already covered by `parsedResources` (that one gets its shielded amount
+ * folded into its existing entry instead, in `getBalances()` itself).
+ */
+export function synthesizeShieldedOnlyBalances(
+  parsedResources: Set<string>,
+  shieldedByResource: Map<string, bigint>,
+  divisibilityByResource: Map<string, number>,
+  symbolByResource: Map<string, string | null>,
+  nameByResource: Map<string, string | null>
+): TokenBalance[] {
+  const balances: TokenBalance[] = [];
+  for (const [resourceAddress, amount] of shieldedByResource) {
+    if (parsedResources.has(resourceAddress)) continue;
+    balances.push({
+      resourceAddress,
+      kind: "Stealth",
+      amount: 0n,
+      confidentialAmount: amount,
+      confidentialDecryptFailures: 0,
+      divisibility: divisibilityByResource.get(resourceAddress) ?? 0,
+      symbol: symbolByResource.get(resourceAddress) ?? null,
+      name: nameByResource.get(resourceAddress) ?? null,
+    });
+  }
+  return balances;
+}
+
+/**
+ * Coin selection for spending shielded outputs: picks this resource's unspent records
+ * largest-first until their sum covers `targetAmount`, so a spend needing more than any single
+ * output holds is satisfied by combining several in one transaction (the builder's
+ * `spendStealthInput()` can be called once per input UTXO) rather than requiring the caller to
+ * pick one record themselves. Largest-first minimizes the number of inputs spent (each one adds
+ * real signature/proof-verification fee cost), rather than needlessly consolidating dust.
+ *
+ * Returns the unselected remainder too (still sorted largest-first) so callers that need "at
+ * least one more unit available" (see `resolveUnshieldPlan`) can pull in exactly one more output
+ * without re-deriving the candidate list.
+ */
+export function selectShieldedUtxosForAmount(
+  records: ShieldedOutputRecord[],
+  resourceAddress: string,
+  targetAmount: bigint
+): { selected: ShieldedOutputRecord[]; total: bigint; unselected: ShieldedOutputRecord[] } {
+  const candidates = records
+    .filter((r) => r.resourceAddress === resourceAddress && !r.spent)
+    .sort((a, b) => {
+      const diff = BigInt(b.amount) - BigInt(a.amount);
+      return diff > 0n ? 1 : diff < 0n ? -1 : 0;
+    });
+
+  const selected: ShieldedOutputRecord[] = [];
+  let total = 0n;
+  let i = 0;
+  for (; i < candidates.length; i++) {
+    if (total >= targetAmount) break;
+    selected.push(candidates[i]!);
+    total += BigInt(candidates[i]!.amount);
+  }
+  return { selected, total, unselected: candidates.slice(i) };
+}
+
+/**
+ * Pure planning for `unshield()`: selects enough of the caller's unspent records for this
+ * resource (via `selectShieldedUtxosForAmount`) to cover `revealedOutAmount`, and checks the
+ * total leaves at least 1 unit as private remainder (see `unshield()`'s doc comment for why the
+ * upper bound is strict, not `<=`). Extracted so this decision logic is unit-testable without a
+ * live provider/WASM crypto, same reasoning as `pollTransactionResult`'s extraction.
+ *
+ * If the minimal selection's total lands *exactly* on `revealedOutAmount` (zero remainder), and
+ * another unspent record for this resource exists, one more (the smallest available) is pulled
+ * in purely to create a nonzero remainder — spending an extra UTXO is preferable to failing a
+ * reveal that the account's total private balance could otherwise satisfy.
  */
 export function resolveUnshieldPlan(
   records: ShieldedOutputRecord[],
   resourceAddress: string,
-  commitmentHex: string,
   revealedOutAmount: bigint
-): { remainder: bigint } {
-  const record = records.find((r) => r.resourceAddress === resourceAddress && r.commitment === commitmentHex && !r.spent);
-  if (!record) throw new Error("No known unspent shielded output matches that commitment.");
-  const recordAmount = BigInt(record.amount);
+): { commitments: string[]; remainder: bigint } {
   if (revealedOutAmount <= 0n) throw new Error("The amount to reveal must be greater than zero.");
-  if (revealedOutAmount >= recordAmount) {
-    throw new Error(
-      `Can't unshield the full amount in one transaction -- at least 1 unit must remain private as change (this output holds ${recordAmount}).`
-    );
+  const { selected, total, unselected } = selectShieldedUtxosForAmount(records, resourceAddress, revealedOutAmount);
+  if (total < revealedOutAmount) {
+    throw new Error(`Amount exceeds your private balance (you have ${total}).`);
   }
-  return { remainder: recordAmount - revealedOutAmount };
+  let finalSelected = selected;
+  let finalTotal = total;
+  if (finalTotal === revealedOutAmount) {
+    const extra = unselected[unselected.length - 1]; // smallest remaining unspent record, if any
+    if (!extra) {
+      throw new Error(
+        "Can't unshield your full private balance in one transaction -- at least 1 unit must remain private as change."
+      );
+    }
+    finalSelected = [...finalSelected, extra];
+    finalTotal += BigInt(extra.amount);
+  }
+  return { commitments: finalSelected.map((r) => r.commitment), remainder: finalTotal - revealedOutAmount };
 }
 
 /**
- * Pure lookup + validation for `sendPrivately()`: finds the caller's unspent record for a
- * commitment and checks the send amount is within `(0, record.amount]` — unlike
- * `resolveUnshieldPlan`, sending the *entire* record (zero change) is allowed, since the
- * recipient's own stealth output already satisfies the builder's "at least one stealth output"
- * requirement (no same-account dust output is needed to satisfy it, unlike unshield's revealed
- * destination). Extracted for the same unit-testability reasons as `resolveUnshieldPlan`.
+ * Pure planning for `sendPrivately()`: selects enough of the caller's unspent records for this
+ * resource to cover `amount` — unlike `resolveUnshieldPlan`, sending the *entire* selected total
+ * with zero change is allowed, since the recipient's own stealth output already satisfies the
+ * builder's "at least one stealth output" requirement (no same-account dust output is needed to
+ * satisfy it, unlike unshield's revealed destination). Extracted for the same unit-testability
+ * reasons as `resolveUnshieldPlan`.
  */
 export function resolveSendPrivatelyPlan(
   records: ShieldedOutputRecord[],
   resourceAddress: string,
-  commitmentHex: string,
   amount: bigint
-): { changeAmount: bigint } {
-  const record = records.find((r) => r.resourceAddress === resourceAddress && r.commitment === commitmentHex && !r.spent);
-  if (!record) throw new Error("No known unspent shielded output matches that commitment.");
-  const recordAmount = BigInt(record.amount);
+): { commitments: string[]; changeAmount: bigint } {
   if (amount <= 0n) throw new Error("The amount to send must be greater than zero.");
-  if (amount > recordAmount) {
-    throw new Error(`Amount exceeds this output's private balance (holds ${recordAmount}).`);
+  const { selected, total } = selectShieldedUtxosForAmount(records, resourceAddress, amount);
+  if (total < amount) {
+    throw new Error(`Amount exceeds your private balance (you have ${total}).`);
   }
-  return { changeAmount: recordAmount - amount };
+  return { commitments: selected.map((r) => r.commitment), changeAmount: total - amount };
 }
 
 /**
@@ -881,7 +1008,11 @@ export async function recoverPendingShields(provider: IndexerProvider): Promise<
         if (p.ownCommitment) {
           await recordKnownShieldedOutput(p.accountId, p.resourceAddress, p.ownCommitment, BigInt(p.amount), p.transactionId);
         }
-        if (p.spentCommitment) await markShieldedOutputSpent(p.accountId, p.spentCommitment);
+        if (p.spentCommitments) {
+          for (const commitment of p.spentCommitments) {
+            await markShieldedOutputSpent(p.accountId, commitment);
+          }
+        }
       }
       // Reject / AcceptFeeRejectRest: no stealth output was created either way, nothing to
       // recover -- just stop waiting on it.

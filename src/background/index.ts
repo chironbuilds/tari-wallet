@@ -1,21 +1,26 @@
 import { createWalletSeed, deserializeSeed, importWalletSeed, seedToMnemonic, serializeSeed } from "../lib/cipherSeed";
 import { decryptVault, encryptVault } from "../lib/vault";
 import {
+  addAddressBookEntry,
   addConnectedSite,
   addDaemonAccount,
   addDaemonConnection,
+  addTransactionHistoryEntry,
   daemonAccountId,
   getConnectedSite,
   getState,
-  listShieldedOutputs,
+  listTransactionHistory,
   localAccountId,
+  removeAddressBookEntry,
   removeAllConnectedSites,
   removeConnectedSite,
   removeDaemonAccount,
   removeDaemonConnection,
   setState,
+  type TransactionHistoryEntry,
   wipeWallet,
 } from "../lib/storage";
+import { summarizeInstruction } from "../lib/instructionSummary";
 import type {
   AccountSummary,
   AccountsChangedBroadcast,
@@ -164,8 +169,13 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Could not resolve account.");
       const maxFee = p.maxFee ? BigInt(p.maxFee) : undefined;
-      const result = await account.execute(p.instructions, { maxFee, dryRun: p.dryRun, inputs: p.inputs });
-      return result;
+      const doExecute = () => account.execute(p.instructions, { maxFee, dryRun: p.dryRun, inputs: p.inputs });
+      // A dry run spends nothing and never reaches the network's mempool -- recording it as a
+      // "transaction" would be misleading (see instructionSummary.ts's "never decode a Literal"
+      // policy for why the label below is structural only, not amounts).
+      if (p.dryRun) return doExecute();
+      const summary = p.instructions.map((i) => summarizeInstruction(i).title).join(", ");
+      return withHistory({ accountId: site.accountId, kind: "dapp-transaction", counterparty: `${origin}: ${summary}` }, doExecute);
     }
 
     default:
@@ -261,8 +271,35 @@ async function buildStatus(): Promise<WalletStatus> {
     activeAccountError,
     accounts: [...localAccounts, ...daemonAccounts],
     daemonConnections: state.daemonConnections.map((c) => ({ id: c.id, url: c.url, label: c.label })),
+    addressBook: state.addressBook,
     autoLockMinutes: state.autoLockMinutes,
   };
+}
+
+/**
+ * Wraps a transaction-submitting call with client-side history recording (see
+ * TransactionHistoryEntry's doc comment for scope) — records "confirmed" if `action` resolves,
+ * "failed" if it rejects, then re-throws so the caller's own error handling is unaffected either
+ * way. A recording hiccup itself is swallowed (best-effort only), the same "don't let a recording
+ * hiccup break the real flow" policy buildStatus() already applies to recoverPendingShields()/
+ * scanForPrivatePayments().
+ */
+async function withHistory<T>(base: Omit<TransactionHistoryEntry, "id" | "createdAt" | "status">, action: () => Promise<T>): Promise<T> {
+  const record = async (status: TransactionHistoryEntry["status"]) => {
+    try {
+      await addTransactionHistoryEntry({ ...base, status, id: crypto.randomUUID(), createdAt: Date.now() });
+    } catch {
+      // Best-effort -- see doc comment above.
+    }
+  };
+  try {
+    const result = await action();
+    await record("confirmed");
+    return result;
+  } catch (e) {
+    await record("failed");
+    throw e;
+  }
 }
 
 async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
@@ -317,13 +354,24 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     case "popup-claim-testnet-xtr": {
       const account = await getActiveAccount();
       if (!account) throw new Error("Wallet is locked.");
-      return account.claimTestnetXtr();
+      const { activeAccountId } = await getState();
+      return withHistory({ accountId: activeAccountId, kind: "claim" }, () => account.claimTestnetXtr());
     }
 
     case "popup-send": {
       const account = await getActiveAccount();
       if (!account) throw new Error("Wallet is locked.");
-      return account.send(message.toAddress, message.resourceAddress, BigInt(message.amount));
+      const { activeAccountId } = await getState();
+      return withHistory(
+        {
+          accountId: activeAccountId,
+          kind: "send",
+          resourceAddress: message.resourceAddress,
+          amount: message.amount,
+          counterparty: message.toAddress,
+        },
+        () => account.send(message.toAddress, message.resourceAddress, BigInt(message.amount))
+      );
     }
 
     case "popup-shield": {
@@ -338,7 +386,10 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
         throw new Error("Shielding isn't available for daemon-connected accounts -- switch to a local account first.");
       }
       const maxFee = message.maxFee ? BigInt(message.maxFee) : undefined;
-      return account.shield(message.resourceAddress, BigInt(message.amount), maxFee);
+      const { activeAccountId } = await getState();
+      return withHistory({ accountId: activeAccountId, kind: "shield", resourceAddress: message.resourceAddress, amount: message.amount }, () =>
+        account.shield(message.resourceAddress, BigInt(message.amount), maxFee, message.memo)
+      );
     }
 
     case "popup-unshield": {
@@ -348,7 +399,11 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
         throw new Error("Unshielding isn't available for daemon-connected accounts -- switch to a local account first.");
       }
       const maxFee = message.maxFee ? BigInt(message.maxFee) : undefined;
-      return account.unshield(message.resourceAddress, message.commitment, BigInt(message.revealedAmount), maxFee);
+      const { activeAccountId } = await getState();
+      return withHistory(
+        { accountId: activeAccountId, kind: "unshield", resourceAddress: message.resourceAddress, amount: message.revealedAmount },
+        () => account.unshield(message.resourceAddress, BigInt(message.revealedAmount), maxFee, message.memo)
+      );
     }
 
     case "popup-send-privately": {
@@ -358,21 +413,17 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
         throw new Error("Sending privately isn't available for daemon-connected accounts -- switch to a local account first.");
       }
       const maxFee = message.maxFee ? BigInt(message.maxFee) : undefined;
-      return account.sendPrivately(
-        message.resourceAddress,
-        message.commitment,
-        message.recipientWalletAddress,
-        BigInt(message.amount),
-        maxFee
+      const { activeAccountId } = await getState();
+      return withHistory(
+        {
+          accountId: activeAccountId,
+          kind: "send-privately",
+          resourceAddress: message.resourceAddress,
+          amount: message.amount,
+          counterparty: message.recipientWalletAddress,
+        },
+        () => account.sendPrivately(message.resourceAddress, message.recipientWalletAddress, BigInt(message.amount), maxFee, message.memo)
       );
-    }
-
-    case "popup-list-shielded-outputs": {
-      const account = await getActiveAccount();
-      if (!account) throw new Error("Wallet is locked.");
-      if (!(account instanceof OotleAccount)) return { outputs: [] };
-      const outputs = await listShieldedOutputs(localAccountId(account.index));
-      return { outputs: outputs.filter((o) => o.resourceAddress === message.resourceAddress && !o.spent) };
     }
 
     case "popup-claim-private-payment": {
@@ -381,7 +432,11 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       if (!(account instanceof OotleAccount)) {
         throw new Error("Claiming a private payment isn't available for daemon-connected accounts -- switch to a local account first.");
       }
-      return account.claimPrivatePayment(message.resourceAddress, message.commitment);
+      const { activeAccountId } = await getState();
+      return withHistory(
+        { accountId: activeAccountId, kind: "private-payment-received", resourceAddress: message.resourceAddress, counterparty: message.commitment },
+        () => account.claimPrivatePayment(message.resourceAddress, message.commitment)
+      );
     }
 
     case "popup-add-account": {
@@ -485,6 +540,33 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
 
     case "popup-set-auto-lock-minutes": {
       await setState({ autoLockMinutes: message.minutes });
+      return {};
+    }
+
+    case "popup-add-address-book-entry": {
+      const entry = { id: crypto.randomUUID(), label: message.label, address: message.address };
+      await addAddressBookEntry(entry);
+      return entry;
+    }
+
+    case "popup-remove-address-book-entry": {
+      await removeAddressBookEntry(message.id);
+      return {};
+    }
+
+    case "popup-get-transaction-history": {
+      const { activeAccountId } = await getState();
+      return listTransactionHistory(activeAccountId);
+    }
+
+    case "popup-set-network": {
+      await setState({ network: message.network });
+      // Local accounts are cached by "network:index" (see accounts.ts's getLocalAccount), so they
+      // already pick up the new network on their own -- but a daemon-relayed account's cache key
+      // has no network component, and getDaemonAccount() only reads the current network when
+      // constructing a *fresh* instance, so a cached one would otherwise keep talking to the old
+      // network's indexer silently. Clearing forces everything to rebuild against the new network.
+      clearAccountCache();
       return {};
     }
 

@@ -8,6 +8,8 @@ import {
   pollTransactionResult,
   resolveSendPrivatelyPlan,
   resolveUnshieldPlan,
+  selectShieldedUtxosForAmount,
+  synthesizeShieldedOnlyBalances,
 } from "./wallet";
 
 function fakeRecord(overrides: Partial<ShieldedOutputRecord> = {}): ShieldedOutputRecord {
@@ -141,105 +143,183 @@ describe("pollTransactionResult", () => {
   });
 });
 
-describe("resolveUnshieldPlan", () => {
-  it("computes the private remainder for a valid partial reveal", () => {
+describe("selectShieldedUtxosForAmount", () => {
+  it("picks a single largest-first record when it alone covers the target", () => {
+    const small = fakeRecord({ commitment: "aa".repeat(32), amount: "30" });
+    const big = fakeRecord({ commitment: "bb".repeat(32), amount: "100" });
+    const { selected, total, unselected } = selectShieldedUtxosForAmount([small, big], "resource_xtr", 40n);
+    expect(selected.map((r) => r.commitment)).toEqual([big.commitment]);
+    expect(total).toBe(100n);
+    expect(unselected.map((r) => r.commitment)).toEqual([small.commitment]);
+  });
+
+  it("combines multiple records when no single one covers the target", () => {
+    const a = fakeRecord({ commitment: "aa".repeat(32), amount: "60" });
+    const b = fakeRecord({ commitment: "bb".repeat(32), amount: "50" });
+    const c = fakeRecord({ commitment: "cc".repeat(32), amount: "10" });
+    const { selected, total, unselected } = selectShieldedUtxosForAmount([c, a, b], "resource_xtr", 100n);
+    // Largest-first: a (60) then b (50) covers 100 with only 2 inputs, c left unselected.
+    expect(selected.map((r) => r.commitment)).toEqual([a.commitment, b.commitment]);
+    expect(total).toBe(110n);
+    expect(unselected.map((r) => r.commitment)).toEqual([c.commitment]);
+  });
+
+  it("ignores records for a different resource or already spent", () => {
+    const wrongResource = fakeRecord({ amount: "100", resourceAddress: "resource_other" });
+    const spent = fakeRecord({ amount: "100", spent: true });
+    const { selected, total } = selectShieldedUtxosForAmount([wrongResource, spent], "resource_xtr", 10n);
+    expect(selected).toEqual([]);
+    expect(total).toBe(0n);
+  });
+
+  it("selects everything available when the target exceeds the total balance", () => {
     const record = fakeRecord({ amount: "100" });
-    const { remainder } = resolveUnshieldPlan([record], record.resourceAddress, record.commitment, 40n);
+    const { selected, total } = selectShieldedUtxosForAmount([record], "resource_xtr", 500n);
+    expect(selected).toEqual([record]);
+    expect(total).toBe(100n);
+  });
+});
+
+describe("resolveUnshieldPlan", () => {
+  it("computes the private remainder for a valid partial reveal from a single record", () => {
+    const record = fakeRecord({ amount: "100" });
+    const { commitments, remainder } = resolveUnshieldPlan([record], record.resourceAddress, 40n);
+    expect(commitments).toEqual([record.commitment]);
     expect(remainder).toBe(60n);
   });
 
-  it("throws when no unspent record matches the resource/commitment", () => {
-    const record = fakeRecord();
-    expect(() => resolveUnshieldPlan([record], record.resourceAddress, "bb".repeat(32), 40n)).toThrow(
-      "No known unspent shielded output matches that commitment."
-    );
-    expect(() => resolveUnshieldPlan([record], "resource_other", record.commitment, 40n)).toThrow(
-      "No known unspent shielded output matches that commitment."
-    );
+  it("spends multiple records in one plan when needed to cover the amount", () => {
+    const a = fakeRecord({ commitment: "aa".repeat(32), amount: "60" });
+    const b = fakeRecord({ commitment: "bb".repeat(32), amount: "50" });
+    const { commitments, remainder } = resolveUnshieldPlan([a, b], a.resourceAddress, 100n);
+    expect(commitments).toEqual([a.commitment, b.commitment]);
+    expect(remainder).toBe(10n);
   });
 
-  it("ignores a record already marked spent", () => {
+  it("throws when the resource has no unspent balance at all", () => {
     const record = fakeRecord({ spent: true });
-    expect(() => resolveUnshieldPlan([record], record.resourceAddress, record.commitment, 40n)).toThrow(
-      "No known unspent shielded output matches that commitment."
-    );
+    expect(() => resolveUnshieldPlan([record], record.resourceAddress, 40n)).toThrow("Amount exceeds your private balance");
+    expect(() => resolveUnshieldPlan([record], "resource_other", 40n)).toThrow("Amount exceeds your private balance");
   });
 
   it("throws for a zero or negative reveal amount", () => {
     const record = fakeRecord({ amount: "100" });
-    expect(() => resolveUnshieldPlan([record], record.resourceAddress, record.commitment, 0n)).toThrow(
-      "The amount to reveal must be greater than zero."
-    );
-    expect(() => resolveUnshieldPlan([record], record.resourceAddress, record.commitment, -5n)).toThrow(
-      "The amount to reveal must be greater than zero."
+    expect(() => resolveUnshieldPlan([record], record.resourceAddress, 0n)).toThrow("The amount to reveal must be greater than zero.");
+    expect(() => resolveUnshieldPlan([record], record.resourceAddress, -5n)).toThrow("The amount to reveal must be greater than zero.");
+  });
+
+  it("pulls in one more record when the minimal selection would leave zero remainder", () => {
+    const a = fakeRecord({ commitment: "aa".repeat(32), amount: "60" });
+    const b = fakeRecord({ commitment: "bb".repeat(32), amount: "60" });
+    const { commitments, remainder } = resolveUnshieldPlan([a, b], a.resourceAddress, 60n);
+    expect(commitments).toEqual([a.commitment, b.commitment]);
+    expect(remainder).toBe(60n);
+  });
+
+  it("throws when revealing the full balance in one transaction with nothing left to add as remainder", () => {
+    const record = fakeRecord({ amount: "100" });
+    expect(() => resolveUnshieldPlan([record], record.resourceAddress, 100n)).toThrow(
+      "Can't unshield your full private balance in one transaction"
     );
   });
 
-  it("throws when the reveal amount would leave zero remainder (the full-record case)", () => {
+  it("throws when the reveal amount exceeds the total private balance", () => {
     const record = fakeRecord({ amount: "100" });
-    expect(() => resolveUnshieldPlan([record], record.resourceAddress, record.commitment, 100n)).toThrow(
-      "Can't unshield the full amount in one transaction"
-    );
-  });
-
-  it("throws when the reveal amount exceeds the record's amount", () => {
-    const record = fakeRecord({ amount: "100" });
-    expect(() => resolveUnshieldPlan([record], record.resourceAddress, record.commitment, 150n)).toThrow(
-      "Can't unshield the full amount in one transaction"
-    );
+    expect(() => resolveUnshieldPlan([record], record.resourceAddress, 150n)).toThrow("Amount exceeds your private balance");
   });
 
   it("allows revealing all but the smallest unit", () => {
     const record = fakeRecord({ amount: "100" });
-    const { remainder } = resolveUnshieldPlan([record], record.resourceAddress, record.commitment, 99n);
+    const { remainder } = resolveUnshieldPlan([record], record.resourceAddress, 99n);
     expect(remainder).toBe(1n);
   });
 });
 
 describe("resolveSendPrivatelyPlan", () => {
-  it("computes zero change when sending the full record amount", () => {
+  it("computes zero change when sending the full balance", () => {
     const record = fakeRecord({ amount: "100" });
-    const { changeAmount } = resolveSendPrivatelyPlan([record], record.resourceAddress, record.commitment, 100n);
+    const { commitments, changeAmount } = resolveSendPrivatelyPlan([record], record.resourceAddress, 100n);
+    expect(commitments).toEqual([record.commitment]);
     expect(changeAmount).toBe(0n);
   });
 
   it("computes the private change for a partial send", () => {
     const record = fakeRecord({ amount: "100" });
-    const { changeAmount } = resolveSendPrivatelyPlan([record], record.resourceAddress, record.commitment, 40n);
+    const { changeAmount } = resolveSendPrivatelyPlan([record], record.resourceAddress, 40n);
     expect(changeAmount).toBe(60n);
   });
 
-  it("throws when no unspent record matches the resource/commitment", () => {
-    const record = fakeRecord();
-    expect(() => resolveSendPrivatelyPlan([record], record.resourceAddress, "bb".repeat(32), 40n)).toThrow(
-      "No known unspent shielded output matches that commitment."
-    );
-    expect(() => resolveSendPrivatelyPlan([record], "resource_other", record.commitment, 40n)).toThrow(
-      "No known unspent shielded output matches that commitment."
-    );
+  it("spends multiple records in one plan when needed to cover the amount", () => {
+    const a = fakeRecord({ commitment: "aa".repeat(32), amount: "60" });
+    const b = fakeRecord({ commitment: "bb".repeat(32), amount: "50" });
+    const { commitments, changeAmount } = resolveSendPrivatelyPlan([a, b], a.resourceAddress, 100n);
+    expect(commitments).toEqual([a.commitment, b.commitment]);
+    expect(changeAmount).toBe(10n);
   });
 
-  it("ignores a record already marked spent", () => {
+  it("throws when the resource has no unspent balance at all", () => {
     const record = fakeRecord({ spent: true });
-    expect(() => resolveSendPrivatelyPlan([record], record.resourceAddress, record.commitment, 40n)).toThrow(
-      "No known unspent shielded output matches that commitment."
-    );
+    expect(() => resolveSendPrivatelyPlan([record], record.resourceAddress, 40n)).toThrow("Amount exceeds your private balance");
+    expect(() => resolveSendPrivatelyPlan([record], "resource_other", 40n)).toThrow("Amount exceeds your private balance");
   });
 
   it("throws for a zero or negative send amount", () => {
     const record = fakeRecord({ amount: "100" });
-    expect(() => resolveSendPrivatelyPlan([record], record.resourceAddress, record.commitment, 0n)).toThrow(
-      "The amount to send must be greater than zero."
-    );
-    expect(() => resolveSendPrivatelyPlan([record], record.resourceAddress, record.commitment, -5n)).toThrow(
-      "The amount to send must be greater than zero."
-    );
+    expect(() => resolveSendPrivatelyPlan([record], record.resourceAddress, 0n)).toThrow("The amount to send must be greater than zero.");
+    expect(() => resolveSendPrivatelyPlan([record], record.resourceAddress, -5n)).toThrow("The amount to send must be greater than zero.");
   });
 
-  it("throws when the send amount exceeds the record's amount", () => {
+  it("throws when the send amount exceeds the total private balance", () => {
     const record = fakeRecord({ amount: "100" });
-    expect(() => resolveSendPrivatelyPlan([record], record.resourceAddress, record.commitment, 101n)).toThrow(
-      "Amount exceeds this output's private balance"
+    expect(() => resolveSendPrivatelyPlan([record], record.resourceAddress, 101n)).toThrow("Amount exceeds your private balance");
+  });
+});
+
+describe("synthesizeShieldedOnlyBalances", () => {
+  it("synthesizes a Stealth-kind balance for a resource with no vault at all", () => {
+    const shieldedByResource = new Map([["resource_ghost", 250n]]);
+    const [entry, ...rest] = synthesizeShieldedOnlyBalances(
+      new Set(), // no vault-derived resources
+      shieldedByResource,
+      new Map([["resource_ghost", 6]]),
+      new Map([["resource_ghost", "GHOST"]]),
+      new Map([["resource_ghost", "Ghost Token"]])
     );
+    expect(rest).toHaveLength(0);
+    expect(entry).toEqual({
+      resourceAddress: "resource_ghost",
+      kind: "Stealth",
+      amount: 0n,
+      confidentialAmount: 250n,
+      confidentialDecryptFailures: 0,
+      divisibility: 6,
+      symbol: "GHOST",
+      name: "Ghost Token",
+    });
+  });
+
+  it("skips a resource that already has a vault-derived entry", () => {
+    const shieldedByResource = new Map([["resource_xtr", 100n]]);
+    const result = synthesizeShieldedOnlyBalances(
+      new Set(["resource_xtr"]), // already covered by a real vault
+      shieldedByResource,
+      new Map(),
+      new Map(),
+      new Map()
+    );
+    expect(result).toHaveLength(0);
+  });
+
+  it("falls back to divisibility 0 and null symbol/name when metadata lookup has nothing", () => {
+    const shieldedByResource = new Map([["resource_unknown", 5n]]);
+    const result = synthesizeShieldedOnlyBalances(new Set(), shieldedByResource, new Map(), new Map(), new Map());
+    expect(result).toHaveLength(1);
+    expect(result[0]?.divisibility).toBe(0);
+    expect(result[0]?.symbol).toBeNull();
+    expect(result[0]?.name).toBeNull();
+  });
+
+  it("returns nothing when there are no shielded-only resources", () => {
+    expect(synthesizeShieldedOnlyBalances(new Set(), new Map(), new Map(), new Map(), new Map())).toHaveLength(0);
   });
 });

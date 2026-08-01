@@ -70,17 +70,16 @@ export type PopupRequest =
   | { kind: "popup-get-balances" }
   | { kind: "popup-claim-testnet-xtr" }
   | { kind: "popup-send"; toAddress: string; resourceAddress: string; amount: string }
-  | { kind: "popup-shield"; resourceAddress: string; amount: string; maxFee?: string }
-  | { kind: "popup-unshield"; resourceAddress: string; commitment: string; revealedAmount: string; maxFee?: string }
+  | { kind: "popup-shield"; resourceAddress: string; amount: string; maxFee?: string; memo?: string }
+  | { kind: "popup-unshield"; resourceAddress: string; revealedAmount: string; maxFee?: string; memo?: string }
   | {
       kind: "popup-send-privately";
       resourceAddress: string;
-      commitment: string;
       recipientWalletAddress: string;
       amount: string;
       maxFee?: string;
+      memo?: string;
     }
-  | { kind: "popup-list-shielded-outputs"; resourceAddress: string }
   | { kind: "popup-claim-private-payment"; resourceAddress: string; commitment: string }
   | { kind: "popup-add-account" }
   | { kind: "popup-set-active-account"; accountId: string }
@@ -94,7 +93,11 @@ export type PopupRequest =
   | { kind: "popup-add-daemon-accounts"; connectionId: string; accounts: { componentAddress: string; label: string }[] }
   | { kind: "popup-remove-daemon-connection"; connectionId: string }
   | { kind: "popup-remove-daemon-account"; connectionId: string; componentAddress: string }
-  | { kind: "popup-set-auto-lock-minutes"; minutes: number };
+  | { kind: "popup-set-auto-lock-minutes"; minutes: number }
+  | { kind: "popup-add-address-book-entry"; label: string; address: string }
+  | { kind: "popup-remove-address-book-entry"; id: string }
+  | { kind: "popup-set-network"; network: "esmeralda" | "igor" }
+  | { kind: "popup-get-transaction-history" };
 
 export interface AccountSummary {
   id: string;
@@ -117,7 +120,23 @@ export interface WalletStatus {
   activeAccountError: string | null;
   accounts: AccountSummary[];
   daemonConnections: { id: string; url: string; label: string }[];
+  addressBook: { id: string; label: string; address: string }[];
   autoLockMinutes: number;
+}
+
+/** Mirrors storage.ts's `TransactionHistoryEntry` — see its doc comment for scope. Declared
+ * separately here rather than imported, matching how `WalletStatus`'s other storage-backed fields
+ * (e.g. `daemonConnections`) are their own popup-facing shapes, not direct storage.ts imports. */
+export interface TransactionHistoryEntry {
+  id: string;
+  accountId: string;
+  kind: "send" | "shield" | "unshield" | "send-privately" | "claim" | "private-payment-received" | "dapp-transaction";
+  resourceAddress?: string;
+  amount?: string;
+  counterparty?: string;
+  transactionId?: string;
+  createdAt: number;
+  status: "confirmed" | "failed";
 }
 
 /** One account as reported by a wallet daemon's `accounts.list`/`accounts.get` JRPC, surfaced to

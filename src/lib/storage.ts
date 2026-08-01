@@ -41,6 +41,17 @@ export interface DaemonAccountRef {
 }
 
 /**
+ * A saved recipient — either a `component_…` public address (for Send) or an `otl_…` bech32m
+ * wallet address (for Send privately). Plain metadata, same sensitivity as a daemon connection's
+ * `url`/`label` (not the encrypted API key) — addresses are public on-chain data regardless.
+ */
+export interface AddressBookEntry {
+  id: string;
+  label: string;
+  address: string;
+}
+
+/**
  * A stealth (confidential) output this wallet created via a shield transfer, recorded so a
  * later unshield can find it — there is no way to scan/list stealth UTXOs by view key alone
  * (see confidential.ts / OotleAccount.shield()'s doc comment), so this local record is the
@@ -76,9 +87,10 @@ export interface PendingShield {
   accountId: string;
   resourceAddress: string;
   amount: string;
-  /** Set for an unshield's pending entry: the now-spent commitment to mark on recovery, once the
-   * new (change) `ShieldedOutputRecord` above has been written. Absent for a plain shield. */
-  spentCommitment?: string;
+  /** Set for an unshield's or private send's pending entry: the now-spent commitments (a
+   * multi-UTXO spend may consume several) to mark on recovery, once the new (change)
+   * `ShieldedOutputRecord` above has been written. Absent for a plain shield. */
+  spentCommitments?: string[];
   /**
    * This account's own new commitment, if this operation creates one — known locally (read from
    * the outputs statement built *before* submission, since a stealth output's commitment is
@@ -92,6 +104,37 @@ export interface PendingShield {
   ownCommitment?: string;
 }
 
+/**
+ * A transaction this wallet itself submitted (or an inbound private payment it explicitly
+ * claimed), recorded client-side for a local history view. Deliberately scoped: this only covers
+ * actions taken *from this point forward* through this wallet, not a retroactive reconstruction
+ * of on-chain history (the indexer's recent-transactions feed is global/paginated, not filterable
+ * by address — see OotleAccount.scanForPrivatePayments()'s use of it for the one place this
+ * codebase already walks that feed). `resourceAddress`/`amount`/`transactionId` are omitted where
+ * genuinely not known or not meaningfully decodable — see the `dapp-transaction` kind, which
+ * deliberately never decodes instruction args (same "never decode a Literal" policy as
+ * instructionSummary.ts, used for the approval screen).
+ */
+export interface TransactionHistoryEntry {
+  id: string;
+  accountId: string;
+  kind: "send" | "shield" | "unshield" | "send-privately" | "claim" | "private-payment-received" | "dapp-transaction";
+  resourceAddress?: string;
+  /** Raw, resource-native units (matches ShieldedOutputRecord.amount's convention). */
+  amount?: string;
+  /** Recipient/sender address for a send-like kind, or a structural summary label for
+   * `dapp-transaction` (see instructionSummary.ts) — free-form, display-only. */
+  counterparty?: string;
+  /** The real on-chain transaction id, when known — omitted for kinds whose underlying SDK call
+   * doesn't currently surface one to the caller (see wallet.ts's `execute()`, which discards it
+   * after using it internally to poll for the result). */
+  transactionId?: string;
+  createdAt: number;
+  status: "confirmed" | "failed";
+}
+
+const MAX_TRANSACTION_HISTORY_ENTRIES = 500;
+
 export interface WalletState {
   vault: EncryptedVault | null;
   accountCount: number; // how many *local* (seed-derived) accounts have been derived/revealed
@@ -102,6 +145,11 @@ export interface WalletState {
   connectedSites: ConnectedSite[];
   daemonConnections: DaemonConnectionConfig[];
   daemonAccounts: DaemonAccountRef[];
+  /** Saved recipient addresses, shared across Send and Send-privately. */
+  addressBook: AddressBookEntry[];
+  /** Transactions this wallet has submitted/claimed, newest first, capped at
+   * MAX_TRANSACTION_HISTORY_ENTRIES — see TransactionHistoryEntry's doc comment for scope. */
+  transactionHistory: TransactionHistoryEntry[];
   /** Minutes of inactivity before the wallet auto-locks; 0 = never. See src/lib/autoLock.ts. */
   autoLockMinutes: number;
   /** Every stealth output this wallet has shielded, local-account only (see ShieldedOutputRecord). */
@@ -124,6 +172,8 @@ const DEFAULTS: WalletState = {
   connectedSites: [],
   daemonConnections: [],
   daemonAccounts: [],
+  addressBook: [],
+  transactionHistory: [],
   autoLockMinutes: DEFAULT_AUTO_LOCK_MINUTES,
   shieldedOutputs: [],
   pendingShields: [],
@@ -216,6 +266,27 @@ export async function removeDaemonAccount(connectionId: string, componentAddress
   await setState({
     daemonAccounts: state.daemonAccounts.filter((a) => !(a.connectionId === connectionId && a.componentAddress === componentAddress)),
   });
+}
+
+export async function addAddressBookEntry(entry: AddressBookEntry): Promise<void> {
+  const state = await getState();
+  await setState({ addressBook: [...state.addressBook, entry] });
+}
+
+export async function removeAddressBookEntry(id: string): Promise<void> {
+  const state = await getState();
+  await setState({ addressBook: state.addressBook.filter((e) => e.id !== id) });
+}
+
+/** Newest-first; entries beyond MAX_TRANSACTION_HISTORY_ENTRIES are dropped (oldest first). */
+export async function addTransactionHistoryEntry(entry: TransactionHistoryEntry): Promise<void> {
+  const state = await getState();
+  await setState({ transactionHistory: [entry, ...state.transactionHistory].slice(0, MAX_TRANSACTION_HISTORY_ENTRIES) });
+}
+
+export async function listTransactionHistory(accountId: string): Promise<TransactionHistoryEntry[]> {
+  const { transactionHistory } = await getState();
+  return transactionHistory.filter((e) => e.accountId === accountId);
 }
 
 export async function wipeWallet(): Promise<void> {

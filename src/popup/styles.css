@@ -185,6 +185,9 @@ button + button {
 .balance-row:last-child {
   border-bottom: none;
 }
+.balance-row.status-failed {
+  color: var(--bad);
+}
 .balances-card {
   max-height: 220px;
   overflow-y: auto;

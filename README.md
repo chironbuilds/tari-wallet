@@ -38,6 +38,29 @@ that was driven from Node directly, not by clicking through the popup's Connect-
 See "Design notes" below for the architectural decisions (own seed scheme, `window.tari` instead
 of WalletConnect) and their trade-offs.
 
+## Recent additions (typecheck/test/build verified; not yet exercised live)
+
+- **Address book** (Settings → Address book): saved `component_…`/`otl_…` recipients, offered as a
+  picker in both Send and Send-privately without replacing manual entry.
+- **Network switching** (Settings → Network): esmeralda/igor, with an inline confirmation before
+  switching (the storage field and read path already existed; this wires up the write path + UI).
+  Clears the account cache on switch so a stale daemon-relayed account can't keep talking to the
+  old network — see `background/index.ts`'s `popup-set-network` handler.
+- **Transaction history** (home screen → History): client-recorded from here forward, covering
+  Send, Shield, Unshield, Send-privately, testnet-XTR claims, claimed private payments, and
+  dApp-submitted transactions (labeled structurally via `instructionSummary.ts`, never decoding
+  instruction args — same policy as the approval screen). **Not** a retroactive reconstruction of
+  on-chain history; see `TransactionHistoryEntry`'s doc comment in `storage.ts` for why.
+- **Memo support** on Shield/Unshield/Send-privately: an optional encrypted note attached to a
+  stealth output (`{ Message: text }` — see `toMemo()` in `wallet.ts` for why this isn't a plain
+  string at the SDK boundary). For Send-privately it's attached to the recipient's output only, not
+  the sender's own change output.
+- Fixed a `getBalances()` gap where a resource whose *only* balance came from redeeming someone
+  else's shared stealth commitment (no on-chain vault ever created) showed as absent entirely.
+- `scripts/local-unshield-test.ts`: a live-verification script mirroring `local-shield-test.ts`,
+  since unshield shares shield's fixes but was never explicitly re-verified live after them.
+  **Run this yourself** (it needs your real mnemonic) before trusting unshield in production.
+
 **`OotleAccount.getComponentAddress()` (`src/lib/wallet.ts`) derives the on-chain component
 address client-side**, via `deriveAccountComponentAddress()` in `src/lib/componentAddress.ts`. This
 reproduces `derive_component_address_from_public_key` (`crates/engine_types/src/component.rs`,

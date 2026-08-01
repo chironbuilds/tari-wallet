@@ -1,6 +1,5 @@
 import "./styles.css";
-import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest, WalletStatus } from "../lib/messages";
-import type { ShieldedOutputRecord } from "../lib/storage";
+import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest, TransactionHistoryEntry, WalletStatus } from "../lib/messages";
 import { isPlausibleMnemonic } from "../lib/cipherSeed";
 import { AUTO_LOCK_OPTIONS, formatAutoLockOption } from "../lib/autoLock";
 import { summarizeArgs, summarizeInstruction } from "../lib/instructionSummary";
@@ -68,6 +67,7 @@ const ICON_COPY =
   '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
 const ICON_SETTINGS =
   '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>';
+const ICON_CLOCK = '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>';
 
 function icon(paths: string): HTMLSpanElement {
   const span = document.createElement("span");
@@ -424,7 +424,11 @@ async function renderHome(status: WalletStatus) {
     h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_PLUS)]),
     "Claim XTR",
   ]);
-  const actionRow = h("div", { class: "action-row" }, [sendActionBtn, receiveActionBtn, claimActionBtn]);
+  const historyActionBtn = h("button", { class: "action-btn", id: "historyAction" }, [
+    h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_CLOCK)]),
+    "History",
+  ]);
+  const actionRow = h("div", { class: "action-row" }, [sendActionBtn, receiveActionBtn, claimActionBtn, historyActionBtn]);
 
   const claimStatusEl = h("div", { class: "status", id: "claimStatus", style: "display:none" });
 
@@ -459,6 +463,7 @@ async function renderHome(status: WalletStatus) {
     }
   });
   receiveActionBtn.addEventListener("click", () => renderReceive(status));
+  historyActionBtn.addEventListener("click", () => renderHistory(status));
   claimActionBtn.addEventListener("click", async () => {
     claimActionBtn.setAttribute("disabled", "true");
     claimStatusEl.style.display = "block";
@@ -508,6 +513,7 @@ function renderSettings(status: WalletStatus) {
   const connectDaemonBtn = settingsRow("connectDaemon", "Connect daemon wallet");
   const daemonsBtn = settingsRow("daemons", "Daemon connections", String(status.daemonConnections.length));
   const sitesBtn = settingsRow("sites", "Connected sites");
+  const addressBookBtn = settingsRow("addressBook", "Address book", String(status.addressBook.length));
   const backupBtn = settingsRow("backup", "Reveal recovery phrase");
   const lockBtn = h("button", { class: "danger", id: "lock" }, ["Lock wallet"]);
 
@@ -525,10 +531,34 @@ function renderSettings(status: WalletStatus) {
     autoLockSelect,
   ]);
 
+  const NETWORK_OPTIONS: { value: "esmeralda" | "igor"; label: string }[] = [
+    { value: "esmeralda", label: "Esmeralda" },
+    { value: "igor", label: "Igor" },
+  ];
+  const networkSelect = h(
+    "select",
+    { id: "network", class: "settings-row-select", "aria-label": "Network" },
+    NETWORK_OPTIONS.map((opt) =>
+      h("option", { value: opt.value, ...(opt.value === status.network ? { selected: "true" } : {}) }, [opt.label])
+    )
+  );
+  const networkRow = h("div", { class: "settings-row settings-row-static" }, [h("span", {}, ["Network"]), networkSelect]);
+  const networkConfirmEl = h("div", { class: "status", style: "display:none" });
+
   render(
     h("h1", {}, ["Settings"]),
     back,
-    h("div", { class: "card settings-card" }, [addAccountBtn, connectDaemonBtn, daemonsBtn, sitesBtn, backupBtn, autoLockRow]),
+    h("div", { class: "card settings-card" }, [
+      addAccountBtn,
+      connectDaemonBtn,
+      daemonsBtn,
+      sitesBtn,
+      addressBookBtn,
+      backupBtn,
+      autoLockRow,
+      networkRow,
+    ]),
+    networkConfirmEl,
     lockBtn
   );
 
@@ -539,6 +569,36 @@ function renderSettings(status: WalletStatus) {
   });
   autoLockSelect.addEventListener("change", () => {
     void send({ kind: "popup-set-auto-lock-minutes", minutes: Number((autoLockSelect as HTMLSelectElement).value) });
+  });
+  networkSelect.addEventListener("change", () => {
+    const chosen = (networkSelect as HTMLSelectElement).value as "esmeralda" | "igor";
+    if (chosen === status.network) {
+      networkConfirmEl.style.display = "none";
+      return;
+    }
+    const confirmBtn = h("button", { class: "danger", style: "width:auto;padding:4px 10px;margin-right:8px" }, ["Switch"]);
+    const cancelBtn = h("button", { class: "secondary", style: "width:auto;padding:4px 10px" }, ["Cancel"]);
+    networkConfirmEl.className = "status";
+    networkConfirmEl.style.display = "block";
+    networkConfirmEl.replaceChildren(
+      h("p", { style: "margin:0 0 8px" }, [
+        `Switching from ${status.network} to ${chosen} changes which chain your balances and transactions are read from. Your accounts and recovery phrase stay the same.`,
+      ]),
+      confirmBtn,
+      cancelBtn
+    );
+    cancelBtn.addEventListener("click", () => {
+      (networkSelect as HTMLSelectElement).value = status.network;
+      networkConfirmEl.style.display = "none";
+    });
+    confirmBtn.addEventListener("click", async () => {
+      confirmBtn.setAttribute("disabled", "true");
+      cancelBtn.setAttribute("disabled", "true");
+      await send({ kind: "popup-set-network", network: chosen });
+      renderLoading("Switching network…");
+      const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
+      renderSettings(newStatus);
+    });
   });
   document.getElementById("addAccount")!.addEventListener("click", async () => {
     await send({ kind: "popup-add-account" });
@@ -553,6 +613,7 @@ function renderSettings(status: WalletStatus) {
   document.getElementById("connectDaemon")!.addEventListener("click", () => renderConnectDaemon(status));
   document.getElementById("daemons")!.addEventListener("click", () => renderDaemonConnections(status));
   document.getElementById("sites")!.addEventListener("click", renderConnectedSites);
+  document.getElementById("addressBook")!.addEventListener("click", () => renderAddressBook(status));
   document.getElementById("backup")!.addEventListener("click", renderRevealMnemonic);
 }
 
@@ -656,6 +717,63 @@ function buildClaimPrivatePaymentCard(status: WalletStatus) {
   ]);
 }
 
+const HISTORY_KIND_LABEL: Record<TransactionHistoryEntry["kind"], string> = {
+  send: "Sent",
+  shield: "Shielded",
+  unshield: "Unshielded",
+  "send-privately": "Sent privately",
+  claim: "Claimed testnet XTR",
+  "private-payment-received": "Received privately",
+  "dapp-transaction": "App transaction",
+};
+
+/**
+ * Transaction history is recorded client-side, starting from when this feature shipped -- it's
+ * not a retroactive reconstruction of everything this account has ever done on-chain (see
+ * TransactionHistoryEntry's doc comment in storage.ts for why). Fetches current balances
+ * alongside the history list purely for display formatting (symbol/divisibility) — an entry for
+ * a resource this account no longer holds still renders, just without those niceties.
+ */
+async function renderHistory(status: WalletStatus) {
+  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  render(h("h1", {}, ["History"]), h("div", { class: "muted" }, ["Loading…"]), back);
+  document.getElementById("back")!.addEventListener("click", () => renderHome(status));
+
+  const [entries, balances] = await Promise.all([
+    send<TransactionHistoryEntry[]>({ kind: "popup-get-transaction-history" }),
+    send<Balance[]>({ kind: "popup-get-balances" }).catch(() => [] as Balance[]),
+  ]);
+  const balanceByResource = new Map(balances.map((b) => [b.resourceAddress, b]));
+
+  const list =
+    entries.length === 0
+      ? h("div", { class: "empty-state" }, [h("div", { class: "muted" }, ["No transactions yet."])])
+      : h(
+          "div",
+          {},
+          entries.map((entry) => {
+            const b = entry.resourceAddress ? balanceByResource.get(entry.resourceAddress) : undefined;
+            const amountText =
+              entry.amount && entry.resourceAddress
+                ? `${formatBalanceAmount(entry.amount, b?.divisibility ?? 0)} ${resourceLabel(entry.resourceAddress, b?.symbol ?? null)}`
+                : null;
+            const when = new Date(entry.createdAt).toLocaleString();
+            return h("div", { class: `balance-row${entry.status === "failed" ? " status-failed" : ""}` }, [
+              h("div", {}, [
+                h("div", {}, [HISTORY_KIND_LABEL[entry.kind], entry.status === "failed" ? " (failed)" : ""]),
+                h("div", { class: "muted" }, [amountText ? `${amountText} · ${when}` : when]),
+                // Not shortAddr()'d -- a dapp-transaction's counterparty is a human sentence
+                // ("origin: summary"), not a hex address, and mid-word truncation would garble it.
+                entry.counterparty ? h("div", { class: "muted" }, [entry.counterparty]) : "",
+              ]),
+            ]);
+          })
+        );
+
+  render(h("h1", {}, ["History"]), list, back);
+  document.getElementById("back")!.addEventListener("click", () => renderHome(status));
+}
+
 /**
  * The single "Send" screen, covering both a plain revealed-balance transfer and a private
  * (stealth-to-stealth) send from behind one tab toggle -- previously two separate screens
@@ -685,7 +803,7 @@ function renderSend(
   if (!isLocalAccount) {
     render(h("h1", {}, ["Send"]), publicSection, back);
     document.getElementById("back")!.addEventListener("click", onBack);
-    buildPublicSendForm(publicSection, balances);
+    buildPublicSendForm(publicSection, balances, status.addressBook);
     return;
   }
 
@@ -705,12 +823,33 @@ function renderSend(
   render(h("h1", {}, ["Send"]), tabRow, publicSection, privateSection, back);
   document.getElementById("back")!.addEventListener("click", onBack);
 
-  buildPublicSendForm(publicSection, balances);
-  buildPrivateSendForm(privateSection, balances, options?.initialResourceAddress);
+  buildPublicSendForm(publicSection, balances, status.addressBook);
+  buildPrivateSendForm(privateSection, balances, status.addressBook, options?.initialResourceAddress);
   setTab(options?.initialTab ?? "public");
 }
 
-function buildPublicSendForm(container: HTMLElement, balances: Balance[]) {
+/** A picker of saved address-book entries matching `isMatch`, or `null` if there are none worth
+ * showing — selecting an option fills `targetInput`'s value but leaves it freely editable, so
+ * manual entry still works exactly as before. */
+function buildAddressPicker(
+  entries: { id: string; label: string; address: string }[],
+  isMatch: (address: string) => boolean,
+  targetInput: HTMLElement
+): HTMLElement | null {
+  const matching = entries.filter((e) => isMatch(e.address));
+  if (matching.length === 0) return null;
+  const select = h("select", { class: "settings-row-select", style: "margin-bottom:8px" }, [
+    h("option", { value: "" }, ["Choose from address book…"]),
+    ...matching.map((e) => h("option", { value: e.address }, [`${e.label} (${shortAddr(e.address)})`])),
+  ]);
+  select.addEventListener("change", () => {
+    const value = (select as HTMLSelectElement).value;
+    if (value) (targetInput as HTMLInputElement).value = value;
+  });
+  return select;
+}
+
+function buildPublicSendForm(container: HTMLElement, balances: Balance[], addressBook: { id: string; label: string; address: string }[]) {
   const tokenSelect = h(
     "select",
     {},
@@ -719,6 +858,7 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[]) {
   const balanceHint = h("div", { class: "muted", style: "margin-top:6px" }, [""]);
 
   const toInput = h("input", { type: "text", placeholder: "component_…", maxlength: "74" });
+  const addressPicker = buildAddressPicker(addressBook, isValidComponentAddress, toInput);
   const amountInput = h("input", { type: "text", placeholder: "0.0", maxlength: "40" });
   const maxBtn = h("button", { class: "max-btn" }, ["MAX"]);
   const amountField = h("div", { class: "amount-field" }, [amountInput, maxBtn]);
@@ -731,6 +871,7 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[]) {
     tokenSelect,
     balanceHint,
     h("label", {}, ["Recipient address"]),
+    ...(addressPicker ? [addressPicker] : []),
     toInput,
     h("label", {}, ["Amount"]),
     amountField,
@@ -793,16 +934,23 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[]) {
 }
 
 /**
- * Sends one of this account's own previously-shielded outputs directly to someone else's Ootle
- * wallet address — private the whole way (unlike Shield, which always targets this same account,
- * and Unshield, which always reveals back to this same account). Picks from the SAME "your
- * shielded outputs" list Unshield uses — there's no scan-by-view-key API, so a known local record
- * remains the only way to spend one (see ShieldedOutputRecord's doc comment).
+ * Sends some of this account's total private balance for a resource directly to someone else's
+ * Ootle wallet address — private the whole way (unlike Shield, which always targets this same
+ * account, and Unshield, which always reveals back to this same account). Which specific shielded
+ * output(s) get spent is chosen by the wallet itself (largest-first coin selection — see
+ * `resolveSendPrivatelyPlan`), combining more than one into a single transaction if no single
+ * output covers the amount, so the user only ever thinks in terms of a total balance and an
+ * amount, never individual UTXOs/commitments.
  *
  * Only offers resources with an actual private balance to send from (`confidentialAmount > 0n`);
  * if none exist, shows a hint to shield first rather than an empty picker.
  */
-function buildPrivateSendForm(container: HTMLElement, balances: Balance[], initialResourceAddress?: string) {
+function buildPrivateSendForm(
+  container: HTMLElement,
+  balances: Balance[],
+  addressBook: { id: string; label: string; address: string }[],
+  initialResourceAddress?: string
+) {
   const privateBalances = balances.filter((b) => BigInt(b.confidentialAmount) > 0n);
   if (privateBalances.length === 0) {
     container.replaceChildren(h("p", { class: "muted" }, ["You don't have a private balance yet — shield some first."]));
@@ -818,7 +966,7 @@ function buildPrivateSendForm(container: HTMLElement, balances: Balance[], initi
     (resourceSelect as HTMLSelectElement).value = initialResourceAddress;
   }
 
-  const pickerSection = h("div", { style: "margin-top:10px" });
+  const formSection = h("div", { style: "margin-top:10px" });
   const statusEl = h("div", { class: "status", style: "display:none" });
   const showStatus = (msg: string, cls: "err" | "ok") => {
     statusEl.style.display = "block";
@@ -839,7 +987,7 @@ function buildPrivateSendForm(container: HTMLElement, balances: Balance[], initi
       const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
       await renderHome(newStatus);
     });
-    pickerSection.replaceChildren(
+    formSection.replaceChildren(
       h("div", { class: "status ok" }, ["Sent privately!"]),
       h("p", { class: "muted" }, [
         "The recipient can't discover this on their own -- share the commitment below with them directly.",
@@ -850,16 +998,18 @@ function buildPrivateSendForm(container: HTMLElement, balances: Balance[], initi
     );
   };
 
-  container.replaceChildren(h("label", {}, ["Asset"]), resourceSelect, pickerSection, statusEl);
+  container.replaceChildren(h("label", {}, ["Asset"]), resourceSelect, formSection, statusEl);
 
-  const buildForm = (balance: Balance, label: string, commitment: string, maxAmount: bigint) => {
+  const buildForm = (balance: Balance, label: string, maxAmount: bigint) => {
     const recipientInput = h("input", { type: "text", placeholder: "otl_…", maxlength: "200" });
+    const addressPicker = buildAddressPicker(addressBook, isValidOotleWalletAddress, recipientInput);
     const amountInput = h("input", { type: "text", placeholder: "0.0", maxlength: "40" });
     const maxBtn = h("button", { class: "max-btn" }, ["MAX"]);
     const amountField = h("div", { class: "amount-field" }, [amountInput, maxBtn]);
     const hint = h("div", { class: "muted", style: "margin-top:6px" }, [
-      `Holds ${formatBalanceAmount(maxAmount.toString(), balance.divisibility)} ${label} privately.`,
+      `Private balance: ${formatBalanceAmount(maxAmount.toString(), balance.divisibility)} ${label}`,
     ]);
+    const memoInput = h("input", { type: "text", placeholder: "e.g. Payment for invoice #42", maxlength: "200" });
     const submitBtn = h("button", { class: "primary" }, [`Send ${label} privately`]);
 
     maxBtn.addEventListener("click", () => {
@@ -879,19 +1029,24 @@ function buildPrivateSendForm(container: HTMLElement, balances: Balance[], initi
         showStatus(e instanceof Error ? e.message : String(e), "err");
         return;
       }
+      if (raw <= 0n) {
+        showStatus("Enter an amount greater than zero.", "err");
+        return;
+      }
       if (raw > maxAmount) {
-        showStatus("Amount exceeds this output's private balance.", "err");
+        showStatus("Amount exceeds your private balance.", "err");
         return;
       }
       submitBtn.setAttribute("disabled", "true");
       showStatus("Submitting — this usually takes a few seconds…", "ok");
+      const memo = (memoInput as HTMLInputElement).value.trim();
       try {
         const { recipientCommitment } = await send<{ transactionId: string; recipientCommitment: string }>({
           kind: "popup-send-privately",
           resourceAddress: balance.resourceAddress,
-          commitment,
           recipientWalletAddress,
           amount: raw.toString(),
+          memo: memo || undefined,
         });
         showResultSection(recipientCommitment);
       } catch (e) {
@@ -900,48 +1055,30 @@ function buildPrivateSendForm(container: HTMLElement, balances: Balance[], initi
       }
     });
 
-    return [h("label", {}, ["Recipient's Ootle wallet address"]), recipientInput, h("label", {}, ["Amount"]), amountField, hint, submitBtn];
+    return [
+      h("label", {}, ["Recipient's Ootle wallet address"]),
+      ...(addressPicker ? [addressPicker] : []),
+      recipientInput,
+      h("label", {}, ["Amount"]),
+      amountField,
+      hint,
+      h("label", {}, ["Memo (optional)"]),
+      memoInput,
+      h("p", { class: "muted", style: "margin:4px 0 0" }, [
+        "Only the recipient can decrypt this — but it's stored on-chain (encrypted), so keep it short.",
+      ]),
+      submitBtn,
+    ];
   };
 
-  const loadPicker = async () => {
+  const loadForm = () => {
     const balance = privateBalances.find((b) => b.resourceAddress === (resourceSelect as HTMLSelectElement).value)!;
     const label = resourceLabel(balance.resourceAddress, balance.symbol);
-    pickerSection.replaceChildren(h("p", { class: "muted" }, ["Loading your shielded outputs…"]));
-    try {
-      const { outputs } = await send<{ outputs: ShieldedOutputRecord[] }>({
-        kind: "popup-list-shielded-outputs",
-        resourceAddress: balance.resourceAddress,
-      });
-      if (outputs.length === 0) {
-        pickerSection.replaceChildren(
-          h("p", { class: "muted" }, ["You don't have any shielded outputs for this token yet — shield some first."])
-        );
-        return;
-      }
-      const outputSelect = h(
-        "select",
-        {},
-        outputs.map((o) =>
-          h("option", { value: o.commitment }, [
-            `${formatBalanceAmount(o.amount, balance.divisibility)} ${label} — ${shortAddr(o.commitment, 6)}`,
-          ])
-        )
-      );
-      const formHolder = h("div", { style: "margin-top:10px" });
-      const rebuildForm = () => {
-        const o = outputs.find((r) => r.commitment === (outputSelect as HTMLSelectElement).value)!;
-        formHolder.replaceChildren(...buildForm(balance, label, o.commitment, BigInt(o.amount)));
-      };
-      outputSelect.addEventListener("change", rebuildForm);
-      pickerSection.replaceChildren(h("label", {}, ["Your shielded outputs"]), outputSelect, formHolder);
-      rebuildForm();
-    } catch (e) {
-      pickerSection.replaceChildren(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
-    }
+    formSection.replaceChildren(...buildForm(balance, label, BigInt(balance.confidentialAmount)));
   };
 
-  resourceSelect.addEventListener("change", loadPicker);
-  loadPicker();
+  resourceSelect.addEventListener("change", loadForm);
+  loadForm();
 }
 
 /**
@@ -961,6 +1098,7 @@ function renderShield(status: WalletStatus, balance: Balance) {
   const balanceHint = h("div", { class: "muted", style: "margin-top:6px" }, [
     `Revealed balance: ${formatBalanceAmount(balance.amount, balance.divisibility)} ${label}`,
   ]);
+  const memoInput = h("input", { type: "text", id: "memo", placeholder: "e.g. Savings", maxlength: "200" });
 
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
   const shieldBtn = h("button", { class: "primary", id: "submit" }, [`Shield ${label}`]);
@@ -973,6 +1111,11 @@ function renderShield(status: WalletStatus, balance: Balance) {
     h("label", {}, ["Amount"]),
     amountField,
     balanceHint,
+    h("label", {}, ["Memo (optional)"]),
+    memoInput,
+    h("p", { class: "muted", style: "margin:4px 0 0" }, [
+      "A private note attached to this output — encrypted, but stored on-chain, so keep it short.",
+    ]),
     statusEl,
     shieldBtn,
     back
@@ -1009,8 +1152,9 @@ function renderShield(status: WalletStatus, balance: Balance) {
 
     shieldBtn.setAttribute("disabled", "true");
     showStatus("Submitting — this usually takes a few seconds…", "ok");
+    const memo = (memoInput as HTMLInputElement).value.trim();
     try {
-      await send({ kind: "popup-shield", resourceAddress: balance.resourceAddress, amount: raw.toString() });
+      await send({ kind: "popup-shield", resourceAddress: balance.resourceAddress, amount: raw.toString(), memo: memo || undefined });
       showStatus("Shielded!", "ok");
       setTimeout(async () => {
         const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
@@ -1024,35 +1168,89 @@ function renderShield(status: WalletStatus, balance: Balance) {
 }
 
 /**
- * Unshields (private → revealed) one of this account's own previously-shielded outputs. Two
- * clearly separate affordances, not one merged field, because there is no way to discover a
- * stealth UTXO by view key alone (see confidential.ts's module doc / ShieldedOutputRecord's doc
- * comment):
- * 1. Primary -- pick from this wallet's own record of outputs it created via Shield.
- * 2. Advanced -- paste a commitment someone shared with you directly out-of-band; this only
- *    works if it's actually owned by this account (e.g. a private payment addressed to it).
+ * Unshields (private → revealed) some of this account's total private balance for a resource.
+ * Which specific shielded output(s) get spent is chosen by the wallet itself (largest-first coin
+ * selection — see `resolveUnshieldPlan`), combining more than one into a single transaction if no
+ * single output covers the amount, so the user only ever thinks in terms of a total balance and
+ * an amount, never individual UTXOs/commitments.
  *
- * The protocol has no way to reveal a stealth output's *entire* value in one step (confirmed
- * against the SDK's own builder validation, see OotleAccount.unshield()'s doc comment) — at
- * least the smallest unit must remain private as change, so both paths cap the revealable amount
- * just under the output's full value.
+ * The protocol has no way to reveal a shielded balance's *entire* value in one step (confirmed
+ * against the SDK's own builder validation, see `OotleAccount.unshield()`'s doc comment) — at
+ * least the smallest unit must remain private as change, so MAX caps just under the full balance.
  */
 function renderUnshield(status: WalletStatus, balance: Balance) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
   const label = resourceLabel(balance.resourceAddress, balance.symbol);
+  const maxAmount = BigInt(balance.confidentialAmount);
+
+  const amountInput = h("input", { type: "text", id: "amount", placeholder: "0.0", maxlength: "40" });
+  const maxBtn = h("button", { class: "max-btn", id: "max" }, ["MAX"]);
+  const amountField = h("div", { class: "amount-field" }, [amountInput, maxBtn]);
+  const balanceHint = h("div", { class: "muted", style: "margin-top:6px" }, [
+    `Private balance: ${formatBalanceAmount(maxAmount.toString(), balance.divisibility)} ${label}`,
+  ]);
+  const memoInput = h("input", { type: "text", id: "memo", placeholder: "e.g. Remaining savings", maxlength: "200" });
 
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
+  const submitBtn = h("button", { class: "primary", id: "submit" }, [`Unshield ${label}`]);
+
+  render(
+    h("h1", {}, ["Unshield"]),
+    h("p", { class: "muted" }, [
+      `Moves some of your private ${label} back to your revealed (public) balance. At least the smallest unit must always stay private as change, and the fee is paid from your revealed balance.`,
+    ]),
+    h("label", {}, ["Amount to reveal"]),
+    amountField,
+    balanceHint,
+    h("label", {}, ["Memo for the remaining private balance (optional)"]),
+    memoInput,
+    h("p", { class: "muted", style: "margin:4px 0 0" }, [
+      "A private note attached to the remaining private output — encrypted, but stored on-chain, so keep it short.",
+    ]),
+    statusEl,
+    submitBtn,
+    back
+  );
+
+  document.getElementById("back")!.addEventListener("click", () => renderTokenDetail(status, balance));
+
+  maxBtn.addEventListener("click", () => {
+    const revealMax = maxAmount - 1n;
+    (amountInput as HTMLInputElement).value = revealMax > 0n ? formatBalanceAmount(revealMax.toString(), balance.divisibility) : "";
+  });
+
   const showStatus = (msg: string, cls: "err" | "ok") => {
     statusEl.style.display = "block";
     statusEl.className = `status ${cls}`;
     statusEl.textContent = msg;
   };
 
-  const submitUnshield = async (commitment: string, raw: bigint, btn: HTMLElement) => {
-    btn.setAttribute("disabled", "true");
-    showStatus("Submitting — this usually takes a few seconds…", "ok");
+  submitBtn.addEventListener("click", async () => {
+    let raw: bigint;
     try {
-      await send({ kind: "popup-unshield", resourceAddress: balance.resourceAddress, commitment, revealedAmount: raw.toString() });
+      raw = parseDecimalToRaw((amountInput as HTMLInputElement).value, balance.divisibility);
+    } catch (e) {
+      showStatus(e instanceof Error ? e.message : String(e), "err");
+      return;
+    }
+    if (raw <= 0n) {
+      showStatus("Enter an amount greater than zero.", "err");
+      return;
+    }
+    if (raw >= maxAmount) {
+      showStatus("At least the smallest unit must stay private — enter a smaller amount.", "err");
+      return;
+    }
+    submitBtn.setAttribute("disabled", "true");
+    showStatus("Submitting — this usually takes a few seconds…", "ok");
+    const memo = (memoInput as HTMLInputElement).value.trim();
+    try {
+      await send({
+        kind: "popup-unshield",
+        resourceAddress: balance.resourceAddress,
+        revealedAmount: raw.toString(),
+        memo: memo || undefined,
+      });
       showStatus("Unshielded!", "ok");
       setTimeout(async () => {
         const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
@@ -1060,127 +1258,9 @@ function renderUnshield(status: WalletStatus, balance: Balance) {
       }, 700);
     } catch (e) {
       showStatus(e instanceof Error ? e.message : String(e), "err");
-      btn.removeAttribute("disabled");
+      submitBtn.removeAttribute("disabled");
     }
-  };
-
-  const pickerSection = h("div", {}, [h("p", { class: "muted" }, ["Loading your shielded outputs…"])]);
-  const advancedToggle = h("button", { class: "secondary", id: "advancedToggle" }, ["Advanced: redeem a shared output"]);
-  const advancedSection = h("div", { id: "advanced", style: "display:none;margin-top:14px" });
-
-  render(
-    h("h1", {}, ["Unshield"]),
-    h("p", { class: "muted" }, [
-      `Moves some of your private ${label} back to your revealed (public) balance. At least the smallest unit must always stay private as change, and the fee is paid from your revealed balance.`,
-    ]),
-    pickerSection,
-    advancedToggle,
-    advancedSection,
-    statusEl,
-    back
-  );
-
-  document.getElementById("back")!.addEventListener("click", () => renderTokenDetail(status, balance));
-
-  advancedToggle.addEventListener("click", () => {
-    const showing = advancedSection.style.display !== "none";
-    advancedSection.style.display = showing ? "none" : "block";
   });
-
-  const buildAmountForm = (commitment: string, maxAmount: bigint) => {
-    const amountInput = h("input", { type: "text", placeholder: "0.0", maxlength: "40" });
-    const maxBtn = h("button", { class: "max-btn" }, ["MAX"]);
-    const amountField = h("div", { class: "amount-field" }, [amountInput, maxBtn]);
-    const hint = h("div", { class: "muted", style: "margin-top:6px" }, [
-      `Holds ${formatBalanceAmount(maxAmount.toString(), balance.divisibility)} ${label} privately.`,
-    ]);
-    const submitBtn = h("button", { class: "primary" }, [`Unshield ${label}`]);
-
-    maxBtn.addEventListener("click", () => {
-      const revealMax = maxAmount - 1n;
-      (amountInput as HTMLInputElement).value = revealMax > 0n ? formatBalanceAmount(revealMax.toString(), balance.divisibility) : "";
-    });
-
-    submitBtn.addEventListener("click", async () => {
-      let raw: bigint;
-      try {
-        raw = parseDecimalToRaw((amountInput as HTMLInputElement).value, balance.divisibility);
-      } catch (e) {
-        showStatus(e instanceof Error ? e.message : String(e), "err");
-        return;
-      }
-      if (raw >= maxAmount) {
-        showStatus("At least the smallest unit must stay private — enter a smaller amount.", "err");
-        return;
-      }
-      await submitUnshield(commitment, raw, submitBtn);
-    });
-
-    return [h("label", {}, ["Amount to reveal"]), amountField, hint, submitBtn];
-  };
-
-  const commitmentInput = h("input", { type: "text", placeholder: "64 hex characters", maxlength: "64" });
-  const advancedAmountInput = h("input", { type: "text", placeholder: "0.0", maxlength: "40" });
-  const advancedSubmit = h("button", { class: "primary" }, [`Unshield ${label}`]);
-  advancedSection.replaceChildren(
-    h("p", { class: "muted" }, [
-      "If someone sent you a private payment and shared its commitment with you directly, paste it here. There is no way to discover it automatically.",
-    ]),
-    h("label", {}, ["Commitment (hex)"]),
-    commitmentInput,
-    h("label", {}, ["Amount to reveal"]),
-    advancedAmountInput,
-    advancedSubmit
-  );
-  advancedSubmit.addEventListener("click", async () => {
-    const commitment = (commitmentInput as HTMLInputElement).value.trim();
-    if (!/^[0-9a-f]{64}$/i.test(commitment)) {
-      showStatus("Enter a valid 32-byte commitment (64 hex characters).", "err");
-      return;
-    }
-    let raw: bigint;
-    try {
-      raw = parseDecimalToRaw((advancedAmountInput as HTMLInputElement).value, balance.divisibility);
-    } catch (e) {
-      showStatus(e instanceof Error ? e.message : String(e), "err");
-      return;
-    }
-    await submitUnshield(commitment, raw, advancedSubmit);
-  });
-
-  (async () => {
-    try {
-      const { outputs } = await send<{ outputs: ShieldedOutputRecord[] }>({
-        kind: "popup-list-shielded-outputs",
-        resourceAddress: balance.resourceAddress,
-      });
-      if (outputs.length === 0) {
-        pickerSection.replaceChildren(
-          h("p", { class: "muted" }, ["You don't have any shielded outputs for this token yet — shield some first."])
-        );
-        return;
-      }
-      const select = h(
-        "select",
-        {},
-        outputs.map((o) =>
-          h("option", { value: o.commitment }, [
-            `${formatBalanceAmount(o.amount, balance.divisibility)} ${label} — ${shortAddr(o.commitment, 6)}`,
-          ])
-        )
-      );
-      const formHolder = h("div", { style: "margin-top:10px" });
-      const rebuildForm = () => {
-        const o = outputs.find((r) => r.commitment === (select as HTMLSelectElement).value)!;
-        formHolder.replaceChildren(...buildAmountForm(o.commitment, BigInt(o.amount)));
-      };
-      select.addEventListener("change", rebuildForm);
-      pickerSection.replaceChildren(h("label", {}, ["Your shielded outputs"]), select, formHolder);
-      rebuildForm();
-    } catch (e) {
-      pickerSection.replaceChildren(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
-    }
-  })();
 }
 
 function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: WalletStatus) {
@@ -1341,6 +1421,74 @@ function renderDaemonConnections(status: WalletStatus) {
           })
         );
   render(h("h1", {}, ["Daemon connections"]), list, back);
+  document.getElementById("back")!.addEventListener("click", () => renderSettings(status));
+}
+
+// ---------------------------------------------------------------------------
+// Address book
+// ---------------------------------------------------------------------------
+
+function renderAddressBook(status: WalletStatus) {
+  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const list =
+    status.addressBook.length === 0
+      ? h("div", { class: "empty-state" }, [h("div", { class: "muted" }, ["No saved addresses yet."])])
+      : h(
+          "div",
+          {},
+          status.addressBook.map((entry) => {
+            const row = h("div", { class: "balance-row" }, [`${entry.label} — ${shortAddr(entry.address)}`]);
+            const removeBtn = h("button", { class: "secondary", style: "width:auto;padding:4px 8px" }, ["Remove"]);
+            removeBtn.addEventListener("click", async () => {
+              await send({ kind: "popup-remove-address-book-entry", id: entry.id });
+              renderAddressBook(await send<WalletStatus>({ kind: "popup-get-status" }));
+            });
+            row.append(removeBtn);
+            return row;
+          })
+        );
+
+  const labelInput = h("input", { type: "text", placeholder: "e.g. Alice", maxlength: "40" });
+  const addressInput = h("input", { type: "text", placeholder: "component_… or otl_…", maxlength: "200" });
+  const statusEl = h("div", { class: "status", style: "display:none" });
+  const addBtn = h("button", { class: "primary" }, ["Save address"]);
+  const showStatus = (msg: string, cls: "err" | "ok") => {
+    statusEl.style.display = "block";
+    statusEl.className = `status ${cls}`;
+    statusEl.textContent = msg;
+  };
+  addBtn.addEventListener("click", async () => {
+    const label = (labelInput as HTMLInputElement).value.trim();
+    const address = (addressInput as HTMLInputElement).value.trim();
+    if (!label) {
+      showStatus("Enter a label.", "err");
+      return;
+    }
+    if (!isValidComponentAddress(address) && !isValidOotleWalletAddress(address)) {
+      showStatus("Enter a valid component_… (public) or otl_… (private) address.", "err");
+      return;
+    }
+    addBtn.setAttribute("disabled", "true");
+    try {
+      await send({ kind: "popup-add-address-book-entry", label, address });
+      renderAddressBook(await send<WalletStatus>({ kind: "popup-get-status" }));
+    } catch (e) {
+      showStatus(e instanceof Error ? e.message : String(e), "err");
+      addBtn.removeAttribute("disabled");
+    }
+  });
+
+  render(
+    h("h1", {}, ["Address book"]),
+    list,
+    h("label", {}, ["Label"]),
+    labelInput,
+    h("label", {}, ["Address"]),
+    addressInput,
+    statusEl,
+    addBtn,
+    back
+  );
   document.getElementById("back")!.addEventListener("click", () => renderSettings(status));
 }
 
