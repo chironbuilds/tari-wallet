@@ -129,13 +129,18 @@ function render(...nodes: (Node | string)[]) {
 
 /** Copies `text` and flashes `label`'s text to "Copied!" for a beat, then restores it. */
 async function copyToClipboard(text: string, label: HTMLElement) {
+  // Clipboard permission denied/unavailable is rare in an extension's own popup, but silently
+  // doing nothing on click reads as a broken button, not a failed copy -- flash a clear message
+  // either way rather than only on success.
+  let message: string;
   try {
     await navigator.clipboard.writeText(text);
+    message = "Copied!";
   } catch {
-    return; // Clipboard permission denied or unavailable — fail silently, nothing to recover.
+    message = "Couldn't copy";
   }
   const original = label.textContent;
-  label.textContent = "Copied!";
+  label.textContent = message;
   label.classList.remove("copy-flash");
   void label.offsetWidth;
   label.classList.add("copy-flash");
@@ -852,7 +857,7 @@ function buildAddressPicker(
 ): HTMLElement | null {
   const matching = entries.filter((e) => isMatch(e.address));
   if (matching.length === 0) return null;
-  const select = h("select", { class: "settings-row-select", style: "margin-bottom:8px" }, [
+  const select = h("select", { class: "settings-row-select", style: "margin-bottom:8px", "aria-label": "Choose from address book" }, [
     h("option", { value: "" }, ["Choose from address book…"]),
     ...matching.map((e) => h("option", { value: e.address }, [`${e.label} (${shortAddr(e.address)})`])),
   ]);
