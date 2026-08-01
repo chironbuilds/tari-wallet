@@ -35,6 +35,7 @@
   ],
   "permissions": ["storage", "alarms"],
   "host_permissions": ["https://*.tari.com/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
   },

@@ -201,8 +201,13 @@ native container type is `Stealth`, but everything this extension actually does 
 send, swap — moves it through revealed `withdraw`/`deposit`, which needs no stealth signing). The
 daemon's own stealth JRPC (`stealthTransfer`, `stealthUtxosList`, ...) exists but isn't called here.
 
-**Known limitation:** `host_permissions` in `manifest.json` currently only covers `localhost` and
-`127.0.0.1` — a daemon on a remote host will hit CORS unless that origin is added.
+Connecting to a remote daemon (not `localhost`/`127.0.0.1`, which are covered by
+`manifest.json`'s unconditional `host_permissions`) prompts Chrome's own permission dialog for
+that specific origin at connect time, via `optional_host_permissions` +
+`chrome.permissions.request()` in the Connect screen's click handler — this has to run in the
+popup's own foreground context as a direct result of the user's click; a background service worker
+can't call it. Declining leaves the connection attempt cancelled with a clear message, not a
+confusing CORS failure.
 
 ## Integrating a dApp
 

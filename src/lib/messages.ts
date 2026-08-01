@@ -103,6 +103,11 @@ export interface AccountSummary {
   id: string;
   label: string;
   kind: "local" | "daemon";
+  /** This account's on-chain component address, for rendering a per-account avatar in the
+   * switcher (matching the MetaMask/Phantom convention of letting users recognize accounts by
+   * icon, not just an ordinal label). Null only when the wallet is locked (no seed available to
+   * derive a local account's address, and daemon addresses aren't fetched while locked either). */
+  address: string | null;
 }
 
 export interface WalletStatus {

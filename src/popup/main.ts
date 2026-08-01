@@ -80,11 +80,13 @@ function icon(paths: string): HTMLSpanElement {
 // Deterministic per-address avatar (see src/lib/avatar.ts for why) -- innerHTML here is safe the
 // same way `icon()` above is: the SVG markup comes entirely from our own generator over data this
 // extension already computed (the account's own address), never from a page or dApp.
-function accountAvatar(address: string | null): HTMLDivElement {
+function accountAvatar(address: string | null, size = 44): HTMLDivElement {
   const div = document.createElement("div");
   div.className = "avatar";
+  div.style.width = `${size}px`;
+  div.style.height = `${size}px`;
   if (address) {
-    div.innerHTML = avatarSvg(address, 44);
+    div.innerHTML = avatarSvg(address, size);
   } else {
     div.textContent = "T";
   }
@@ -178,9 +180,12 @@ async function main() {
 
 function renderWelcome() {
   render(
-    h("h1", {}, ["Tari", h("span", {}, [" Wallet"])]),
-    h("p", { class: "muted" }, [
-      "A self-custody wallet for Tari Ootle. Your seed never leaves this browser and no wallet daemon is required.",
+    h("div", { class: "welcome-hero" }, [
+      h("img", { src: "icons/icon128.png", width: "56", height: "56", alt: "" }),
+      h("h1", {}, ["Tari", h("span", {}, [" Wallet"])]),
+      h("p", { class: "muted" }, [
+        "A self-custody wallet for Tari Ootle. Your seed never leaves this browser and no wallet daemon is required.",
+      ]),
     ]),
     h("button", { class: "primary", id: "create" }, ["Create New Wallet"]),
     h("button", { class: "secondary", id: "import" }, ["Import Existing Wallet"])
@@ -576,7 +581,9 @@ function renderSettings(status: WalletStatus) {
       networkConfirmEl.style.display = "none";
       return;
     }
-    const confirmBtn = h("button", { class: "danger", style: "width:auto;padding:4px 10px;margin-right:8px" }, ["Switch"]);
+    // .primary, not .danger -- switching networks is a reversible settings change, not a
+    // destructive action (unlike Lock/Reset, which genuinely warrant the red danger styling).
+    const confirmBtn = h("button", { class: "primary", style: "width:auto;padding:4px 10px;margin-right:8px" }, ["Switch"]);
     const cancelBtn = h("button", { class: "secondary", style: "width:auto;padding:4px 10px" }, ["Cancel"]);
     networkConfirmEl.className = "status";
     networkConfirmEl.style.display = "block";
@@ -758,13 +765,20 @@ async function renderHistory(status: WalletStatus) {
                 ? `${formatBalanceAmount(entry.amount, b?.divisibility ?? 0)} ${resourceLabel(entry.resourceAddress, b?.symbol ?? null)}`
                 : null;
             const when = new Date(entry.createdAt).toLocaleString();
+            // dapp-transaction's counterparty is a human sentence ("origin: summary") -- shortAddr()
+            // (first-N…last-N) would garble it. Every other kind's counterparty is a real address,
+            // where shortAddr() is exactly right. Either way, list-row-subtitle's CSS still wraps
+            // instead of overflowing, as a safety net against one unbroken token being too long.
+            const counterpartyText = entry.counterparty
+              ? entry.kind === "dapp-transaction"
+                ? entry.counterparty
+                : shortAddr(entry.counterparty)
+              : null;
             return h("div", { class: `balance-row${entry.status === "failed" ? " status-failed" : ""}` }, [
-              h("div", {}, [
+              h("div", { class: "list-row-info" }, [
                 h("div", {}, [HISTORY_KIND_LABEL[entry.kind], entry.status === "failed" ? " (failed)" : ""]),
                 h("div", { class: "muted" }, [amountText ? `${amountText} · ${when}` : when]),
-                // Not shortAddr()'d -- a dapp-transaction's counterparty is a human sentence
-                // ("origin: summary"), not a hex address, and mid-word truncation would garble it.
-                entry.counterparty ? h("div", { class: "muted" }, [entry.counterparty]) : "",
+                counterpartyText ? h("div", { class: "list-row-subtitle", title: entry.counterparty ?? "" }, [counterpartyText]) : "",
               ]),
             ]);
           })
@@ -1367,11 +1381,14 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
 function renderAccountSwitcher(status: WalletStatus) {
   const rows = status.accounts.map((account) => {
     const isActive = account.id === status.activeAccountId;
-    const row = h("button", { class: isActive ? "primary" : "secondary", style: "text-align:left" }, [
-      account.label,
-      account.kind === "daemon" ? " · daemon" : "",
-      isActive ? " (current)" : "",
-    ]);
+    const row = h(
+      "button",
+      { class: isActive ? "primary" : "secondary", style: "text-align:left;display:flex;align-items:center;gap:8px" },
+      [
+        accountAvatar(account.address, 22),
+        h("span", {}, [account.label, account.kind === "daemon" ? " · daemon" : "", isActive ? " (current)" : ""]),
+      ]
+    );
     row.addEventListener("click", async () => {
       if (isActive) return;
       await send({ kind: "popup-set-active-account", accountId: account.id });
@@ -1401,7 +1418,10 @@ function renderDaemonConnections(status: WalletStatus) {
           "div",
           {},
           status.daemonConnections.map((c) => {
-            const row = h("div", { class: "balance-row" }, [`${c.label} — ${c.url}`]);
+            const info = h("div", { class: "list-row-info" }, [
+              h("div", { class: "list-row-title" }, [c.label]),
+              h("div", { class: "list-row-subtitle", title: c.url }, [c.url]),
+            ]);
             const removeBtn = h("button", { class: "secondary", style: "width:auto;padding:4px 8px" }, ["Disconnect"]);
             removeBtn.addEventListener("click", async () => {
               await send({ kind: "popup-remove-daemon-connection", connectionId: c.id });
@@ -1416,7 +1436,7 @@ function renderDaemonConnections(status: WalletStatus) {
                 renderDaemonConnections(newStatus);
               }
             });
-            row.append(removeBtn);
+            const row = h("div", { class: "balance-row" }, [info, removeBtn]);
             return row;
           })
         );
@@ -1437,14 +1457,16 @@ function renderAddressBook(status: WalletStatus) {
           "div",
           {},
           status.addressBook.map((entry) => {
-            const row = h("div", { class: "balance-row" }, [`${entry.label} — ${shortAddr(entry.address)}`]);
+            const info = h("div", { class: "list-row-info" }, [
+              h("div", { class: "list-row-title" }, [entry.label]),
+              h("div", { class: "list-row-subtitle", title: entry.address }, [entry.address]),
+            ]);
             const removeBtn = h("button", { class: "secondary", style: "width:auto;padding:4px 8px" }, ["Remove"]);
             removeBtn.addEventListener("click", async () => {
               await send({ kind: "popup-remove-address-book-entry", id: entry.id });
               renderAddressBook(await send<WalletStatus>({ kind: "popup-get-status" }));
             });
-            row.append(removeBtn);
-            return row;
+            return h("div", { class: "balance-row" }, [info, removeBtn]);
           })
         );
 
@@ -1588,6 +1610,23 @@ async function renderConnectDaemon(status: WalletStatus) {
     const label = labelInput.value.trim() || url;
     if (label.length > MAX_DAEMON_LABEL_LENGTH) {
       return showStatus(`Label must be ${MAX_DAEMON_LABEL_LENGTH} characters or fewer.`, "err");
+    }
+
+    // manifest.json's `host_permissions` only covers localhost/127.0.0.1 -- a remote daemon (a
+    // different LAN host, a tailscale address, etc.) needs its origin granted at connect time via
+    // the optional-permissions flow instead. A no-op (resolves true immediately, no prompt) for an
+    // origin already covered by host_permissions or a previously-granted optional one. Must run
+    // here, in the popup's own foreground context with this click as the user gesture --
+    // chrome.permissions.request() cannot be called from the background service worker.
+    const origin = `${new URL(url).origin}/*`;
+    let granted: boolean;
+    try {
+      granted = await chrome.permissions.request({ origins: [origin] });
+    } catch (e) {
+      return showStatus(`Couldn't request permission for ${origin}: ${e instanceof Error ? e.message : String(e)}`, "err");
+    }
+    if (!granted) {
+      return showStatus(`This wallet needs permission to reach ${new URL(url).origin} to connect to that daemon.`, "err");
     }
 
     connectBtn.setAttribute("disabled", "true");

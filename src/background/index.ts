@@ -250,15 +250,22 @@ async function buildStatus(): Promise<WalletStatus> {
       activeAccountError = e instanceof Error ? e.message : String(e);
     }
   }
-  const localAccounts: AccountSummary[] = Array.from({ length: state.accountCount }, (_, i) => ({
-    id: localAccountId(i),
-    label: `Account ${i + 1}`,
-    kind: "local",
-  }));
+  // A local account's component address is pure client-side crypto derivation (seed -> public key
+  // -> hash, see OotleAccount.getComponentAddress()) -- no network call, safe to compute for every
+  // account on every status fetch. Only null while locked (getAccountById already returns null
+  // then, via resolveAccountId's unlocked-seed gate -- no separate check needed here).
+  const localAccounts: AccountSummary[] = await Promise.all(
+    Array.from({ length: state.accountCount }, async (_, i) => {
+      const id = localAccountId(i);
+      const account = await getAccountById(id);
+      return { id, label: `Account ${i + 1}`, kind: "local" as const, address: account ? await account.getComponentAddress() : null };
+    })
+  );
   const daemonAccounts: AccountSummary[] = state.daemonAccounts.map((a) => ({
     id: daemonAccountId(a.connectionId, a.componentAddress),
     label: a.label,
     kind: "daemon",
+    address: a.componentAddress,
   }));
   return {
     hasWallet: state.vault !== null,

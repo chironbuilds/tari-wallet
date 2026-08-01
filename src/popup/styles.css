@@ -64,6 +64,24 @@ p.muted,
   font-size: 12.5px;
   line-height: 1.5;
 }
+.welcome-hero {
+  text-align: center;
+  padding: 20px 4px 4px;
+}
+.welcome-hero img {
+  display: block;
+  margin: 0 auto 14px;
+  border-radius: 18px;
+  box-shadow: 0 6px 24px -6px rgba(162, 89, 255, 0.55);
+}
+.welcome-hero h1 {
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+.welcome-hero p.muted {
+  max-width: 260px;
+  margin: 0 auto;
+}
 label {
   display: block;
   font-size: 12.5px;
@@ -178,6 +196,8 @@ button + button {
 .balance-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 10px;
   padding: 6px 0;
   font-size: 13px;
   border-bottom: 1px solid var(--border);
@@ -187,6 +207,28 @@ button + button {
 }
 .balance-row.status-failed {
   color: var(--bad);
+}
+/* A row's text side: label + a smaller subtext line (an address, url, timestamp, ...), each
+   truncated with an ellipsis instead of wrapping/overflowing into a trailing action button. */
+.list-row-info {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.list-row-title,
+.list-row-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.list-row-subtitle {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+/* Trailing action button in a row -- never let long label/address text squeeze it. */
+.balance-row > button {
+  flex-shrink: 0;
 }
 .balances-card {
   max-height: 220px;
