@@ -2,6 +2,7 @@
   "name": "sapient-wallet",
   "version": "0.3.0",
   "description": "Sapient — a self-custody Chrome extension wallet for Tari Ootle (L2) — holds its own seed, signs and submits transactions directly to the network, no wallet daemon required.",
+  "homepage": "https://chromewebstore.google.com/detail/tari-ootle-wallet/demkeckolenopkgnfbnpflkpbbdhpgkl",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +13,7 @@
     "test:watch": "vitest",
     "test:crypto": "tsx scripts/test-crypto.ts"
   },
-  "license": "BSD-3-Clause",
+  "license": "SEE LICENSE IN LICENSE",
   "packageManager": "pnpm@11.9.0",
   "dependencies": {
     "@noble/ciphers": "^2.2.0",

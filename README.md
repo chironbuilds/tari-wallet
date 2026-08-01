@@ -15,6 +15,17 @@ It can **also** connect to a running `tari_ootle_walletd` and relay to it — th
 accounts + hardware-wallet-style external accounts, side by side" split MetaMask uses for Ledger.
 See "Daemon-relayed accounts" below.
 
+**[Install from the Chrome Web Store](https://chromewebstore.google.com/detail/tari-ootle-wallet/demkeckolenopkgnfbnpflkpbbdhpgkl)**
+— listed there under the extension's original name/version pending a store update; the current
+name is Sapient. **Testnet-only. Under active development. Do not use it to hold real value.**
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE) — free to use, modify, and share for any noncommercial
+purpose; not licensed for commercial use. This is a source-available license, not an
+OSI-approved open-source one (the Open Source Definition requires allowing commercial use,
+which this deliberately does not) — worth naming precisely rather than calling it "open source."
+
 ## Status: tested end-to-end in a live browser
 
 Loaded as an unpacked extension in real Chrome and exercised against a live Ootle testnet indexer
