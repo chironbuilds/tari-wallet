@@ -1,8 +1,8 @@
-# Privacy Policy — Tari Wallet (Chrome extension)
+# Privacy Policy — Sapient (Chrome extension)
 
 _Last updated: 2026-07-22_
 
-Tari Wallet is a self-custody browser extension. This policy describes what data it handles and where it goes.
+Sapient is a self-custody browser extension wallet for Tari Ootle. This policy describes what data it handles and where it goes.
 
 ## What this extension stores
 

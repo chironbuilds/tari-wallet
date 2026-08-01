@@ -1,4 +1,9 @@
-# Tari Ootle Wallet (Chrome extension)
+# Sapient — a Tari Ootle Wallet (Chrome extension)
+
+Named after "sapient pearwood," the self-aware wood Discworld's ever-loyal, fiercely protective
+Luggage is carved from — fitting for a wallet that follows only you and answers to no one else,
+in the same nerdy-but-earnest naming tradition as Tari's own testnets (Weatherwax, Igor, Esmeralda
+— all Discworld references).
 
 A self-custody Chrome extension wallet for [Tari Ootle](https://github.com/tari-project/tari-ootle)
 (L2 — not the Minotari L1 base layer). It generates and holds its own 24-word recovery phrase,
@@ -309,6 +314,20 @@ Manifest V3 service workers are ephemeral — Chrome can kill and restart the ba
 any time. The unlocked seed lives in `chrome.storage.session` (in-memory only, cleared when the
 browser fully closes) specifically so a SW restart mid-session doesn't silently re-lock the wallet;
 a plain module variable would not have survived that.
+
+## Icon
+
+`public/icons/icon.svg` is the source of truth for the eye mark (a vesica-shaped "eye" — the
+sapience/self-awareness half of "sapient pearwood" — filled with the app's own accent gradient).
+`icon16/48/128.png` are rasterized from it (`sharp`, not committed as a project dependency — it
+was run once via a throwaway scratch script, since pnpm's install-script allowlist deliberately
+keeps native-binary dev tools like this out of the real dependency tree unless they're needed at
+build time). To regenerate after editing the SVG: rasterize it to 16/48/128px PNGs with any
+SVG-to-PNG tool (e.g. `npx sharp-cli`) and overwrite the files in `public/icons/`.
+
+**Known stale asset:** `store-assets/screenshot-*.png` were captured before this rename and still
+show the old icon/wordmark — regenerate them next time the extension is loaded for real (see
+"Loading it in Chrome" below), they weren't auto-updated here.
 
 ## Building
 

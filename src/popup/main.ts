@@ -182,7 +182,7 @@ function renderWelcome() {
   render(
     h("div", { class: "welcome-hero" }, [
       h("img", { src: "icons/icon128.png", width: "56", height: "56", alt: "" }),
-      h("h1", {}, ["Tari", h("span", {}, [" Wallet"])]),
+      h("h1", {}, ["Sapient", h("span", {}, [" Wallet"])]),
       h("p", { class: "muted" }, [
         "A self-custody wallet for Tari Ootle. Your seed never leaves this browser and no wallet daemon is required.",
       ]),
@@ -387,7 +387,7 @@ async function renderHome(status: WalletStatus) {
     [icon(ICON_SETTINGS)]
   );
   const nav = h("div", { class: "top-nav" }, [
-    h("h1", {}, ["Tari", h("span", {}, [" Wallet"])]),
+    h("h1", {}, ["Sapient", h("span", {}, [" Wallet"])]),
     h("div", { class: "row", style: "gap:6px" }, [accountPill, settingsBtn]),
   ]);
   accountPill.addEventListener("click", () => renderAccountSwitcher(status));

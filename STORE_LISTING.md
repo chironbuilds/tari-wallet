@@ -2,13 +2,13 @@
 
 ## Short description (max 132 characters)
 
-Self-custody wallet for Tari Ootle. Your seed never leaves your device — no wallet daemon required.
+Sapient: a self-custody wallet for Tari Ootle. Your seed never leaves your device — no wallet daemon required.
 
-(131 characters)
+(110 characters)
 
 ## Detailed description
 
-**Tari Wallet** is a self-custody browser extension wallet for [Tari Ootle](https://github.com/tari-project/tari-ootle) — Tari's second-layer smart-contract network.
+**Sapient** is a self-custody browser extension wallet for [Tari Ootle](https://github.com/tari-project/tari-ootle) — Tari's second-layer smart-contract network.
 
 Your recovery phrase is generated and encrypted on your own device. It is never sent anywhere, and by default this extension talks directly to the Tari Ootle network — no wallet daemon required.
 
