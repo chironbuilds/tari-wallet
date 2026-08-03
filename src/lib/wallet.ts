@@ -36,6 +36,7 @@ import { SecretKeyWallet } from "@tari-project/ootle-secret-key-wallet";
 import type { WalletAccountApi } from "./accountApi";
 import { deriveAccountComponentAddress } from "./componentAddress";
 import { scanTransactionsForOwnedOutputs, sumConfidentialCommitments } from "./confidential";
+import type { ScannedStealthOutput } from "./confidential";
 import { deriveAccountKeys } from "./derivation";
 import { type NetworkName, toOotleNetwork } from "./ootleNetwork";
 import {
@@ -88,6 +89,28 @@ export interface TokenBalance {
  */
 function toMemo(memo: string | undefined): Memo | undefined {
   return memo ? { Message: memo } : undefined;
+}
+
+/**
+ * Inverse of `toMemo()`, for a *received* output: `DecryptedData.memo` (confidential.ts's
+ * `ScannedStealthOutput.memo`, `claimPrivatePayment()`'s decrypt result) is the raw JSON-encoded
+ * `Memo` union string, not plain text -- confirmed against the SDK's own `DecryptedData` doc
+ * comment, not assumed. This wallet only ever creates `Message` memos, but a payment from a
+ * different sender/tool could use any variant -- render something readable for those instead of
+ * leaking raw JSON or silently dropping the memo. Returns `undefined` for no memo, an unparseable
+ * value, or an empty `Message`.
+ */
+function fromMemo(memoJson: string | undefined): string | undefined {
+  if (!memoJson) return undefined;
+  try {
+    const memo = JSON.parse(memoJson) as Memo;
+    if ("Message" in memo) return memo.Message || undefined;
+    if ("SenderAddress" in memo) return `From: ${memo.SenderAddress}`;
+    const [kind, value] = Object.entries(memo)[0] as [string, string];
+    return `[${kind} memo: ${value}]`;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -583,11 +606,11 @@ export class OotleAccount implements WalletAccountApi {
     const envelope = await authorized.seal();
     const transactionId = await submitTransaction(provider, envelope);
 
-    await addPendingShield({ transactionId, accountId, resourceAddress, amount: amount.toString(), ownCommitment });
+    await addPendingShield({ transactionId, accountId, resourceAddress, amount: amount.toString(), ownCommitment, memo });
     try {
       const response = await withTimeout(pollTransactionResult(provider, transactionId), 60_000, "submitting the shield transaction");
       await recordKnownVersions(response);
-      await recordKnownShieldedOutput(accountId, resourceAddress, ownCommitment, amount, transactionId);
+      await recordKnownShieldedOutput(accountId, resourceAddress, ownCommitment, amount, transactionId, memo);
     } finally {
       await removePendingShield(transactionId);
     }
@@ -664,11 +687,12 @@ export class OotleAccount implements WalletAccountApi {
       amount: remainder.toString(),
       spentCommitments: commitments,
       ownCommitment,
+      memo,
     });
     try {
       const response = await withTimeout(pollTransactionResult(provider, transactionId), 60_000, "submitting the unshield transaction");
       await recordKnownVersions(response);
-      await recordKnownShieldedOutput(accountId, resourceAddress, ownCommitment, remainder, transactionId);
+      await recordKnownShieldedOutput(accountId, resourceAddress, ownCommitment, remainder, transactionId, memo);
       for (const commitment of commitments) {
         await markShieldedOutputSpent(accountId, commitment);
       }
@@ -780,7 +804,7 @@ export class OotleAccount implements WalletAccountApi {
    * self-shield's output, so it then just shows up in this account's private balance and
    * shielded-outputs picker.
    */
-  async claimPrivatePayment(resourceAddress: string, commitmentHex: string): Promise<{ amount: bigint }> {
+  async claimPrivatePayment(resourceAddress: string, commitmentHex: string): Promise<{ amount: bigint; memo?: string }> {
     const accountId = localAccountId(this.index);
     const existing = await listShieldedOutputs(accountId);
     if (existing.some((r) => r.resourceAddress === resourceAddress && r.commitment === commitmentHex)) {
@@ -794,10 +818,11 @@ export class OotleAccount implements WalletAccountApi {
     if (!decrypted) {
       throw new Error("This commitment doesn't belong to your account, or wasn't found on-chain.");
     }
+    const memo = fromMemo(decrypted.memo);
     // No originating transaction id is available from a bare commitment -- the substate id is
     // itself a stable, deterministic reference back to this exact output, so it fills that slot.
-    await recordKnownShieldedOutput(accountId, resourceAddress, commitmentHex, decrypted.value, substateId);
-    return { amount: decrypted.value };
+    await recordKnownShieldedOutput(accountId, resourceAddress, commitmentHex, decrypted.value, substateId, memo);
+    return { amount: decrypted.value, memo };
   }
 
   /**
@@ -815,7 +840,7 @@ export class OotleAccount implements WalletAccountApi {
    * active chain producing more than `maxPages * pageSize` new transactions between scans will
    * only be caught up partway; the next scan resumes from the same cursor and continues.
    */
-  async scanForPrivatePayments(maxPages = 3, pageSize = 50): Promise<{ claimed: number }> {
+  async scanForPrivatePayments(maxPages = 3, pageSize = 50): Promise<{ claimed: number; found: ScannedStealthOutput[] }> {
     const accountId = localAccountId(this.index);
     const provider = await this.getProvider();
     const viewSecret = await this.signer.getViewSecret();
@@ -826,7 +851,7 @@ export class OotleAccount implements WalletAccountApi {
     const previousCursor = await getPrivatePaymentScanCursor(accountId);
     let newestSeen: string | null = null;
     let lastId: string | null = null;
-    let claimed = 0;
+    const found: ScannedStealthOutput[] = [];
 
     pages: for (let page = 0; page < maxPages; page++) {
       const { transactions } = await provider.listRecentTransactions({ limit: pageSize, last_id: lastId });
@@ -835,18 +860,23 @@ export class OotleAccount implements WalletAccountApi {
 
       for (const entry of transactions) {
         if (entry.transaction_id === previousCursor) break pages;
-        const found = await scanTransactionsForOwnedOutputs(crypto, viewSecret, [entry], knownCommitments);
-        for (const output of found) {
-          await recordKnownShieldedOutput(accountId, output.resourceAddress, output.commitment, output.amount, output.transactionId);
+        const newlyFound = await scanTransactionsForOwnedOutputs(crypto, viewSecret, [entry], knownCommitments);
+        for (const raw of newlyFound) {
+          // scanTransactionsForOwnedOutputs' `memo` is the raw JSON-encoded Memo union (see
+          // ScannedStealthOutput's doc comment) -- decode once here so both the persisted record
+          // and this method's own return value carry plain text, not JSON, memo consumers never
+          // need to know about `fromMemo()` themselves.
+          const output = { ...raw, memo: fromMemo(raw.memo) };
+          await recordKnownShieldedOutput(accountId, output.resourceAddress, output.commitment, output.amount, output.transactionId, output.memo);
           knownCommitments.add(output.commitment);
-          claimed++;
+          found.push(output);
         }
       }
       lastId = transactions[transactions.length - 1]!.transaction_id;
     }
 
     if (newestSeen) await setPrivatePaymentScanCursor(accountId, newestSeen);
-    return { claimed };
+    return { claimed: found.length, found };
   }
 }
 
@@ -1021,7 +1051,7 @@ export async function recoverPendingShields(provider: IndexerProvider): Promise<
       if (succeeded) {
         await recordKnownVersions(response);
         if (p.ownCommitment) {
-          await recordKnownShieldedOutput(p.accountId, p.resourceAddress, p.ownCommitment, BigInt(p.amount), p.transactionId);
+          await recordKnownShieldedOutput(p.accountId, p.resourceAddress, p.ownCommitment, BigInt(p.amount), p.transactionId, p.memo);
         }
         if (p.spentCommitments) {
           for (const commitment of p.spentCommitments) {
@@ -1050,7 +1080,8 @@ async function recordKnownShieldedOutput(
   resourceAddress: string,
   commitment: string,
   amount: bigint,
-  transactionId: string
+  transactionId: string,
+  memo?: string
 ): Promise<void> {
   await addShieldedOutput({
     accountId,
@@ -1060,6 +1091,7 @@ async function recordKnownShieldedOutput(
     transactionId,
     createdAt: Date.now(),
     spent: false,
+    memo,
   });
 }
 

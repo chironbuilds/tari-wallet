@@ -656,6 +656,7 @@ function renderReceive(status: WalletStatus) {
 
   const isLocalAccount = status.accounts.find((a) => a.id === status.activeAccountId)?.kind === "local";
   const claimCard = isLocalAccount ? buildClaimPrivatePaymentCard(status) : null;
+  const rescanCard = isLocalAccount ? buildRescanPrivatePaymentsCard() : null;
 
   render(
     h("h1", {}, ["Receive"]),
@@ -669,9 +670,52 @@ function renderReceive(status: WalletStatus) {
       walletRow,
     ]),
     ...(claimCard ? [claimCard] : []),
+    ...(rescanCard ? [rescanCard] : []),
     back
   );
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
+}
+
+/**
+ * `scanForPrivatePayments()` already runs opportunistically on every popup open (see
+ * `buildStatus()`'s doc comment), but only over a shallow, cheap window (3 pages of 50
+ * transactions). This triggers the same scan with a much deeper lookback (20×50 = 1000) on
+ * demand -- for catching up after the wallet's been closed a while, or just confirming "did that
+ * stealth transfer actually arrive" without waiting for the next popup open to notice it.
+ */
+function buildRescanPrivatePaymentsCard() {
+  const rescanBtn = h("button", { class: "secondary" }, ["Rescan for private payments"]);
+  const statusEl = h("div", { class: "status", style: "display:none" });
+  const showStatus = (msg: string, cls: "err" | "ok") => {
+    statusEl.style.display = "block";
+    statusEl.className = `status ${cls}`;
+    statusEl.textContent = msg;
+  };
+
+  rescanBtn.addEventListener("click", async () => {
+    rescanBtn.setAttribute("disabled", "true");
+    showStatus("Scanning recent transactions…", "ok");
+    try {
+      const { claimed } = await send<{ claimed: number }>({ kind: "popup-rescan-private-payments" });
+      showStatus(
+        claimed === 0 ? "No new private payments found." : `Found ${claimed} new private ${claimed === 1 ? "payment" : "payments"}!`,
+        "ok"
+      );
+    } catch (e) {
+      showStatus(e instanceof Error ? e.message : String(e), "err");
+    } finally {
+      rescanBtn.removeAttribute("disabled");
+    }
+  });
+
+  return h("div", { class: "card" }, [
+    h("div", { class: "muted", style: "margin-bottom:8px" }, ["Rescan for private payments"]),
+    h("p", { class: "muted", style: "margin:0 0 8px" }, [
+      "Stealth transfers sent to you are found automatically each time you open the wallet, over a limited window of recent activity. If you're expecting one that hasn't shown up yet, scan further back manually.",
+    ]),
+    statusEl,
+    rescanBtn,
+  ]);
 }
 
 /**
@@ -784,6 +828,7 @@ async function renderHistory(status: WalletStatus) {
                 h("div", {}, [HISTORY_KIND_LABEL[entry.kind], entry.status === "failed" ? " (failed)" : ""]),
                 h("div", { class: "muted" }, [amountText ? `${amountText} · ${when}` : when]),
                 counterpartyText ? h("div", { class: "list-row-subtitle", title: entry.counterparty ?? "" }, [counterpartyText]) : "",
+                entry.memo ? h("div", { class: "list-row-subtitle" }, [`"${entry.memo}"`]) : "",
               ]),
             ]);
           })

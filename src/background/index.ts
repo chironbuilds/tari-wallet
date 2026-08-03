@@ -238,9 +238,12 @@ async function buildStatus(): Promise<WalletStatus> {
           // Best-effort, incremental scan for incoming private payments this account can decrypt
           // with its own view key -- see OotleAccount.scanForPrivatePayments()'s doc comment. Runs
           // on every status fetch (i.e. every popup open) rather than needing the recipient to be
-          // told a commitment out of band first.
+          // told a commitment out of band first. Anything found also gets a History entry -- without
+          // this, an auto-discovered payment would silently join the private balance with no visible
+          // record it ever arrived.
           try {
-            await account.scanForPrivatePayments();
+            const { found } = await account.scanForPrivatePayments();
+            await recordPrivatePaymentHistory(state.activeAccountId, found);
           } catch {
             // Don't let a scan hiccup (indexer down, etc.) break the whole status fetch.
           }
@@ -291,21 +294,55 @@ async function buildStatus(): Promise<WalletStatus> {
  * hiccup break the real flow" policy buildStatus() already applies to recoverPendingShields()/
  * scanForPrivatePayments().
  */
-async function withHistory<T>(base: Omit<TransactionHistoryEntry, "id" | "createdAt" | "status">, action: () => Promise<T>): Promise<T> {
-  const record = async (status: TransactionHistoryEntry["status"]) => {
+async function withHistory<T>(
+  base: Omit<TransactionHistoryEntry, "id" | "createdAt" | "status">,
+  action: () => Promise<T>,
+  // Fields only knowable from the action's resolved result (e.g. claimPrivatePayment()'s
+  // decrypted memo) -- merged into the "confirmed" record only, since there's no result to derive
+  // them from on failure.
+  deriveOnSuccess?: (result: T) => Partial<Omit<TransactionHistoryEntry, "id" | "createdAt" | "status">>
+): Promise<T> {
+  const record = async (status: TransactionHistoryEntry["status"], extra?: Partial<TransactionHistoryEntry>) => {
     try {
-      await addTransactionHistoryEntry({ ...base, status, id: crypto.randomUUID(), createdAt: Date.now() });
+      await addTransactionHistoryEntry({ ...base, ...extra, status, id: crypto.randomUUID(), createdAt: Date.now() });
     } catch {
       // Best-effort -- see doc comment above.
     }
   };
   try {
     const result = await action();
-    await record("confirmed");
+    await record("confirmed", deriveOnSuccess?.(result));
     return result;
   } catch (e) {
     await record("failed");
     throw e;
+  }
+}
+
+/**
+ * Records a `"private-payment-received"` history entry for each output `scanForPrivatePayments()`
+ * newly discovered -- shared by `buildStatus()`'s opportunistic auto-scan and the manual
+ * `popup-rescan-private-payments` handler so a payment found either way shows up in History, not
+ * just in the private balance. Best-effort per entry, matching `withHistory`'s own policy: one bad
+ * write must not lose the rest.
+ */
+async function recordPrivatePaymentHistory(accountId: string, found: { resourceAddress: string; amount: bigint; transactionId: string; memo?: string }[]) {
+  for (const output of found) {
+    try {
+      await addTransactionHistoryEntry({
+        accountId,
+        kind: "private-payment-received",
+        resourceAddress: output.resourceAddress,
+        amount: output.amount.toString(),
+        transactionId: output.transactionId,
+        memo: output.memo,
+        status: "confirmed",
+        id: crypto.randomUUID(),
+        createdAt: Date.now(),
+      });
+    } catch {
+      // Best-effort -- see doc comment above.
+    }
   }
 }
 
@@ -394,8 +431,9 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       }
       const maxFee = message.maxFee ? BigInt(message.maxFee) : undefined;
       const { activeAccountId } = await getState();
-      return withHistory({ accountId: activeAccountId, kind: "shield", resourceAddress: message.resourceAddress, amount: message.amount }, () =>
-        account.shield(message.resourceAddress, BigInt(message.amount), maxFee, message.memo)
+      return withHistory(
+        { accountId: activeAccountId, kind: "shield", resourceAddress: message.resourceAddress, amount: message.amount, memo: message.memo },
+        () => account.shield(message.resourceAddress, BigInt(message.amount), maxFee, message.memo)
       );
     }
 
@@ -408,7 +446,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       const maxFee = message.maxFee ? BigInt(message.maxFee) : undefined;
       const { activeAccountId } = await getState();
       return withHistory(
-        { accountId: activeAccountId, kind: "unshield", resourceAddress: message.resourceAddress, amount: message.revealedAmount },
+        { accountId: activeAccountId, kind: "unshield", resourceAddress: message.resourceAddress, amount: message.revealedAmount, memo: message.memo },
         () => account.unshield(message.resourceAddress, BigInt(message.revealedAmount), maxFee, message.memo)
       );
     }
@@ -428,9 +466,26 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
           resourceAddress: message.resourceAddress,
           amount: message.amount,
           counterparty: message.recipientWalletAddress,
+          memo: message.memo,
         },
         () => account.sendPrivately(message.resourceAddress, message.recipientWalletAddress, BigInt(message.amount), maxFee, message.memo)
       );
+    }
+
+    case "popup-rescan-private-payments": {
+      const account = await getActiveAccount();
+      if (!account) throw new Error("Wallet is locked.");
+      if (!(account instanceof OotleAccount)) {
+        throw new Error("Rescanning for private payments isn't available for daemon-connected accounts -- switch to a local account first.");
+      }
+      const { activeAccountId } = await getState();
+      // A much deeper lookback than buildStatus()'s opportunistic per-popup-open scan (3 pages /
+      // 50 each = 150 transactions) -- this is the user explicitly asking to go looking, so it's
+      // worth the extra round trips to actually catch up on a long gap since the wallet was last
+      // opened, not just the same shallow window the automatic scan already covers.
+      const { claimed, found } = await account.scanForPrivatePayments(20, 50);
+      await recordPrivatePaymentHistory(activeAccountId, found);
+      return { claimed };
     }
 
     case "popup-claim-private-payment": {
@@ -442,7 +497,10 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       const { activeAccountId } = await getState();
       return withHistory(
         { accountId: activeAccountId, kind: "private-payment-received", resourceAddress: message.resourceAddress, counterparty: message.commitment },
-        () => account.claimPrivatePayment(message.resourceAddress, message.commitment)
+        () => account.claimPrivatePayment(message.resourceAddress, message.commitment),
+        // The amount/memo are only known once decryption succeeds -- see withHistory's own doc
+        // comment for why these can't just go in the static base above.
+        (result) => ({ amount: result.amount.toString(), memo: result.memo })
       );
     }
 

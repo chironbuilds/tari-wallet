@@ -81,6 +81,7 @@ export type PopupRequest =
       memo?: string;
     }
   | { kind: "popup-claim-private-payment"; resourceAddress: string; commitment: string }
+  | { kind: "popup-rescan-private-payments" }
   | { kind: "popup-add-account" }
   | { kind: "popup-set-active-account"; accountId: string }
   | { kind: "popup-get-connected-sites" }
@@ -142,6 +143,7 @@ export interface TransactionHistoryEntry {
   transactionId?: string;
   createdAt: number;
   status: "confirmed" | "failed";
+  memo?: string;
 }
 
 /** One account as reported by a wallet daemon's `accounts.list`/`accounts.get` JRPC, surfaced to

@@ -72,6 +72,11 @@ export interface ShieldedOutputRecord {
   createdAt: number;
   /** Set true once this output has been spent via unshield. */
   spent: boolean;
+  /** The output's plaintext memo, if any -- known directly for a self-created output (shield/
+   * unshield already have it as a plain call argument), decrypted alongside the amount for a
+   * claimed/scanned one (see `DecryptedData.memo` in confidential.ts's callers). Absent, not
+   * empty-string, when the output genuinely carries no memo. */
+  memo?: string;
 }
 
 /**
@@ -102,6 +107,9 @@ export interface PendingShield {
    * stealth output, which must never be attributed to us).
    */
   ownCommitment?: string;
+  /** This account's own memo for the operation, if any -- see `ShieldedOutputRecord.memo`. Carried
+   * through so a crash between finalization and the `ShieldedOutputRecord` write doesn't lose it. */
+  memo?: string;
 }
 
 /**
@@ -131,6 +139,9 @@ export interface TransactionHistoryEntry {
   transactionId?: string;
   createdAt: number;
   status: "confirmed" | "failed";
+  /** The plaintext memo attached to a shield/unshield/send-privately/private-payment-received
+   * entry, if any -- see `ShieldedOutputRecord.memo`. */
+  memo?: string;
 }
 
 const MAX_TRANSACTION_HISTORY_ENTRIES = 500;

@@ -55,6 +55,11 @@ export interface ScannedStealthOutput {
   commitment: string;
   amount: bigint;
   transactionId: string;
+  /** The output's memo, if the sender attached one, as the raw JSON-encoded `Memo` union string
+   * `DecryptedData.memo` returns (see the SDK's own doc comment -- not plain text yet; callers use
+   * wallet.ts's `fromMemo()` to decode it). Decrypted alongside the amount, unlike
+   * `sumConfidentialCommitments`, which passes `skipMemo: true` since it only needs a running total. */
+  memo?: string;
 }
 
 /**
@@ -94,12 +99,12 @@ export async function scanTransactionsForOwnedOutputs(
         const commitmentHex = stealthOutput.output.commitment;
         if (knownCommitments.has(commitmentHex)) continue;
         try {
-          const { value } = await decryptInputData(crypto, fromHex(commitmentHex), fromHex(stealthOutput.output.encrypted_data), {
+          const { value, memo } = await decryptInputData(crypto, fromHex(commitmentHex), fromHex(stealthOutput.output.encrypted_data), {
             senderPublicNonce: fromHex(stealthOutput.output.sender_public_nonce),
             viewSecret,
-            skipMemo: true,
+            skipMemo: false,
           });
-          found.push({ resourceAddress, commitment: commitmentHex, amount: value, transactionId: entry.transaction_id });
+          found.push({ resourceAddress, commitment: commitmentHex, amount: value, transactionId: entry.transaction_id, memo });
         } catch {
           // Not ours.
         }
