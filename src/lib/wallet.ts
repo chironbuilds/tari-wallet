@@ -558,6 +558,13 @@ export class OotleAccount implements WalletAccountApi {
     const walletAddress = await this.getWalletAddress();
 
     const spec = await new StealthTransfer(provider, resourceAddress)
+      // StealthTransfer.prepare() auto-adds the revealed account's own substate and any vault
+      // addresses embedded in its on-chain state, but never the resource's own substate -- fine
+      // for XTR (resource_0101...0101 is engine-special-cased and needs no lock), but any other
+      // resource's instructions fail with "SubstateNotFound: resource_... not found" at
+      // instruction #1 without it explicitly pinned here. Confirmed directly against prepare()'s
+      // source (node_modules/@tari-project/ootle/dist/index.js) -- not assumed from the docs.
+      .withBuilder((b) => b.addInput({ substate_id: resourceAddress, version: null }))
       .spendRevealedInput(account, amount)
       .toStealthOutput(createOutput({ destination: walletAddress, amount, resourceAddress, memo: toMemo(memo) }))
       .payFeeFromRevealed(maxFee)
@@ -626,7 +633,11 @@ export class OotleAccount implements WalletAccountApi {
     // on-chain component address.
     const walletAddress = await this.getWalletAddress();
 
-    let builder = new StealthTransfer(provider, resourceAddress).spendRevealedInput(account, dust);
+    // See shield()'s comment: the resource's own substate must be pinned explicitly -- prepare()
+    // never adds it on its own.
+    let builder = new StealthTransfer(provider, resourceAddress)
+      .withBuilder((b) => b.addInput({ substate_id: resourceAddress, version: null }))
+      .spendRevealedInput(account, dust);
     for (const commitment of commitments) {
       builder = builder.spendStealthInput(account, fromHex(commitment));
     }
@@ -710,7 +721,11 @@ export class OotleAccount implements WalletAccountApi {
     const account = await this.getComponentAddress();
     const ownWalletAddress = await this.getWalletAddress();
 
-    let builder = new StealthTransfer(provider, resourceAddress).spendRevealedInput(account, dust);
+    // See shield()'s comment: the resource's own substate must be pinned explicitly -- prepare()
+    // never adds it on its own.
+    let builder = new StealthTransfer(provider, resourceAddress)
+      .withBuilder((b) => b.addInput({ substate_id: resourceAddress, version: null }))
+      .spendRevealedInput(account, dust);
     for (const commitment of commitments) {
       builder = builder.spendStealthInput(account, fromHex(commitment));
     }

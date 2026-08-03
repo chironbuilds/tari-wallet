@@ -961,8 +961,12 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
  * output covers the amount, so the user only ever thinks in terms of a total balance and an
  * amount, never individual UTXOs/commitments.
  *
- * Only offers resources with an actual private balance to send from (`confidentialAmount > 0n`);
- * if none exist, shows a hint to shield first rather than an empty picker.
+ * Only offers resources with an actual private balance to send from (`confidentialAmount > 0n`)
+ * *and* whose resource kind is "Stealth" -- a real Confidential-vault resource (a distinct engine
+ * type, see renderTokenDetail's isStealthResource comment) can also carry a nonzero
+ * confidentialAmount, but sendPrivately()'s StealthTransfer pipeline only works for Stealth
+ * resources and would fail on-chain for one of those. If none exist, shows a hint to shield first
+ * rather than an empty picker.
  */
 function buildPrivateSendForm(
   container: HTMLElement,
@@ -970,7 +974,7 @@ function buildPrivateSendForm(
   addressBook: { id: string; label: string; address: string }[],
   initialResourceAddress?: string
 ) {
-  const privateBalances = balances.filter((b) => BigInt(b.confidentialAmount) > 0n);
+  const privateBalances = balances.filter((b) => b.kind === "Stealth" && BigInt(b.confidentialAmount) > 0n);
   if (privateBalances.length === 0) {
     container.replaceChildren(h("p", { class: "muted" }, ["You don't have a private balance yet — shield some first."]));
     return;
@@ -1328,14 +1332,38 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
   // daemon-relayed account (see background/index.ts's popup-shield handler).
   const isLocalAccount = status.accounts.find((a) => a.id === status.activeAccountId)?.kind === "local";
 
-  const shieldBtn = isLocalAccount ? h("button", { class: "secondary" }, [`Shield ${displaySymbol}`]) : null;
+  // Of the engine's three resource kinds (Fungible, Confidential, Stealth — see
+  // demo_token/src/lib.rs's ResourceBuilder usage and StealthTransfer.prepare()'s source for how
+  // these are confirmed distinct and fixed at resource-creation time, never convertible), only
+  // Stealth resources support shield()/unshield()/sendPrivately()'s StealthTransfer pipeline at
+  // all -- attempting it against a Fungible resource (e.g. a plain DemoToken like tUSD) or a real
+  // Confidential-vault resource fails on-chain with "Stealth transfer is only allowed for stealth
+  // resources". Gate every privacy action on this instead of just `isLocalAccount`.
+  const isStealthResource = balance.kind === "Stealth";
+
+  const shieldBtn =
+    isLocalAccount && isStealthResource ? h("button", { class: "secondary" }, [`Shield ${displaySymbol}`]) : null;
   if (shieldBtn) shieldBtn.addEventListener("click", () => renderShield(status, balance));
 
-  const unshieldBtn = isLocalAccount && isConfidential ? h("button", { class: "secondary" }, [`Unshield ${displaySymbol}`]) : null;
+  const unshieldBtn =
+    isLocalAccount && isConfidential && isStealthResource ? h("button", { class: "secondary" }, [`Unshield ${displaySymbol}`]) : null;
   if (unshieldBtn) unshieldBtn.addEventListener("click", () => renderUnshield(status, balance));
 
   const sendPrivatelyBtn =
-    isLocalAccount && isConfidential ? h("button", { class: "secondary" }, [`Send ${displaySymbol} privately`]) : null;
+    isLocalAccount && isConfidential && isStealthResource ? h("button", { class: "secondary" }, [`Send ${displaySymbol} privately`]) : null;
+
+  // A real Confidential-vault resource (distinct from Stealth -- see above) can genuinely carry a
+  // nonzero confidential balance that this wallet correctly *displays* (sumConfidentialCommitments
+  // in getBalances()), but has no send/unshield pipeline implemented for at all. Silently dropping
+  // the buttons here would look like a bug; say so instead. Plain Fungible/NonFungible resources
+  // have no private balance to begin with, so isConfidential is already false for them and no note
+  // is shown.
+  const noPrivacyActionsNote =
+    isLocalAccount && !isStealthResource && isConfidential
+      ? h("div", { class: "muted", style: "margin-top:10px;font-size:13px" }, [
+          "This token's private balance uses a format this wallet doesn't support sending or unshielding for yet.",
+        ])
+      : null;
   if (sendPrivatelyBtn) {
     sendPrivatelyBtn.addEventListener("click", async () => {
       const balances = await send<Balance[]>({ kind: "popup-get-balances" });
@@ -1378,6 +1406,7 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
     ...(shieldBtn ? [shieldBtn] : []),
     ...(unshieldBtn ? [unshieldBtn] : []),
     ...(sendPrivatelyBtn ? [sendPrivatelyBtn] : []),
+    ...(noPrivacyActionsNote ? [noPrivacyActionsNote] : []),
     back
   );
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
