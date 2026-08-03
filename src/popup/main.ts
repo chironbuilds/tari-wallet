@@ -68,6 +68,8 @@ const ICON_COPY =
 const ICON_SETTINGS =
   '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>';
 const ICON_CLOCK = '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>';
+const ICON_REFRESH =
+  '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>';
 
 function icon(paths: string): HTMLSpanElement {
   const span = document.createElement("span");
@@ -442,10 +444,25 @@ async function renderHome(status: WalletStatus) {
 
   const claimStatusEl = h("div", { class: "status", id: "claimStatus", style: "display:none" });
 
-  const balancesTitle = h("div", { class: "section-title" }, ["Assets"]);
+  // Rescanning needs this account's own view key (see OotleAccount.scanForPrivatePayments()) --
+  // unavailable for a daemon-relayed account, same gating Shield/Unshield/Send-privately use.
+  const isLocalAccount = status.accounts.find((a) => a.id === status.activeAccountId)?.kind === "local";
+  const rescanControl = isLocalAccount ? buildRescanControl() : null;
+  const balancesTitleRow = h("div", { class: "row", style: "justify-content:space-between;align-items:center;margin:2px 0 0" }, [
+    h("div", { class: "section-title", style: "margin:0" }, ["Assets"]),
+    ...(rescanControl ? [rescanControl.button] : []),
+  ]);
   const balancesCard = h("div", { class: "card balances-card" }, [skeletonBalanceRow(), skeletonBalanceRow()]);
 
-  render(nav, hero, actionRow, claimStatusEl, balancesTitle, balancesCard);
+  render(
+    nav,
+    hero,
+    actionRow,
+    claimStatusEl,
+    balancesTitleRow,
+    ...(rescanControl ? [rescanControl.statusEl] : []),
+    balancesCard
+  );
 
   const updateHeroBalance = (balances: Balance[]) => {
     const xtr = balances.find((b) => b.resourceAddress === TARI_RESOURCE_ADDRESS);
@@ -656,7 +673,6 @@ function renderReceive(status: WalletStatus) {
 
   const isLocalAccount = status.accounts.find((a) => a.id === status.activeAccountId)?.kind === "local";
   const claimCard = isLocalAccount ? buildClaimPrivatePaymentCard(status) : null;
-  const rescanCard = isLocalAccount ? buildRescanPrivatePaymentsCard() : null;
 
   render(
     h("h1", {}, ["Receive"]),
@@ -670,7 +686,6 @@ function renderReceive(status: WalletStatus) {
       walletRow,
     ]),
     ...(claimCard ? [claimCard] : []),
-    ...(rescanCard ? [rescanCard] : []),
     back
   );
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
@@ -683,39 +698,40 @@ function renderReceive(status: WalletStatus) {
  * demand -- for catching up after the wallet's been closed a while, or just confirming "did that
  * stealth transfer actually arrive" without waiting for the next popup open to notice it.
  */
-function buildRescanPrivatePaymentsCard() {
-  const rescanBtn = h("button", { class: "secondary" }, ["Rescan for private payments"]);
-  const statusEl = h("div", { class: "status", style: "display:none" });
-  const showStatus = (msg: string, cls: "err" | "ok") => {
+/**
+ * A small icon-button next to the "Assets" title on the home screen (see renderHome) rather than
+ * its own screen -- rescanning is something people want to try right where they're already looking
+ * at their balance, not a few taps away. `scanForPrivatePayments()` already runs opportunistically
+ * on every popup open (see buildStatus()'s doc comment) but only over a shallow window (150
+ * transactions); this triggers the same scan with a much deeper lookback (1000) on demand, for
+ * catching up after the wallet's been closed a while or just confirming a stealth transfer arrived
+ * without waiting for the next popup open to notice it. Returns `{ button, statusEl }` so the
+ * caller can lay both out next to the title and under it respectively.
+ */
+function buildRescanControl(): { button: HTMLElement; statusEl: HTMLElement } {
+  const button = h("button", { class: "icon-btn", "aria-label": "Rescan for private payments", title: "Rescan for private payments" }, [
+    icon(ICON_REFRESH),
+  ]);
+  const statusEl = h("div", { class: "muted", style: "display:none;font-size:12px;margin:-4px 0 8px" }, [""]);
+  const showStatus = (msg: string) => {
     statusEl.style.display = "block";
-    statusEl.className = `status ${cls}`;
     statusEl.textContent = msg;
   };
 
-  rescanBtn.addEventListener("click", async () => {
-    rescanBtn.setAttribute("disabled", "true");
-    showStatus("Scanning recent transactions…", "ok");
+  button.addEventListener("click", async () => {
+    button.setAttribute("disabled", "true");
+    showStatus("Scanning recent transactions…");
     try {
       const { claimed } = await send<{ claimed: number }>({ kind: "popup-rescan-private-payments" });
-      showStatus(
-        claimed === 0 ? "No new private payments found." : `Found ${claimed} new private ${claimed === 1 ? "payment" : "payments"}!`,
-        "ok"
-      );
+      showStatus(claimed === 0 ? "No new private payments found." : `Found ${claimed} new private ${claimed === 1 ? "payment" : "payments"}!`);
     } catch (e) {
-      showStatus(e instanceof Error ? e.message : String(e), "err");
+      showStatus(e instanceof Error ? e.message : String(e));
     } finally {
-      rescanBtn.removeAttribute("disabled");
+      button.removeAttribute("disabled");
     }
   });
 
-  return h("div", { class: "card" }, [
-    h("div", { class: "muted", style: "margin-bottom:8px" }, ["Rescan for private payments"]),
-    h("p", { class: "muted", style: "margin:0 0 8px" }, [
-      "Stealth transfers sent to you are found automatically each time you open the wallet, over a limited window of recent activity. If you're expecting one that hasn't shown up yet, scan further back manually.",
-    ]),
-    statusEl,
-    rescanBtn,
-  ]);
+  return { button, statusEl };
 }
 
 /**
