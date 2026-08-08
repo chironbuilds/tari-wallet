@@ -261,6 +261,7 @@ async function buildStatus(): Promise<WalletStatus> {
   let address: string | null = null;
   let receiveAddress: string | null = null;
   let activeAccountError: string | null = null;
+  let lastKnownAddress = state.lastKnownAddress;
   if (unlocked) {
     // A daemon-relayed active account can throw here (the daemon is off, unreachable, etc.) — that
     // must not take down the whole status fetch, or the popup can't even render enough UI (the
@@ -270,6 +271,13 @@ async function buildStatus(): Promise<WalletStatus> {
       if (account) {
         receiveAddress = await account.getWalletAddress();
         address = await account.getComponentAddress();
+        // Cache for the lock screen's identicon (see WalletState.lastKnownAddress's doc comment)
+        // -- only a write when it actually changed, so this doesn't touch storage on every popup
+        // open for the common case of reopening the same already-unlocked account.
+        if (address !== lastKnownAddress) {
+          lastKnownAddress = address;
+          await setState({ lastKnownAddress: address });
+        }
         // Best-effort reconciliation of any shield that finalized on-chain but never got its
         // ShieldedOutputRecord written (service worker killed mid-flight — see
         // OotleAccount.shield()'s doc comment). Any local account's provider works here: a
@@ -327,6 +335,7 @@ async function buildStatus(): Promise<WalletStatus> {
     accountCount: state.accountCount,
     address,
     receiveAddress,
+    lastKnownAddress,
     activeAccountError,
     accounts: [...localAccounts, ...daemonAccounts],
     daemonConnections: state.daemonConnections.map((c) => ({ id: c.id, url: c.url, label: c.label })),

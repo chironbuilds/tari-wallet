@@ -196,6 +196,11 @@ button + button {
   padding: 14px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
+.detail-value {
+  margin: 4px 0 14px;
+  font-size: 15px;
+  font-weight: 600;
+}
 .addr {
   font-size: 11px;
   color: var(--muted);
@@ -414,6 +419,9 @@ button + button {
 }
 .account-pill {
   width: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12px;
   font-family: inherit;
   color: var(--text);
@@ -425,6 +433,11 @@ button + button {
   transition:
     border-color 0.15s ease,
     transform 0.1s ease;
+}
+.account-pill .icon-svg svg {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
 }
 .account-pill:hover {
   border-color: var(--border-hover);
@@ -673,6 +686,23 @@ input[type="text"],
 textarea,
 select {
   transition: border-color 0.15s ease;
+}
+input.input-valid {
+  border-color: var(--good);
+}
+input.input-invalid {
+  border-color: var(--bad);
+}
+.btn-compact {
+  width: auto;
+  padding: 5px 10px;
+}
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
 }
 .amount-field {
   position: relative;

@@ -59,6 +59,18 @@ export function formatBalanceAmount(rawAmount: string, divisibility: number): st
   return frac ? `${whole}.${frac}` : whole.toString();
 }
 
+/** Same as `formatBalanceAmount`, but with thousands separators on the whole-number part — for
+ * read-only display only (hero balance, token detail, history, balance hints). Never use this for
+ * a value that round-trips back into an editable amount field (e.g. a MAX button): the separators
+ * make it unparseable by `parseDecimalToRaw`, which `formatBalanceAmount` itself stays free of on
+ * purpose so every such call site can keep using it directly. */
+export function formatBalanceAmountGrouped(rawAmount: string, divisibility: number): string {
+  const formatted = formatBalanceAmount(rawAmount, divisibility);
+  const [whole, frac] = formatted.split(".");
+  const grouped = BigInt(whole!).toLocaleString("en-US");
+  return frac ? `${grouped}.${frac}` : grouped;
+}
+
 export function tokenInitial(resourceAddress: string, symbol: string | null): string {
   const label = resourceLabel(resourceAddress, symbol);
   return label.slice(0, 1).toUpperCase();

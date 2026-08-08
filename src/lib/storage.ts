@@ -173,6 +173,13 @@ export interface WalletState {
    * `popup-get-status` only walk transactions newer than the last one it already looked at,
    * instead of re-scanning the indexer's whole recent-transactions feed every time. */
   privatePaymentScanCursors: Record<string, string>;
+  /** The active account's own component address, cached in plaintext from the last time it was
+   * unlocked -- a component address is public on-chain data, no more sensitive than the addressBook
+   * entries above, so caching it costs nothing. Lets the lock screen show the real per-account
+   * identicon instead of a placeholder, matching MetaMask's "spot a wrong wallet/device at a
+   * glance" pattern -- the address can't be derived without decrypting the seed, so there'd
+   * otherwise be no way to know it before the password is entered. */
+  lastKnownAddress: string | null;
 }
 
 const DEFAULTS: WalletState = {
@@ -189,6 +196,7 @@ const DEFAULTS: WalletState = {
   shieldedOutputs: [],
   pendingShields: [],
   privatePaymentScanCursors: {},
+  lastKnownAddress: null,
 };
 
 export function localAccountId(index: number): string {

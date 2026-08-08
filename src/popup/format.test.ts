@@ -3,6 +3,7 @@ import {
   TARI_RESOURCE_ADDRESS,
   deriveWebUiApiKeysUrl,
   formatBalanceAmount,
+  formatBalanceAmountGrouped,
   isValidComponentAddress,
   normalizeDaemonUrl,
   parseDecimalToRaw,
@@ -192,6 +193,25 @@ describe("formatBalanceAmount", () => {
 
   it("pads small fractional amounts with leading zeros", () => {
     expect(formatBalanceAmount("1", 6)).toBe("0.000001");
+  });
+});
+
+describe("formatBalanceAmountGrouped", () => {
+  it("groups a large whole-number balance with thousands separators", () => {
+    expect(formatBalanceAmountGrouped("1234567000000", 6)).toBe("1,234,567");
+  });
+
+  it("groups the whole part while leaving the fractional part untouched", () => {
+    expect(formatBalanceAmountGrouped("1234567890000", 6)).toBe("1,234,567.89");
+  });
+
+  it("leaves a balance under 1000 ungrouped", () => {
+    expect(formatBalanceAmountGrouped("999000000", 6)).toBe("999");
+  });
+
+  it("groups zero and small balances without throwing", () => {
+    expect(formatBalanceAmountGrouped("0", 6)).toBe("0");
+    expect(formatBalanceAmountGrouped("1", 6)).toBe("0.000001");
   });
 });
 

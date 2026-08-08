@@ -64,6 +64,19 @@ of WalletConnect) and their trade-offs.
 
 ## Recent additions (typecheck/test/build verified; not yet exercised live)
 
+- **UI/UX pass** (from a full-popup audit — see `main.ts`/`styles.css`): submit buttons now show
+  their own busy state (label swaps to "Sending…"/"Shielding…"/etc. instead of just graying out);
+  live green/red address validation as you type on Send/Send-privately/Address book, since a wrong
+  recipient there is unrecoverable-funds territory; thousands separators on displayed balances
+  (`formatBalanceAmountGrouped` — kept separate from `formatBalanceAmount`, which stays
+  round-trippable into the MAX-button-filled amount fields); the lock screen shows the real
+  per-account identicon when known (`WalletState.lastKnownAddress`, cached in plaintext from the
+  last unlock — a component address isn't secret) instead of a placeholder, the same
+  spot-the-wrong-wallet pattern MetaMask uses; ARIA roles on the Send/Send-privately tabs and a
+  live region on copy-to-clipboard feedback; `inputmode="decimal"` on amount fields; Enter-to-submit
+  and autofocus on Create/Import, matching Unlock; consistent `.detail-value`/`.btn-compact` classes
+  replacing several near-duplicate inline styles; a real chevron icon instead of a literal "▾"
+  glyph; and native checkboxes recolored to the app's accent instead of rendering OS-default.
 - **Address book** (Settings → Address book): saved `component_…`/`otl_…` recipients, offered as a
   picker in both Send and Send-privately without replacing manual entry.
 - **Network switching** (Settings → Network): esmeralda/igor, with an inline confirmation before

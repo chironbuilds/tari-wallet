@@ -130,6 +130,10 @@ export interface WalletStatus {
   accountCount: number;
   address: string | null;
   receiveAddress: string | null;
+  /** The active account's component address from the last time it was unlocked, cached in
+   * plaintext (see storage.ts's WalletState.lastKnownAddress) -- unlike `address`, this is set
+   * even while locked, so the lock screen can show a real identicon instead of a placeholder. */
+  lastKnownAddress: string | null;
   /** Set when resolving the active account failed (e.g. a daemon-relayed account whose daemon is
    * unreachable) — `address`/`receiveAddress` are null in that case, but the rest of the status
    * (account list, network, etc.) is still valid, so the popup can render enough UI to let the
