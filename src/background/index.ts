@@ -444,6 +444,13 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       const { seed, mnemonic } = await createWalletSeed();
       const vault = await encryptVault(message.password, serializeSeed(seed));
       await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0) });
+      // getLocalAccount() caches by "network:index" alone, not by seed identity -- unreachable in
+      // the normal flow (this case only shows when no wallet exists yet, i.e. the cache was never
+      // populated), but a request racing a just-completed popup-reset-wallet could read the old
+      // seed before its clearUnlockedSeed() and repopulate the cache after its clearAccountCache(),
+      // leaving a stale entry from the *wiped* seed for this brand-new wallet to silently inherit.
+      // Cheap enough to always clear here regardless of whether that race actually happened.
+      clearAccountCache();
       await setUnlockedSeed(seed.entropy);
       return { mnemonic };
     }
@@ -452,6 +459,8 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       const seed = await importWalletSeed(message.mnemonic);
       const vault = await encryptVault(message.password, serializeSeed(seed));
       await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0) });
+      // See popup-create-wallet's comment just above -- same stale-cache race, same fix.
+      clearAccountCache();
       await setUnlockedSeed(seed.entropy);
       return {};
     }

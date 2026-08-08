@@ -256,6 +256,33 @@ targeted backend audit and fixed this round:
   cursor when the scan actually reached `previousCursor` (or there was none to reach —
   the very first scan); otherwise the cursor stays put and the next scan retries the
   same catch-up, matching what the method's own doc comment already claimed it did.
+- **A stale cached account could survive a wallet reset into a brand-new wallet.**
+  `accounts.ts`'s `getLocalAccount()` caches `OotleAccount` instances keyed by
+  `` `${network}:${index}` `` alone — nothing about the key identifies *which seed* the
+  cached instance was built from. `popup-reset-wallet` clears the unlocked seed, then the
+  account cache, then wipes storage (`clearUnlockedSeed()` → `clearAccountCache()` →
+  `wipeWallet()`), each a separate await — a request already in flight when reset starts
+  (e.g. a dApp page request) can read the still-valid old seed *before* the first step and
+  finish repopulating the cache *after* the second step, leaving a stale entry built from
+  the now-wiped seed. `popup-create-wallet`/`popup-import-wallet` never called
+  `clearAccountCache()` themselves, so that stale entry could silently be inherited by a
+  brand-new wallet created or imported right after — wrong keys in use for index 0 with no
+  error or indication anything was wrong. Narrow (needs a request racing a reset in the
+  same service-worker lifetime) but the fix is unconditional and free: both handlers now
+  call `clearAccountCache()` before establishing the new seed, matching the pattern
+  `popup-lock`/`popup-reset-wallet` already used.
+
+**A caveat worth being explicit about**: `cipherSeed.ts`/`derivation.ts`/`mnemonic.ts`/
+`domainHash.ts` were reviewed for internal logical consistency and pass every test this
+codebase has (round-trip encode/decode, and `domainHash.test.ts`'s vectors from
+`tari-crypto`'s own generic-domain test suite) — but none of those tests pin a **golden
+vector produced by the real Rust reference implementation's specific
+`KeyManagerDomain`/`derive_key` construction end-to-end** (seed phrase in, derived key
+out). Internal self-consistency doesn't rule out a subtle mismatch against the actual
+Rust wallet that would derive *different* keys from the *same* recovery phrase — which
+would only surface as "my funds aren't where I expect," not a crash. Recommended before
+trusting this on mainnet: run one real recovery phrase through both this extension and a
+real `tari_ootle_walletd`/Rust wallet, and diff the derived keys.
 
 ---
 

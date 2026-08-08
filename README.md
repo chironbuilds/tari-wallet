@@ -75,6 +75,18 @@ of WalletConnect) and their trade-offs.
   helper in `storage.ts` against concurrent callers (two popup windows, a page request racing a
   popup request) that could otherwise silently clobber each other's write — covered by new
   regression tests in `storage.test.ts`.
+- **A second backend-audit pass** (message bridge + crypto primitives, `SECURITY_AUDIT.md` §9)
+  found the page↔extension boundary (`content-script.ts`/`inject.ts`) and the crypto files
+  (`cipherSeed.ts`/`derivation.ts`/`mnemonic.ts`/`domainHash.ts`/`crc32.ts`) clean, plus one more
+  real bug: `getLocalAccount()`'s cache key never identified *which seed* a cached account was
+  built from, so a request racing a wallet reset could leave a stale, wrong-seed account cached —
+  silently inherited by a brand-new wallet created right after if `popup-create-wallet`/
+  `popup-import-wallet` didn't clear the cache themselves (they now do, matching
+  `popup-lock`/`popup-reset-wallet`). Also flagged, not fixed (needs the real Rust reference
+  implementation to check against, out of scope for this pass): the crypto files pass every
+  self-consistency test this codebase has, but none of those tests pin a golden vector produced
+  end-to-end by the actual Rust wallet — worth running one real recovery phrase through both and
+  diffing the derived keys before trusting this on mainnet.
 - **Home screen** now shows the wallet (`otl_esm_...`) address instead of the component address —
   same reasoning as the Receive screen rework, and it's what a sender needs either way now.
 - **Polish tier** (finishing the audit): per-kind icons on History rows (arrows for plain
