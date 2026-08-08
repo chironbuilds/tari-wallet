@@ -911,6 +911,8 @@ var jt = class {
     __publicField(this, "builder");
     __publicField(this, "state");
     __publicField(this, "prepared", false);
+    __publicField(this, "revealedOutputBucketVar", null);
+    __publicField(this, "followUpInstructions", []);
     this.provider = e11, this.crypto = n2, this.builder = z.new(e11.network()), this.state = {
       resource: t2,
       revealedInput: null,
@@ -934,6 +936,13 @@ var jt = class {
   toRevealedOutput(e11) {
     if (e11 <= 0n) throw new v(`toRevealedOutput amount must be > 0, got ${e11}`);
     return this.state.revealedOutputAmount += e11, this;
+  }
+  toRevealedOutputAsBucket(e11, t2) {
+    if (e11 <= 0n) throw new v(`toRevealedOutputAsBucket amount must be > 0, got ${e11}`);
+    return this.state.revealedOutputAmount += e11, this.revealedOutputBucketVar = t2, this;
+  }
+  andThen(e11) {
+    return this.followUpInstructions.push(...e11), this;
   }
   payFeeFromRevealed(e11) {
     if (this.state.revealedInput === null) throw new v("payFeeFromRevealed: call spendRevealedInput first to set the source account");
@@ -999,7 +1008,7 @@ var jt = class {
     if (!(t2 > 0n || e11)) throw new v("StealthTransfer.prepare: no inputs \u2014 call spendRevealedInput or spendStealthInput first");
     if (this.state.outputs.length === 0 && this.state.revealedOutputAmount === 0n) throw new v("StealthTransfer.prepare: no outputs \u2014 call toStealthOutput or toRevealedOutput first");
     if (this.state.outputs.length === 0) throw new v("StealthTransfer.prepare: at least one stealth output is required");
-    if (this.state.revealedOutputAmount > 0n && this.state.revealedInput === null) throw new v("StealthTransfer.prepare: revealed change requires a revealed source account to deposit into");
+    if (this.state.revealedOutputAmount > 0n && this.state.revealedInput === null && this.revealedOutputBucketVar === null) throw new v("StealthTransfer.prepare: revealed change requires a revealed source account to deposit into");
     if (!e11) {
       let e12 = this.state.outputs.reduce((e13, t3) => e13 + t3.amount, 0n), n2 = e12 + this.state.revealedOutputAmount, r2 = t2;
       if (r2 !== n2) throw new v(`StealthTransfer.prepare: unbalanced transfer \u2014 revealed input ${r2} != stealth out ${e12} + revealed out ${this.state.revealedOutputAmount} (= ${n2})`);
@@ -1014,10 +1023,10 @@ var jt = class {
       resourceAddress: this.state.resource,
       revealedInputBucket: n2,
       statement: e11
-    }, (e12) => this.builder.resolveWorkspaceOffsetId(e12))), this.state.revealedOutputAmount > 0n && t2 !== null && this.builder.saveVar(nt).callMethod({
+    }, (e12) => this.builder.resolveWorkspaceOffsetId(e12))), this.state.revealedOutputAmount > 0n && this.revealedOutputBucketVar !== null ? this.builder.saveVar(this.revealedOutputBucketVar) : this.state.revealedOutputAmount > 0n && t2 !== null && this.builder.saveVar(nt).callMethod({
       componentAddress: t2.source,
       methodName: "deposit"
-    }, [{ Workspace: nt }]);
+    }, [{ Workspace: nt }]), this.followUpInstructions.length > 0 && this.builder.withInstructions(this.followUpInstructions);
   }
 };
 function Mt(e11) {

@@ -1,5 +1,6 @@
+import { generateKeypair, generateOotleAddress } from "@tari-project/ootle-wasm";
 import { describe, expect, it } from "vitest";
-import { deriveAccountComponentAddress, deriveComponentAddress } from "./componentAddress";
+import { componentAddressFromWalletAddress, deriveAccountComponentAddress, deriveComponentAddress } from "./componentAddress";
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
@@ -31,6 +32,31 @@ describe("deriveAccountComponentAddress", () => {
     const a = deriveAccountComponentAddress(new Uint8Array(32).fill(1));
     const b = deriveAccountComponentAddress(new Uint8Array(32).fill(2));
     expect(a).not.toBe(b);
+  });
+});
+
+describe("componentAddressFromWalletAddress", () => {
+  // Round-trips a real bech32m "otl_..." address (built the same way the wallet itself builds one,
+  // via generateOotleAddress) back through parseOotleAddress + deriveAccountComponentAddress, and
+  // checks the result matches deriving straight from the owner public key -- i.e. that decoding a
+  // recipient's wallet address gets you to the exact same component address they'd otherwise have
+  // had to look up and paste in separately.
+  const ownerPubKey = hexToBytes("f6f89e316e6ba5f05e5250ddd4a5d3ed39dcd038cf812cc6a154b6ec0951d25f");
+  const viewPubKey = hexToBytes("44f53520926ec81fbd5a387845beb7df85a96a24ece18738bdcfa6a7822a176d");
+  const ESMERALDA_NETWORK_BYTE = 38; // Network.Esmeralda (@tari-project/ootle)
+
+  it("derives the same component address as deriving from the owner public key directly", () => {
+    const walletAddress = generateOotleAddress(ownerPubKey, viewPubKey, ESMERALDA_NETWORK_BYTE);
+    expect(walletAddress.startsWith("otl_")).toBe(true);
+    expect(componentAddressFromWalletAddress(walletAddress)).toBe(deriveAccountComponentAddress(ownerPubKey));
+  });
+
+  it("ignores the view key -- only the owner key determines the component address", () => {
+    // Needs a real point on the curve, not arbitrary bytes -- generateKeypair() gives us one.
+    const otherViewPubKey = generateKeypair().public_key;
+    const a = generateOotleAddress(ownerPubKey, viewPubKey, ESMERALDA_NETWORK_BYTE);
+    const b = generateOotleAddress(ownerPubKey, otherViewPubKey, ESMERALDA_NETWORK_BYTE);
+    expect(componentAddressFromWalletAddress(a)).toBe(componentAddressFromWalletAddress(b));
   });
 });
 

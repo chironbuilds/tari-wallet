@@ -703,6 +703,82 @@ export class OotleAccount implements WalletAccountApi {
   }
 
   /**
+   * Withdraws `amount` of a Stealth-typed resource (e.g. XTR) from this account's revealed
+   * balance and feeds it, as a `Bucket` left on the workspace under `workspaceVarName`, into
+   * `followUpInstructions` — all in one signed transaction.
+   *
+   * This is the *only* way to move Stealth-typed funds into an arbitrary contract call. A plain
+   * `CallMethod withdraw` on a Stealth vault is not a standalone-valid instruction: confirmed
+   * empirically (isolated to a bare `withdraw` immediately followed by `deposit`, zero other
+   * instructions) that `account.execute()` fails it client-side, before ever reaching the
+   * network, with a generic `JSON deserialization failed: ... untagged enum TransactionInput`
+   * error. Moving Stealth funds anywhere always requires the native `StealthTransfer`
+   * instruction, signed via `WalletStealthAuthorizer` — which `execute()`/`TransactionBuilder`
+   * never invokes (see this file's own `execute()` doc comment, and the
+   * `isStealthTransferInstruction` guard + comment in `background/index.ts`). This method uses
+   * the *same* `StealthTransfer` builder + `WalletStealthAuthorizer` pipeline `shield()`/
+   * `unshield()` already use, extended with `toRevealedOutputAsBucket`/`andThen` (see
+   * `vendor/ootle-patched/README.md`) to leave the revealed output on the workspace instead of
+   * auto-depositing it back to this account, and to append the caller's own instructions after
+   * it in the same transaction.
+   *
+   * @param relatedComponents Every *other* component `followUpInstructions` touches (e.g. a
+   *   DAO contract being called). The `StealthTransfer` builder auto-registers this account's
+   *   own vaults as tx inputs, but has no way to know what the caller's own follow-up
+   *   instructions reference — the engine rejects a `CallMethod` touching an unregistered
+   *   substate with `SubstateNotFound`. Each is registered by address, plus every vault its own
+   *   state references (the same vault-discovery this account's own address already gets).
+   */
+  async withdrawStealthAndExecute(
+    resourceAddress: string,
+    amount: bigint,
+    workspaceVarName: string,
+    followUpInstructions: Instruction[],
+    relatedComponents: string[] = [],
+    maxFee = 100000n
+  ): Promise<{ transactionId: string }> {
+    if (amount <= 0n) throw new Error(`withdrawStealthAndExecute amount must be > 0, got ${amount}`);
+    const provider = await this.getProvider();
+    const account = await this.getComponentAddress();
+    const walletAddress = await this.getWalletAddress();
+    // A zero-stealth-output StealthTransferStatement (pure revealed-in, revealed-out-as-bucket)
+    // isn't a shape the bundled ootle-wasm@0.37.0 signer can parse -- confirmed live: it throws
+    // the same generic "did not match any variant of untagged enum TransactionInput" error inside
+    // signTransaction's own WASM call, regardless of how balance_proof is represented (present,
+    // null, or omitted -- all three tried). Every other stealth-transfer path in this file
+    // (shield/unshield/sendPrivately) always includes >=1 real stealth output for exactly this
+    // reason. Rather than fight an apparent WASM-binary limitation, this keeps a tiny (1 µ-unit)
+    // stealth output back to this account -- the same proven-working shape -- alongside the real
+    // amount as a revealed bucket.
+    const dust = 1n;
+
+    let builder = new StealthTransfer(provider, resourceAddress)
+      .withBuilder((b) => b.addInput({ substate_id: resourceAddress, version: null }))
+      .spendRevealedInput(account, amount + dust)
+      .toStealthOutput(createOutput({ destination: walletAddress, amount: dust, resourceAddress }))
+      .toRevealedOutputAsBucket(amount, workspaceVarName)
+      .andThen(followUpInstructions);
+    for (const component of relatedComponents) {
+      builder = builder.withBuilder((b) => b.addInput({ substate_id: component, version: null }));
+      for (const vaultId of await getVaultIdsForAccount(provider, component)) {
+        builder = builder.withBuilder((b) => b.addInput({ substate_id: vaultId, version: null }));
+      }
+    }
+    const spec = await builder.payFeeFromRevealed(maxFee).prepare();
+
+    const wallet = new OotleWallet().registerKeyProvider(account, this.signer).setDefaultSigner(account);
+    const viewSecret = await this.signer.getViewSecret();
+    const authorized = await WalletStealthAuthorizer.fromSpec(wallet, spec, { viewSecret, crypto: new WasmStealthCrypto(this.network) }).prepare(
+      provider
+    );
+    const envelope = await authorized.seal();
+    const transactionId = await submitTransaction(provider, envelope);
+    const response = await withTimeout(pollTransactionResult(provider, transactionId), 60_000, "submitting the transaction");
+    await recordKnownVersions(response);
+    return { transactionId };
+  }
+
+  /**
    * Sends `amount` of this account's shielded balance for `resourceAddress` directly to
    * `recipientWalletAddress` — a private-to-private transfer, unlike `shield()` (which always
    * targets this same account's own wallet address). The recipient never appears on-chain in the

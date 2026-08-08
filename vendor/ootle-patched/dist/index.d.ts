@@ -1311,6 +1311,20 @@ export declare class StealthTransfer {
     /** Guards against a second {@link prepare} re-emitting instructions into the same builder. */
     private prepared;
     /**
+     * When set, revealed change is captured as a bucket on the workspace under this name
+     * instead of being auto-deposited back to `revealedInput.source` — see
+     * {@link toRevealedOutputAsBucket}.
+     */
+    private revealedOutputBucketVar;
+    /**
+     * Extra instructions appended after the native `StealthTransfer` instruction (and its
+     * change-bucket handling), in the same transaction — see {@link andThen}. Lets a caller
+     * chain e.g. a custom contract call that consumes the bucket saved by
+     * {@link toRevealedOutputAsBucket}, all signed together by the authorizer in one
+     * transaction instead of needing a separate one.
+     */
+    private followUpInstructions;
+    /**
      * @param provider - Read-only chain access (used by {@link prepare} to resolve inputs).
      * @param resourceAddress - The resource being transferred.
      * @param crypto - Injectable crypto seam; defaults to {@link WasmStealthCrypto}. Tests
@@ -1335,6 +1349,33 @@ export declare class StealthTransfer {
      * @throws {InvalidArgumentError} if `amount` is not `> 0`.
      */
     toRevealedOutput(amount: bigint): this;
+    /**
+     * Like {@link toRevealedOutput}, but instead of auto-depositing the change back into
+     * `revealedInput.source`, the `StealthTransfer` instruction's bucket output is left on the
+     * workspace under `workspaceVarName` for {@link andThen}'s instructions (or a caller-supplied
+     * `withBuilder` continuation) to consume directly — e.g. passing it straight into a custom
+     * contract call in the same transaction, rather than requiring a second transaction that
+     * withdraws it back out again (which a plain `CallMethod withdraw` on a Stealth-typed vault
+     * cannot do standalone — see this class's own `emitInstructions` doc comment: the account
+     * template's `withdraw` only produces a valid bucket when paired with the native
+     * `StealthTransfer` instruction in the same transaction).
+     *
+     * A real `toStealthOutput` is still required elsewhere on this builder (`validate()` enforces
+     * it): the bundled `ootle-wasm@0.37.0` signer cannot parse a statement with zero stealth
+     * outputs at all — confirmed live, `signTransaction`'s own WASM call throws the generic "did
+     * not match any variant of untagged enum TransactionInput" error regardless of how
+     * `balance_proof` is represented. A small dust self-output (as `OotleAccount.
+     * withdrawStealthAndExecute` in tari-wallet-extension does) satisfies this cheaply.
+     *
+     * @throws {InvalidArgumentError} if `amount` is not `> 0`.
+     */
+    toRevealedOutputAsBucket(amount: bigint, workspaceVarName: string): this;
+    /**
+     * Append `instructions` after the native `StealthTransfer` instruction (and its bucket
+     * handling), so they run in the same signed transaction — typically consuming the bucket
+     * {@link toRevealedOutputAsBucket} saved to the workspace. Repeatable; each call appends.
+     */
+    andThen(instructions: Instruction[]): this;
     /**
      * Pay the transaction fee from the revealed source account (max `amount`).
      *

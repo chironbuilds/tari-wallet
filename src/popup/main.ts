@@ -424,8 +424,14 @@ async function renderHome(status: WalletStatus) {
   // Hidden until updateHeroBalance() knows whether there's actually a private balance to show --
   // a permanent "Private: 0" line under every account would just be noise for one that's never
   // shielded anything.
-  const heroPrivateBalance = h("div", { class: "muted", style: "display:none;margin-top:2px" }, [""]);
-  const hero = h("div", { class: "hero" }, [accountAvatar(status.address), addrPill, heroBalance, heroPrivateBalance]);
+  const heroPrivateBalance = h("div", { class: "private-balance", style: "display:none;margin-top:2px" }, [""]);
+  const summaryHead = h("div", { class: "summary-head" }, [accountAvatar(status.address, 32), addrPill]);
+  const summaryBalance = h("div", { class: "summary-balance" }, [
+    h("div", { class: "summary-label" }, ["Total Balance"]),
+    heroBalance,
+    heroPrivateBalance,
+  ]);
+  const hero = h("div", { class: "account-summary card" }, [summaryHead, summaryBalance]);
 
   const sendActionBtn = h("button", { class: "action-btn", id: "sendAction" }, [h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_ARROW_UP)]), "Send"]);
   const receiveActionBtn = h("button", { class: "action-btn", id: "receiveAction" }, [
@@ -822,7 +828,7 @@ async function renderHistory(status: WalletStatus) {
       ? h("div", { class: "empty-state" }, [h("div", { class: "muted" }, ["No transactions yet."])])
       : h(
           "div",
-          {},
+          { class: "card history-list" },
           entries.map((entry) => {
             const b = entry.resourceAddress ? balanceByResource.get(entry.resourceAddress) : undefined;
             const amountText =
@@ -937,8 +943,8 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
   );
   const balanceHint = h("div", { class: "muted", style: "margin-top:6px" }, [""]);
 
-  const toInput = h("input", { type: "text", placeholder: "component_…", maxlength: "74" });
-  const addressPicker = buildAddressPicker(addressBook, isValidComponentAddress, toInput);
+  const toInput = h("input", { type: "text", placeholder: "otl_…", maxlength: "200" });
+  const addressPicker = buildAddressPicker(addressBook, isValidOotleWalletAddress, toInput);
   const amountInput = h("input", { type: "text", placeholder: "0.0", maxlength: "40" });
   const maxBtn = h("button", { class: "max-btn" }, ["MAX"]);
   const amountField = h("div", { class: "amount-field" }, [amountInput, maxBtn]);
@@ -981,8 +987,8 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
   sendBtn.addEventListener("click", async () => {
     const b = selected();
     const toAddress = (toInput as HTMLInputElement).value.trim();
-    if (!isValidComponentAddress(toAddress)) {
-      showStatus("Enter a valid recipient component address (component_ + 64 hex characters).", "err");
+    if (!isValidOotleWalletAddress(toAddress)) {
+      showStatus("Enter a valid Ootle wallet address (starts with otl_).", "err");
       return;
     }
     let raw: bigint;
@@ -1000,7 +1006,7 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
     sendBtn.setAttribute("disabled", "true");
     showStatus("Submitting — this usually takes a few seconds…", "ok");
     try {
-      await send({ kind: "popup-send", toAddress, resourceAddress: b.resourceAddress, amount: raw.toString() });
+      await send({ kind: "popup-send", recipientWalletAddress: toAddress, resourceAddress: b.resourceAddress, amount: raw.toString() });
       showStatus("Sent!", "ok");
       setTimeout(async () => {
         const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
@@ -1499,7 +1505,8 @@ function renderAccountSwitcher(status: WalletStatus) {
   });
   const connectDaemonBtn = h("button", { class: "secondary", id: "connectDaemon" }, ["+ Connect daemon wallet"]);
   const back = h("button", { class: "secondary", id: "back" }, ["Back"]);
-  render(h("h1", {}, ["Switch account"]), ...rows, connectDaemonBtn, back);
+  const list = h("div", { class: "account-switch-list" }, rows);
+  render(h("h1", {}, ["Switch account"]), list, connectDaemonBtn, back);
   connectDaemonBtn.addEventListener("click", () => renderConnectDaemon(status));
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
 }
@@ -1952,6 +1959,7 @@ async function renderApprovalDetails(approvalId: string) {
     render(
       h("h1", {}, ["Transaction request"]),
       h("p", { class: "muted" }, [h("b", {}, [approval.origin]), " wants you to sign and submit a transaction."]),
+      approval.note ? h("p", { class: "muted", style: "color:var(--highlight,#ffdd6c)" }, [approval.note]) : "",
       approval.maxFee ? h("p", { class: "muted" }, [`Max fee: ${approval.maxFee}`]) : "",
       approval.dryRun ? h("p", { class: "muted" }, ["This is a dry run — nothing will be spent."]) : "",
       h("div", { class: "instruction-cards" }, instructionCards),

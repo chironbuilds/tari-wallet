@@ -12,6 +12,7 @@ export type ProviderMethod =
   | "tari_getBalances"
   | "tari_getSubstate"
   | "tari_signAndSubmitTransaction"
+  | "tari_withdrawStealthAndExecute"
   | "tari_disconnect";
 
 export interface ProviderRequestParams {
@@ -26,6 +27,16 @@ export interface ProviderRequestParams {
   // and knows the address of); the wallet's own auto-resolve retry (see OotleAccount.execute())
   // handles whatever's still missing, so this is an optimization, never required for correctness.
   tari_signAndSubmitTransaction: { instructions: Instruction[]; maxFee?: string; dryRun?: boolean; inputs?: SubstateRequirement[] };
+  // See `OotleAccount.withdrawStealthAndExecute`'s doc comment: the only way for a dApp to move
+  // Stealth-typed funds (e.g. XTR) into its own contract call in one transaction.
+  tari_withdrawStealthAndExecute: {
+    resourceAddress: string;
+    amount: string;
+    workspaceVarName: string;
+    followUpInstructions: Instruction[];
+    relatedComponents?: string[];
+    maxFee?: string;
+  };
   tari_disconnect: undefined;
 }
 
@@ -69,7 +80,7 @@ export type PopupRequest =
   | { kind: "popup-reveal-mnemonic"; password: string }
   | { kind: "popup-get-balances" }
   | { kind: "popup-claim-testnet-xtr" }
-  | { kind: "popup-send"; toAddress: string; resourceAddress: string; amount: string }
+  | { kind: "popup-send"; recipientWalletAddress: string; resourceAddress: string; amount: string }
   | { kind: "popup-shield"; resourceAddress: string; amount: string; maxFee?: string; memo?: string }
   | { kind: "popup-unshield"; resourceAddress: string; revealedAmount: string; maxFee?: string; memo?: string }
   | {
@@ -158,10 +169,10 @@ export interface DaemonAccountOption {
 
 export type PendingApproval =
   | { kind: "connect"; id: string; origin: string }
-  | { kind: "transaction"; id: string; origin: string; instructions: Instruction[]; maxFee?: string; dryRun?: boolean };
+  | { kind: "transaction"; id: string; origin: string; instructions: Instruction[]; maxFee?: string; dryRun?: boolean; note?: string };
 
 // `Omit<PendingApproval, "id">` does not distribute over the union the way you'd want (it loses
 // the discriminant), so this is spelled out by hand for requestApproval()'s input.
 export type PendingApprovalInput =
   | { kind: "connect"; origin: string }
-  | { kind: "transaction"; origin: string; instructions: Instruction[]; maxFee?: string; dryRun?: boolean };
+  | { kind: "transaction"; origin: string; instructions: Instruction[]; maxFee?: string; dryRun?: boolean; note?: string };

@@ -1,5 +1,6 @@
 import { blake2b } from "@noble/hashes/blake2.js";
 import { concatBytes, utf8ToBytes } from "@noble/hashes/utils.js";
+import { parseOotleAddress } from "@tari-project/ootle-wasm";
 
 /**
  * Derives an Ootle on-chain component address from a template address and an owner public key,
@@ -36,6 +37,18 @@ export const ACCOUNT_TEMPLATE_ADDRESS = new Uint8Array(32);
 
 export function deriveAccountComponentAddress(publicKey: Uint8Array): string {
   return deriveComponentAddress(ACCOUNT_TEMPLATE_ADDRESS, publicKey);
+}
+
+/**
+ * Derives a recipient's on-chain account component address directly from their bech32m Ootle wallet
+ * address ("otl_..."). The wallet address already encodes the owner (spending) public key that
+ * `deriveAccountComponentAddress` derives the component address from -- the two identify the same
+ * account -- so callers (e.g. the Send flow) only need to collect one address from the user instead
+ * of also asking them to separately look up and paste their own `component_...` address.
+ */
+export function componentAddressFromWalletAddress(walletAddress: string): string {
+  const { owner_key } = parseOotleAddress(walletAddress);
+  return deriveAccountComponentAddress(owner_key);
 }
 
 function u32le(n: number): Uint8Array {

@@ -1,15 +1,21 @@
 :root {
   color-scheme: dark;
-  --bg: #0d0e12;
-  --card: #131417;
-  --box: #1b1d22;
-  --border: #26282f;
-  --text: #f2f2f5;
-  --muted: #8f92a1;
-  --muted-dim: #5d6072;
-  --accent-grad: linear-gradient(92deg, #fc72ff 0%, #a259ff 100%);
-  --good: #4ade80;
-  --bad: #fd766a;
+  --bg: #0a0b0e;
+  --card: #111319;
+  --box: #161920;
+  --border: #262a33;
+  --border-hover: #3a3f4c;
+  --text: #eef0f4;
+  --muted: #8891a1;
+  --muted-dim: #565c6b;
+  --accent: #4d63f2;
+  --accent-2: #3a2fb0;
+  --accent-grad: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  --on-accent: #ffffff;
+  --accent-shadow: rgba(77, 99, 242, 0.45);
+  --highlight: #ffdd6c;
+  --good: #34c98f;
+  --bad: #ec5f56;
 }
 * {
   box-sizing: border-box;
@@ -50,6 +56,8 @@ body {
 }
 h1 {
   font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 h1 span {
@@ -71,8 +79,8 @@ p.muted,
 .welcome-hero img {
   display: block;
   margin: 0 auto 14px;
-  border-radius: 18px;
-  box-shadow: 0 6px 24px -6px rgba(162, 89, 255, 0.55);
+  border-radius: 14px;
+  box-shadow: 0 6px 24px -6px var(--accent-shadow);
 }
 .welcome-hero h1 {
   font-size: 20px;
@@ -95,7 +103,7 @@ textarea {
   background: var(--box);
   border: 1px solid var(--border);
   color: var(--text);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 10px 12px;
   font-size: 13px;
   font-family: inherit;
@@ -107,7 +115,7 @@ textarea {
 }
 button {
   border: none;
-  border-radius: 12px;
+  border-radius: 9px;
   padding: 11px 14px;
   font-size: 14px;
   font-weight: 600;
@@ -122,10 +130,10 @@ button {
 }
 button.primary {
   background: var(--accent-grad);
-  color: #16041a;
+  color: var(--on-accent);
 }
 button.primary:hover:not(:disabled) {
-  box-shadow: 0 0 0 3px rgba(162, 89, 255, 0.18);
+  box-shadow: 0 0 0 3px rgba(77, 124, 242, 0.2);
 }
 button.secondary {
   background: var(--box);
@@ -133,18 +141,18 @@ button.secondary {
   border: 1px solid var(--border);
 }
 button.danger {
-  background: #2a1414;
+  background: #291616;
   color: var(--bad);
 }
 button:hover:not(:disabled) {
-  filter: brightness(1.12);
+  filter: brightness(1.1);
 }
 button.secondary:hover:not(:disabled) {
-  border-color: #3a3d47;
+  border-color: var(--border-hover);
 }
 button:active:not(:disabled) {
-  transform: scale(0.97);
-  filter: brightness(0.96);
+  transform: scale(0.985);
+  filter: brightness(0.97);
 }
 button:disabled {
   opacity: 0.5;
@@ -152,7 +160,7 @@ button:disabled {
   transform: none;
 }
 button:focus-visible {
-  outline: 2px solid #a259ff;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 button + button {
@@ -168,7 +176,7 @@ button + button {
 .card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 10px;
   padding: 14px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
@@ -230,21 +238,39 @@ button + button {
 .balance-row > button {
   flex-shrink: 0;
 }
-.balances-card {
+.balances-card,
+.history-list,
+.account-switch-list {
   max-height: 220px;
   overflow-y: auto;
   scroll-behavior: smooth;
 }
+/* The account rows themselves are direct button siblings (see renderAccountSwitcher) -- this
+ * list used to just be more #app children, inheriting #app's own flex gap; wrapping it in a
+ * scrollable container (so a long account list scrolls in place instead of the whole popup
+ * scrolling under the title/action buttons) means it needs to reproduce that layout itself. */
+.account-switch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+}
 .balances-card::-webkit-scrollbar,
-.instruction-list::-webkit-scrollbar {
+.instruction-list::-webkit-scrollbar,
+.history-list::-webkit-scrollbar,
+.account-switch-list::-webkit-scrollbar {
   width: 6px;
 }
 .balances-card::-webkit-scrollbar-track,
-.instruction-list::-webkit-scrollbar-track {
+.instruction-list::-webkit-scrollbar-track,
+.history-list::-webkit-scrollbar-track,
+.account-switch-list::-webkit-scrollbar-track {
   background: transparent;
 }
 .balances-card::-webkit-scrollbar-thumb,
-.instruction-list::-webkit-scrollbar-thumb {
+.instruction-list::-webkit-scrollbar-thumb,
+.history-list::-webkit-scrollbar-thumb,
+.account-switch-list::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 3px;
 }
@@ -254,11 +280,11 @@ button + button {
   border-radius: 10px;
 }
 .status.err {
-  background: #2a1414;
+  background: #291616;
   color: var(--bad);
 }
 .status.ok {
-  background: #0f2417;
+  background: #0f231c;
   color: var(--good);
 }
 .mnemonic-grid {
@@ -267,7 +293,7 @@ button + button {
   gap: 6px;
   background: var(--box);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 10px;
 }
 .mnemonic-word {
@@ -292,7 +318,7 @@ button + button {
   gap: 10px;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 9px;
   padding: 10px 12px;
 }
 .instruction-index {
@@ -357,7 +383,7 @@ button + button {
   font-size: 11px;
   background: var(--box);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 10px;
   max-height: 180px;
   overflow-y: auto;
@@ -385,10 +411,10 @@ button + button {
     transform 0.1s ease;
 }
 .account-pill:hover {
-  border-color: #3a3d47;
+  border-color: var(--border-hover);
 }
 .account-pill:active {
-  transform: scale(0.96);
+  transform: scale(0.97);
 }
 .hero {
   display: flex;
@@ -396,6 +422,31 @@ button + button {
   align-items: center;
   gap: 10px;
   padding: 6px 0 2px;
+}
+/* The home screen's account block: a left-aligned statement card (identity row on top, balance
+   below) instead of .hero's centered splash treatment -- reads as a summary you scan, not a hero
+   image you admire. */
+.account-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.summary-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.summary-balance {
+  display: flex;
+  flex-direction: column;
+}
+.summary-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
 }
 .avatar {
   width: 44px;
@@ -407,7 +458,7 @@ button + button {
   justify-content: center;
   font-weight: 700;
   font-size: 16px;
-  color: #16041a;
+  color: var(--on-accent);
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -434,10 +485,10 @@ button + button {
     transform 0.1s ease;
 }
 .addr-pill:hover {
-  border-color: #3a3d47;
+  border-color: var(--border-hover);
 }
 .addr-pill:active {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 .addr-pill .icon {
   width: 22px;
@@ -451,8 +502,11 @@ button + button {
   font-size: 11px;
   color: var(--muted);
 }
+/* 2x2 grid, not a 4-across row -- at 320px the popup doesn't have room for four inline
+   icon+label buttons without cramping/wrapping the longer labels ("Claim XTR"). */
 .action-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 .tab-row {
@@ -460,7 +514,7 @@ button + button {
   gap: 4px;
   background: var(--box);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 9px;
   padding: 4px;
 }
 .tab-btn {
@@ -469,13 +523,13 @@ button + button {
   margin-top: 0;
   padding: 8px 10px;
   font-size: 13px;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: var(--muted);
 }
 .tab-btn.active {
   background: var(--accent-grad);
-  color: #16041a;
+  color: var(--on-accent);
 }
 /* Without this, the generic `button + button { margin-top: 8px }` rule (meant for vertically-
    stacked full-width buttons elsewhere) still matches these adjacent-sibling buttons, and that
@@ -484,45 +538,44 @@ button + button {
 .action-row > button {
   margin-top: 0;
 }
+/* A compact toolbar, not a row of app-icon tiles: icon and label sit inline at a fixed height, the
+   same register as .settings-row and other list controls elsewhere in the app. */
 .action-btn {
   flex: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px 4px 10px;
+  border-radius: 8px;
+  padding: 10px 6px;
   cursor: pointer;
   color: var(--text);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   width: auto;
   transition:
     border-color 0.15s ease,
-    transform 0.1s ease,
-    filter 0.15s ease;
+    background 0.15s ease,
+    transform 0.1s ease;
 }
 .action-btn:hover {
-  border-color: #3a3d47;
-  filter: brightness(1.08);
+  border-color: var(--border-hover);
+  background: var(--box);
+  filter: none;
 }
 .action-btn:active {
-  transform: scale(0.95);
+  transform: scale(0.98);
 }
 .action-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: var(--accent-grad);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #16041a;
-  font-size: 15px;
-  font-weight: 800;
+  color: var(--accent);
   line-height: 1;
+  flex-shrink: 0;
 }
 .token-avatar {
   width: 28px;
@@ -585,7 +638,7 @@ select {
   background: var(--box);
   border: 1px solid var(--border);
   color: var(--text);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 10px 12px;
   font-size: 13px;
   font-family: inherit;
@@ -597,7 +650,7 @@ input[type="text"]:focus,
 textarea:focus,
 select:focus {
   outline: none;
-  border-color: #a259ff;
+  border-color: var(--accent);
 }
 input[type="password"],
 input[type="text"],
@@ -623,22 +676,22 @@ select {
   font-size: 11px;
   font-weight: 700;
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: 7px;
   cursor: pointer;
 }
 .max-btn:hover:not(:disabled) {
-  border-color: #3a3d47;
+  border-color: var(--border-hover);
   filter: none;
 }
 .max-btn:active:not(:disabled) {
-  transform: translateY(-50%) scale(0.93);
+  transform: translateY(-50%) scale(0.95);
   filter: none;
 }
 .icon-btn {
   width: auto;
   background: var(--box);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 10px;
   display: flex;
   align-items: center;
@@ -648,7 +701,7 @@ select {
   flex-shrink: 0;
 }
 .icon-btn:hover {
-  border-color: #3a3d47;
+  border-color: var(--border-hover);
 }
 .icon-btn svg {
   width: 14px;
@@ -663,7 +716,7 @@ select {
   flex: 1;
   background: var(--box);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 10px 12px;
 }
 .loading {
@@ -679,7 +732,7 @@ select {
   height: 28px;
   border-radius: 50%;
   border: 3px solid var(--border);
-  border-top-color: #c063ff;
+  border-top-color: var(--accent);
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin {
@@ -732,6 +785,13 @@ select {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--muted);
+}
+/* A private (shielded) balance is a headline Tari feature, not an incidental detail -- worth its
+   own accent rather than folding into the same muted gray as ordinary secondary text. */
+.private-balance {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--highlight);
 }
 .skeleton {
   position: relative;

@@ -32,6 +32,7 @@ import type {
   WalletStatus,
 } from "../lib/messages";
 import { isStealthTransferInstruction } from "@tari-project/ootle";
+import { componentAddressFromWalletAddress } from "../lib/componentAddress";
 import { DaemonAccount } from "../lib/daemonAccount";
 import { OotleAccount, recoverPendingShields } from "../lib/wallet";
 import { clearAccountCache, getAccountById, getActiveAccount, getDaemonClient } from "./accounts";
@@ -176,6 +177,54 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       if (p.dryRun) return doExecute();
       const summary = p.instructions.map((i) => summarizeInstruction(i).title).join(", ");
       return withHistory({ accountId: site.accountId, kind: "dapp-transaction", counterparty: `${origin}: ${summary}` }, doExecute);
+    }
+
+    // The only way for a connected dApp to move Stealth-typed funds (e.g. XTR) into its own
+    // contract call — `tari_signAndSubmitTransaction`'s `account.execute()` cannot: a plain
+    // `CallMethod withdraw` on a Stealth vault is not a standalone-valid instruction (confirmed:
+    // fails client-side with a generic `TransactionInput` deserialization error, even alone with
+    // no other instructions). See `OotleAccount.withdrawStealthAndExecute`'s own doc comment for
+    // the full story.
+    case "tari_withdrawStealthAndExecute": {
+      const site = await getConnectedSite(origin);
+      if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      const p = params as {
+        resourceAddress: string;
+        amount: string;
+        workspaceVarName: string;
+        followUpInstructions: import("@tari-project/ootle-ts-bindings").Instruction[];
+        relatedComponents?: string[];
+        maxFee?: string;
+      };
+      const amount = BigInt(p.amount);
+      const note = `Reveals ${amount.toString()} of ${p.resourceAddress} for use in this transaction.`;
+      const approval: PendingApprovalInput = { kind: "transaction", origin, instructions: p.followUpInstructions, maxFee: p.maxFee, note };
+      const approved = await requestApproval(approval);
+      if (!approved) throw new Error("Transaction rejected.");
+      if (!(await isUnlocked())) throw new Error("Wallet is locked.");
+      const account = await getAccountById(site.accountId);
+      if (!account) throw new Error("Could not resolve account.");
+      // Needs this account's own view secret + one-time stealth signing (SecretKeyWallet), same
+      // as shield()/unshield() — a daemon-relayed account can't provide either (see
+      // WalletDaemonSigner's own doc comment). Not on WalletAccountApi at all, matching how
+      // shield/unshield are handled in the popup-shield/popup-unshield cases above.
+      if (!(account instanceof OotleAccount)) {
+        throw new Error("Withdrawing stealth funds isn't available for daemon-connected accounts -- switch to a local account first.");
+      }
+      const maxFee = p.maxFee ? BigInt(p.maxFee) : undefined;
+      const summary = p.followUpInstructions.map((i) => summarizeInstruction(i).title).join(", ");
+      return withHistory(
+        { accountId: site.accountId, kind: "dapp-transaction", counterparty: `${origin}: reveal + ${summary}` },
+        () =>
+          account.withdrawStealthAndExecute(
+            p.resourceAddress,
+            amount,
+            p.workspaceVarName,
+            p.followUpInstructions,
+            p.relatedComponents ?? [],
+            maxFee
+          )
+      );
     }
 
     default:
@@ -406,15 +455,19 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       const account = await getActiveAccount();
       if (!account) throw new Error("Wallet is locked.");
       const { activeAccountId } = await getState();
+      // The recipient only ever hands out their one main "otl_..." wallet address -- their
+      // on-chain account component address is deterministically derivable from it (both identify
+      // the same account), so there's no need to separately ask them for a component_... address.
+      const toAddress = componentAddressFromWalletAddress(message.recipientWalletAddress);
       return withHistory(
         {
           accountId: activeAccountId,
           kind: "send",
           resourceAddress: message.resourceAddress,
           amount: message.amount,
-          counterparty: message.toAddress,
+          counterparty: message.recipientWalletAddress,
         },
-        () => account.send(message.toAddress, message.resourceAddress, BigInt(message.amount))
+        () => account.send(toAddress, message.resourceAddress, BigInt(message.amount))
       );
     }
 
