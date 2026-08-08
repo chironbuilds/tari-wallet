@@ -64,6 +64,17 @@ of WalletConnect) and their trade-offs.
 
 ## Recent additions (typecheck/test/build verified; not yet exercised live)
 
+- **Structural UI/UX pass** (continuing the audit above): Create Wallet now gates past the
+  seed-phrase screen with a spot-check (re-enter 3 randomly-picked words) before finishing —
+  previously trusted an unverified "I've saved it" click on the single highest-consequence screen
+  in the app, matching how MetaMask/Phantom/Rainbow all gate theirs. Approval screens (connect and
+  transaction) now show an account chip (avatar/label/short address) for whichever account will
+  actually sign — for a transaction that's the site's originally-connected account
+  (`approval.accountId`), not necessarily today's active one, so a multi-account user can confirm
+  which identity/funds a request exposes before approving. Address-book "Remove", daemon
+  "Disconnect", and connected-site "Disconnect" — previously instant on click — now go through an
+  inline confirm/cancel step. The account switcher's rows are a flat list (`.settings-row`) instead
+  of the active account rendering as a full-width filled CTA button in a stack of "buttons".
 - **UI/UX pass** (from a full-popup audit — see `main.ts`/`styles.css`): submit buttons now show
   their own busy state (label swaps to "Sending…"/"Shielding…"/etc. instead of just graying out);
   live green/red address validation as you type on Send/Send-privately/Address book, since a wrong

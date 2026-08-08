@@ -162,7 +162,14 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       // that reprices on every keystroke would otherwise pop an approval window per keystroke.
       // Only a real submission spends anything, so only that needs the user's sign-off.
       if (!p.dryRun) {
-        const approval: PendingApprovalInput = { kind: "transaction", origin, instructions: p.instructions, maxFee: p.maxFee, dryRun: p.dryRun };
+        const approval: PendingApprovalInput = {
+          kind: "transaction",
+          origin,
+          instructions: p.instructions,
+          maxFee: p.maxFee,
+          dryRun: p.dryRun,
+          accountId: site.accountId,
+        };
         const approved = await requestApproval(approval);
         if (!approved) throw new Error("Transaction rejected.");
       }
@@ -198,7 +205,14 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       };
       const amount = BigInt(p.amount);
       const note = `Reveals ${amount.toString()} of ${p.resourceAddress} for use in this transaction.`;
-      const approval: PendingApprovalInput = { kind: "transaction", origin, instructions: p.followUpInstructions, maxFee: p.maxFee, note };
+      const approval: PendingApprovalInput = {
+        kind: "transaction",
+        origin,
+        instructions: p.followUpInstructions,
+        maxFee: p.maxFee,
+        note,
+        accountId: site.accountId,
+      };
       const approved = await requestApproval(approval);
       if (!approved) throw new Error("Transaction rejected.");
       if (!(await isUnlocked())) throw new Error("Wallet is locked.");

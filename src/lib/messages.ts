@@ -173,10 +173,33 @@ export interface DaemonAccountOption {
 
 export type PendingApproval =
   | { kind: "connect"; id: string; origin: string }
-  | { kind: "transaction"; id: string; origin: string; instructions: Instruction[]; maxFee?: string; dryRun?: boolean; note?: string };
+  | {
+      kind: "transaction";
+      id: string;
+      origin: string;
+      instructions: Instruction[];
+      maxFee?: string;
+      dryRun?: boolean;
+      note?: string;
+      /** The account that will actually sign -- the site's connected account (bound at connect
+       * time), which is NOT necessarily whichever account happens to be active right now. Shown
+       * on the approval screen so a user with multiple accounts can confirm which identity/funds
+       * a request is exposing before approving it. Absent only for approvals created before this
+       * field existed (a pending approval from before an extension update — display falls back to
+       * "an account" rather than guessing). */
+      accountId?: string;
+    };
 
 // `Omit<PendingApproval, "id">` does not distribute over the union the way you'd want (it loses
 // the discriminant), so this is spelled out by hand for requestApproval()'s input.
 export type PendingApprovalInput =
   | { kind: "connect"; origin: string }
-  | { kind: "transaction"; origin: string; instructions: Instruction[]; maxFee?: string; dryRun?: boolean; note?: string };
+  | {
+      kind: "transaction";
+      origin: string;
+      instructions: Instruction[];
+      maxFee?: string;
+      dryRun?: boolean;
+      note?: string;
+      accountId?: string;
+    };

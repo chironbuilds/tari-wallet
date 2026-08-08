@@ -196,6 +196,22 @@ button + button {
   padding: 14px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
+.inline-confirm {
+  background: var(--box);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.approval-account-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--box);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin: 4px 0 12px;
+}
 .detail-value {
   margin: 4px 0 14px;
   font-size: 15px;
@@ -265,16 +281,6 @@ button + button {
   max-height: 220px;
   overflow-y: auto;
   scroll-behavior: smooth;
-}
-/* The account rows themselves are direct button siblings (see renderAccountSwitcher) -- this
- * list used to just be more #app children, inheriting #app's own flex gap; wrapping it in a
- * scrollable container (so a long account list scrolls in place instead of the whole popup
- * scrolling under the title/action buttons) means it needs to reproduce that layout itself. */
-.account-switch-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-right: 4px;
 }
 .balances-card::-webkit-scrollbar,
 .instruction-list::-webkit-scrollbar,
@@ -871,6 +877,12 @@ input[type="checkbox"] {
 .settings-card {
   padding: 0;
   overflow: hidden;
+}
+/* Higher specificity than the bare .settings-card rule above (not source order) so this actually
+ * wins: a long account list needs to scroll within max-height, not get clipped by .settings-card's
+ * own overflow:hidden (which is there for the rounded-corner row clipping, not to hide overflow). */
+.settings-card.account-switch-list {
+  overflow-y: auto;
 }
 .settings-row {
   width: 100%;

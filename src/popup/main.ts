@@ -172,6 +172,26 @@ function setBusy(btn: HTMLButtonElement, busy: boolean, busyLabel = "Working…"
   }
 }
 
+/**
+ * Replaces `button` with an inline "are you sure?" prompt on its first click, only calling
+ * `action` if the user then confirms -- Cancel restores `button` exactly as it was. For actions
+ * that previously fired on a single click (remove address-book entry, disconnect daemon/site):
+ * easy to redo, but a stray click shouldn't be able to do them with zero friction either.
+ */
+function confirmThenRun(button: HTMLButtonElement, message: string, confirmLabel: string, action: () => void | Promise<void>) {
+  button.addEventListener("click", () => {
+    const yes = h("button", { class: "primary btn-compact" }, [confirmLabel]);
+    const no = h("button", { class: "secondary btn-compact" }, ["Cancel"]);
+    const prompt = h("div", { class: "inline-confirm" }, [
+      h("div", { class: "muted", style: "margin-bottom:6px" }, [message]),
+      h("div", { class: "row", style: "gap:8px" }, [yes, no]),
+    ]);
+    yes.addEventListener("click", () => void action());
+    no.addEventListener("click", () => prompt.replaceWith(button));
+    button.replaceWith(prompt);
+  });
+}
+
 /** Toggles a green/red border on `input` as the user types, once there's something to judge — a
  * wrong recipient address here is unrecoverable-funds territory, so catching it before submit
  * (rather than only on click) is worth the couple of lines. Empty stays neutral (no judgment on a
@@ -346,7 +366,47 @@ function renderBackupMnemonic(mnemonic: string) {
     grid,
     confirm
   );
+  document.getElementById("confirm")!.addEventListener("click", () => renderVerifyMnemonic(mnemonic));
+}
+
+/**
+ * A spot-check before finishing wallet creation: this is the single highest-consequence screen in
+ * the whole app (lose this phrase, lose the funds, permanently), and the previous flow trusted the
+ * user's unverified claim that they'd saved it. Every major wallet (MetaMask, Phantom, Rainbow)
+ * gates past their equivalent screen the same way. Import needs no equivalent check -- typing the
+ * full 24 words back in from the user's own records already proves they have it saved elsewhere.
+ */
+function renderVerifyMnemonic(mnemonic: string) {
+  const words = mnemonic.split(" ");
+  const indices = new Set<number>();
+  while (indices.size < 3) indices.add(Math.floor(Math.random() * words.length));
+  // Sorted so the fields read in phrase order -- easier to answer in one pass than a shuffled order.
+  const fields = [...indices].sort((a, b) => a - b).map((i) => ({
+    index: i,
+    input: h("input", { type: "text", autocomplete: "off", spellcheck: "false" }) as HTMLInputElement,
+  }));
+
+  const statusEl = h("div", { class: "status err", id: "status", style: "display:none" });
+  const back = h("button", { class: "secondary", id: "back" }, ["← Back to recovery phrase"]);
+  const confirm = h("button", { class: "primary", id: "confirm" }, ["Confirm"]);
+
+  render(
+    h("h1", {}, ["Verify your recovery phrase"]),
+    h("p", { class: "muted" }, ["Enter the requested words below to confirm you've saved them correctly."]),
+    ...fields.flatMap(({ index, input }) => [h("label", {}, [`Word #${index + 1}`]), input]),
+    statusEl,
+    confirm,
+    back
+  );
+
+  document.getElementById("back")!.addEventListener("click", () => renderBackupMnemonic(mnemonic));
   document.getElementById("confirm")!.addEventListener("click", async () => {
+    const allCorrect = fields.every(({ index, input }) => input.value.trim().toLowerCase() === words[index]!.toLowerCase());
+    if (!allCorrect) {
+      statusEl.textContent = "One or more words don't match — double check what you wrote down, or go back to view the phrase again.";
+      statusEl.style.display = "block";
+      return;
+    }
     renderLoading("Deriving your account…");
     try {
       const status = await send<WalletStatus>({ kind: "popup-get-status" });
@@ -525,7 +585,7 @@ async function renderHome(status: WalletStatus) {
   ]);
   const actionRow = h("div", { class: "action-row" }, [sendActionBtn, receiveActionBtn, claimActionBtn, historyActionBtn]);
 
-  const claimStatusEl = h("div", { class: "status", id: "claimStatus", style: "display:none" });
+  const homeStatusEl = h("div", { class: "status", id: "homeStatus", style: "display:none" });
 
   // Rescanning needs this account's own view key (see OotleAccount.scanForPrivatePayments()) --
   // unavailable for a daemon-relayed account, same gating Shield/Unshield/Send-privately use.
@@ -541,7 +601,7 @@ async function renderHome(status: WalletStatus) {
     nav,
     hero,
     actionRow,
-    claimStatusEl,
+    homeStatusEl,
     balancesTitleRow,
     ...(rescanControl ? [rescanControl.statusEl] : []),
     balancesCard
@@ -567,34 +627,34 @@ async function renderHome(status: WalletStatus) {
       const balances = await send<Balance[]>({ kind: "popup-get-balances" });
       renderSend(status, balances);
     } catch (e) {
-      claimStatusEl.style.display = "block";
-      claimStatusEl.className = "status err";
-      claimStatusEl.textContent = e instanceof Error ? e.message : String(e);
+      homeStatusEl.style.display = "block";
+      homeStatusEl.className = "status err";
+      homeStatusEl.textContent = e instanceof Error ? e.message : String(e);
     }
   });
   receiveActionBtn.addEventListener("click", () => renderReceive(status));
   historyActionBtn.addEventListener("click", () => renderHistory(status));
   claimActionBtn.addEventListener("click", async () => {
     claimActionBtn.setAttribute("disabled", "true");
-    claimStatusEl.style.display = "block";
-    claimStatusEl.className = "status";
-    claimStatusEl.textContent = "Claiming from the testnet faucet — this submits a real transaction, usually takes a few seconds…";
+    homeStatusEl.style.display = "block";
+    homeStatusEl.className = "status";
+    homeStatusEl.textContent = "Claiming from the testnet faucet — this submits a real transaction, usually takes a few seconds…";
     try {
       await send({ kind: "popup-claim-testnet-xtr" });
-      claimStatusEl.className = "status ok";
-      claimStatusEl.textContent = "Claimed! Refreshing balances…";
+      homeStatusEl.className = "status ok";
+      homeStatusEl.textContent = "Claimed! Refreshing balances…";
       const balances = await send<Balance[]>({ kind: "popup-get-balances" });
       renderBalances(balancesCard, balances, status);
       updateHeroBalance(balances);
-      claimStatusEl.textContent = "Claimed testnet XTR.";
+      homeStatusEl.textContent = "Claimed testnet XTR.";
       // Success is transient (matches Send/Shield/Unshield fading back to Home) -- an error stays
       // put below since the user may still need to act on it.
       setTimeout(() => {
-        if (claimStatusEl.className === "status ok") claimStatusEl.style.display = "none";
+        if (homeStatusEl.className === "status ok") homeStatusEl.style.display = "none";
       }, 4000);
     } catch (e) {
-      claimStatusEl.className = "status err";
-      claimStatusEl.textContent = e instanceof Error ? e.message : String(e);
+      homeStatusEl.className = "status err";
+      homeStatusEl.textContent = e instanceof Error ? e.message : String(e);
     } finally {
       claimActionBtn.removeAttribute("disabled");
     }
@@ -1584,14 +1644,19 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
 function renderAccountSwitcher(status: WalletStatus) {
   const rows = status.accounts.map((account) => {
     const isActive = account.id === status.activeAccountId;
-    const row = h(
-      "button",
-      { class: isActive ? "primary" : "secondary", style: "text-align:left;display:flex;align-items:center;gap:8px" },
-      [
-        accountAvatar(account.address, 22),
-        h("span", {}, [account.label, account.kind === "daemon" ? " · daemon" : "", isActive ? " (current)" : ""]),
-      ]
-    );
+    // .settings-row (a flat list item with hover/active states), not .primary/.secondary -- the
+    // previous version rendered every account as a stacked full-width CTA button, with the active
+    // one filled solid, reading as "4 buttons" rather than "a list, one item selected."
+    const row = h("button", { class: "settings-row", "aria-current": String(isActive) }, [
+      h("div", { class: "row", style: "gap:10px;align-items:center" }, [
+        accountAvatar(account.address, 28),
+        h("div", {}, [
+          h("div", { style: "font-weight:600;font-size:13.5px" }, [account.label]),
+          account.kind === "daemon" ? h("div", { class: "muted", style: "font-size:11px" }, ["daemon"]) : "",
+        ]),
+      ]),
+      isActive ? h("span", { class: "settings-row-right" }, ["Current"]) : "",
+    ]);
     row.addEventListener("click", async () => {
       if (isActive) return;
       await send({ kind: "popup-set-active-account", accountId: account.id });
@@ -1607,7 +1672,9 @@ function renderAccountSwitcher(status: WalletStatus) {
   });
   const connectDaemonBtn = h("button", { class: "secondary", id: "connectDaemon" }, ["+ Connect daemon wallet"]);
   const back = h("button", { class: "secondary", id: "back" }, ["Back"]);
-  const list = h("div", { class: "account-switch-list" }, rows);
+  // .account-switch-list bounds a long account list to a scrollable max-height (same convention
+  // as .balances-card/.history-list) instead of growing the popup unboundedly.
+  const list = h("div", { class: "card settings-card account-switch-list" }, rows);
   render(h("h1", {}, ["Switch account"]), list, connectDaemonBtn, back);
   connectDaemonBtn.addEventListener("click", () => renderConnectDaemon(status));
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
@@ -1626,8 +1693,8 @@ function renderDaemonConnections(status: WalletStatus) {
               h("div", { class: "list-row-title" }, [c.label]),
               h("div", { class: "list-row-subtitle", title: c.url }, [c.url]),
             ]);
-            const removeBtn = h("button", { class: "secondary btn-compact" }, ["Disconnect"]);
-            removeBtn.addEventListener("click", async () => {
+            const removeBtn = h("button", { class: "secondary btn-compact" }, ["Disconnect"]) as HTMLButtonElement;
+            confirmThenRun(removeBtn, `Disconnect "${c.label}"? Its accounts will no longer be reachable from this wallet.`, "Disconnect", async () => {
               await send({ kind: "popup-remove-daemon-connection", connectionId: c.id });
               renderLoading("Removing…");
               const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
@@ -1665,8 +1732,8 @@ function renderAddressBook(status: WalletStatus) {
               h("div", { class: "list-row-title" }, [entry.label]),
               h("div", { class: "list-row-subtitle", title: entry.address }, [entry.address]),
             ]);
-            const removeBtn = h("button", { class: "secondary btn-compact" }, ["Remove"]);
-            removeBtn.addEventListener("click", async () => {
+            const removeBtn = h("button", { class: "secondary btn-compact" }, ["Remove"]) as HTMLButtonElement;
+            confirmThenRun(removeBtn, `Remove "${entry.label}" from your address book?`, "Remove", async () => {
               await send({ kind: "popup-remove-address-book-entry", id: entry.id });
               renderAddressBook(await send<WalletStatus>({ kind: "popup-get-status" }));
             });
@@ -1974,8 +2041,8 @@ async function renderConnectedSites() {
             // book/daemon connections rows -- an unusually long origin shouldn't be able to
             // blow out the row width and squeeze the Disconnect button off-screen.
             const info = h("div", { class: "list-row-info" }, [h("div", { class: "list-row-title", title: s.origin }, [s.origin])]);
-            const removeBtn = h("button", { class: "secondary btn-compact" }, ["Disconnect"]);
-            removeBtn.addEventListener("click", async () => {
+            const removeBtn = h("button", { class: "secondary btn-compact" }, ["Disconnect"]) as HTMLButtonElement;
+            confirmThenRun(removeBtn, `Disconnect ${s.origin}? It will need to request access again to reconnect.`, "Disconnect", async () => {
               await send({ kind: "popup-disconnect-site", origin: s.origin });
               await renderConnectedSites();
             });
@@ -2001,13 +2068,34 @@ async function renderApprovalFlow(approvalId: string) {
     return;
   }
   if (!status.isUnlocked) {
-    renderUnlock(() => void renderApprovalDetails(approvalId), status.lastKnownAddress);
+    renderUnlock(
+      () =>
+        void send<WalletStatus>({ kind: "popup-get-status" }).then((freshStatus) => renderApprovalDetails(approvalId, freshStatus)),
+      status.lastKnownAddress
+    );
     return;
   }
-  await renderApprovalDetails(approvalId);
+  await renderApprovalDetails(approvalId, status);
 }
 
-async function renderApprovalDetails(approvalId: string) {
+/** The account chip shown on both approval screens: whichever account will actually sign, so a
+ * user with multiple accounts can confirm which identity/funds a request is exposing before
+ * approving. For a transaction, that's the site's connected account (`approval.accountId`, bound
+ * at connect time -- NOT necessarily whichever account happens to be active right now); for a
+ * connect request, it's whichever account is active right now (there's nothing else to bind to
+ * yet -- that's exactly what a connect request grants). */
+function approvalAccountChip(status: WalletStatus, accountId: string | undefined): HTMLElement {
+  const account = status.accounts.find((a) => a.id === (accountId ?? status.activeAccountId));
+  return h("div", { class: "approval-account-chip" }, [
+    accountAvatar(account?.address ?? null, 26),
+    h("div", {}, [
+      h("div", { style: "font-weight:600;font-size:13px" }, [account?.label ?? "An account"]),
+      account?.address ? h("div", { class: "muted", style: "font-size:11px" }, [shortAddr(account.address)]) : "",
+    ]),
+  ]);
+}
+
+async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
   const approval = await send<PendingApproval | null>({ kind: "popup-get-pending-approval", approvalId });
   if (!approval) {
     render(h("div", { class: "status err" }, ["This request has expired or was already handled."]));
@@ -2034,6 +2122,7 @@ async function renderApprovalDetails(approvalId: string) {
     render(
       h("h1", {}, ["Connection request"]),
       h("p", { class: "muted" }, [h("b", {}, [approval.origin]), " wants to connect to your wallet and view your address."]),
+      approvalAccountChip(status, undefined),
       h("button", { class: "primary", id: "approve" }, ["Connect"]),
       h("button", { class: "secondary", id: "reject" }, ["Cancel"])
     );
@@ -2062,6 +2151,7 @@ async function renderApprovalDetails(approvalId: string) {
     render(
       h("h1", {}, ["Transaction request"]),
       h("p", { class: "muted" }, [h("b", {}, [approval.origin]), " wants you to sign and submit a transaction."]),
+      approvalAccountChip(status, approval.accountId),
       approval.note ? h("p", { class: "muted", style: "color:var(--highlight)" }, [approval.note]) : "",
       approval.maxFee ? h("p", { class: "muted" }, [`Max fee: ${approval.maxFee}`]) : "",
       approval.dryRun ? h("p", { class: "muted" }, ["This is a dry run — nothing will be spent."]) : "",
