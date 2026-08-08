@@ -159,6 +159,17 @@ button.secondary {
 button.danger {
   background: #291616;
   color: var(--bad);
+  /* A deliberately slower, heavier press than routine buttons (which snap back at the base 0.1s)
+     -- motion weight matching the fact that these actions (Lock, Erase wallet) aren't undoable
+     the way most clicks in this app are. */
+  transition:
+    transform 0.22s ease,
+    filter 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+button.danger:active:not(:disabled) {
+  transform: scale(0.97);
 }
 button:hover:not(:disabled) {
   filter: brightness(1.1);
@@ -195,6 +206,32 @@ button + button {
   border-radius: 10px;
   padding: 14px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.private-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.private-label .icon-svg svg {
+  width: 12px;
+  height: 12px;
+  color: var(--highlight);
+}
+.history-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--box);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.history-icon .icon-svg svg {
+  width: 14px;
+  height: 14px;
 }
 .inline-confirm {
   background: var(--box);
@@ -313,6 +350,19 @@ button + button {
 .status.ok {
   background: #0f231c;
   color: var(--good);
+  /* A real "it worked" moment deserves more than a flat color swap -- matches the small motion
+     treatment copy-flash already gives copy-to-clipboard feedback, just for a bigger success. */
+  animation: status-ok-in 0.3s ease;
+}
+@keyframes status-ok-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 .mnemonic-grid {
   display: grid;
@@ -870,9 +920,24 @@ input[type="checkbox"] {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 8px;
   padding: 22px 10px;
   text-align: center;
+}
+.empty-state-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--box);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-dim);
+}
+.empty-state-icon .icon-svg svg {
+  width: 18px;
+  height: 18px;
 }
 .settings-card {
   padding: 0;
@@ -920,6 +985,17 @@ input[type="checkbox"] {
   gap: 8px;
   color: var(--muted);
   font-weight: 400;
+}
+.settings-row-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.settings-row-left .icon-svg svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+  flex-shrink: 0;
 }
 .settings-row-static {
   cursor: default;

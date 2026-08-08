@@ -73,6 +73,20 @@ const ICON_SETTINGS =
 const ICON_CLOCK = '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>';
 const ICON_REFRESH =
   '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>';
+const ICON_LOCK = '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>';
+const ICON_UNLOCK = '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>';
+const ICON_EXTERNAL_LINK =
+  '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>';
+const ICON_USER_PLUS =
+  '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="17" y1="11" x2="23" y2="11"/>';
+const ICON_SERVER = '<rect x="2" y="3" width="20" height="8" rx="2" ry="2"/><rect x="2" y="13" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/>';
+const ICON_GLOBE =
+  '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>';
+const ICON_BOOK =
+  '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>';
+const ICON_KEY =
+  '<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>';
+const ICON_INBOX = '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>';
 
 function icon(paths: string): HTMLSpanElement {
   const span = document.createElement("span");
@@ -98,6 +112,15 @@ function accountAvatar(address: string | null, size = 44): HTMLDivElement {
   return div;
 }
 
+/** A "nothing here yet" placeholder with a supporting icon, not just flat centered text -- used
+ * everywhere a list can legitimately be empty (history, balances, address book, ...). */
+function emptyState(message: string, iconPaths: string): HTMLElement {
+  return h("div", { class: "empty-state" }, [
+    h("div", { class: "empty-state-icon", "aria-hidden": "true" }, [icon(iconPaths)]),
+    h("div", { class: "muted" }, [message]),
+  ]);
+}
+
 function skeletonBalanceRow(): HTMLElement {
   return h("div", { class: "balance-row" }, [
     h("div", { class: "balance-left" }, [
@@ -105,6 +128,19 @@ function skeletonBalanceRow(): HTMLElement {
       h("span", { class: "skeleton", style: "display:inline-block;width:64px;height:13px" }, [""]),
     ]),
     h("span", { class: "skeleton", style: "display:inline-block;width:46px;height:13px" }, [""]),
+  ]);
+}
+
+/** A title+subtitle shimmer row, matching skeletonBalanceRow's convention -- for any list-row-info
+ * screen fetching data after its first paint (history, connected sites), instead of a plain
+ * "Loading…" line that gives no sense of the eventual layout. */
+function skeletonListRow(): HTMLElement {
+  return h("div", { class: "balance-row" }, [
+    h("span", { class: "skeleton", style: "width:28px;height:28px;border-radius:50%;flex-shrink:0" }, [""]),
+    h("div", { class: "list-row-info", style: "display:flex;flex-direction:column;gap:5px" }, [
+      h("span", { class: "skeleton", style: "display:inline-block;width:90px;height:13px" }, [""]),
+      h("span", { class: "skeleton", style: "display:inline-block;width:140px;height:11px" }, [""]),
+    ]),
   ]);
 }
 
@@ -677,9 +713,9 @@ async function renderHome(status: WalletStatus) {
   }
 }
 
-function settingsRow(id: string, label: string, trailing?: string): HTMLButtonElement {
+function settingsRow(id: string, label: string, leadingIcon: string, trailing?: string): HTMLButtonElement {
   return h("button", { class: "settings-row", id }, [
-    h("span", {}, [label]),
+    h("span", { class: "settings-row-left" }, [icon(leadingIcon), label]),
     h("span", { class: "settings-row-right" }, [
       trailing ? h("span", { class: "settings-row-trailing" }, [trailing]) : "",
       icon(ICON_CHEVRON_RIGHT),
@@ -689,12 +725,12 @@ function settingsRow(id: string, label: string, trailing?: string): HTMLButtonEl
 
 function renderSettings(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
-  const addAccountBtn = settingsRow("addAccount", "Add account");
-  const connectDaemonBtn = settingsRow("connectDaemon", "Connect daemon wallet");
-  const daemonsBtn = settingsRow("daemons", "Daemon connections", String(status.daemonConnections.length));
-  const sitesBtn = settingsRow("sites", "Connected sites");
-  const addressBookBtn = settingsRow("addressBook", "Address book", String(status.addressBook.length));
-  const backupBtn = settingsRow("backup", "Reveal recovery phrase");
+  const addAccountBtn = settingsRow("addAccount", "Add account", ICON_USER_PLUS);
+  const connectDaemonBtn = settingsRow("connectDaemon", "Connect daemon wallet", ICON_SERVER);
+  const daemonsBtn = settingsRow("daemons", "Daemon connections", ICON_SERVER, String(status.daemonConnections.length));
+  const sitesBtn = settingsRow("sites", "Connected sites", ICON_GLOBE);
+  const addressBookBtn = settingsRow("addressBook", "Address book", ICON_BOOK, String(status.addressBook.length));
+  const backupBtn = settingsRow("backup", "Reveal recovery phrase", ICON_KEY);
   const lockBtn = h("button", { class: "danger", id: "lock" }, ["Lock wallet"]);
 
   const autoLockSelect = h(
@@ -968,6 +1004,20 @@ const HISTORY_KIND_LABEL: Record<TransactionHistoryEntry["kind"], string> = {
   "dapp-transaction": "App transaction",
 };
 
+// Lock/unlock for shield/unshield (a state change in privacy, not a transfer direction) and for
+// send-privately/private-payment-received (reinforces which entries are private at a glance,
+// rather than relying on reading the label text) -- direction arrows stay reserved for the two
+// plain-balance kinds so "money left" vs. "money arrived" is still the first thing that reads.
+const HISTORY_KIND_ICON: Record<TransactionHistoryEntry["kind"], string> = {
+  send: ICON_ARROW_UP,
+  shield: ICON_LOCK,
+  unshield: ICON_UNLOCK,
+  "send-privately": ICON_LOCK,
+  claim: ICON_PLUS,
+  "private-payment-received": ICON_UNLOCK,
+  "dapp-transaction": ICON_EXTERNAL_LINK,
+};
+
 /**
  * Transaction history is recorded client-side, starting from when this feature shipped -- it's
  * not a retroactive reconstruction of everything this account has ever done on-chain (see
@@ -977,7 +1027,8 @@ const HISTORY_KIND_LABEL: Record<TransactionHistoryEntry["kind"], string> = {
  */
 async function renderHistory(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
-  render(h("h1", {}, ["History"]), h("div", { class: "muted" }, ["Loading…"]), back);
+  const skeleton = h("div", { class: "card history-list" }, [skeletonListRow(), skeletonListRow(), skeletonListRow()]);
+  render(h("h1", {}, ["History"]), skeleton, back);
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
 
   const [entries, balances] = await Promise.all([
@@ -988,7 +1039,7 @@ async function renderHistory(status: WalletStatus) {
 
   const list =
     entries.length === 0
-      ? h("div", { class: "empty-state" }, [h("div", { class: "muted" }, ["No transactions yet."])])
+      ? emptyState("No transactions yet.", ICON_CLOCK)
       : h(
           "div",
           { class: "card history-list" },
@@ -1009,6 +1060,7 @@ async function renderHistory(status: WalletStatus) {
                 : shortAddr(entry.counterparty)
               : null;
             return h("div", { class: `balance-row${entry.status === "failed" ? " status-failed" : ""}` }, [
+              h("div", { class: "history-icon", "aria-hidden": "true" }, [icon(HISTORY_KIND_ICON[entry.kind])]),
               h("div", { class: "list-row-info" }, [
                 h("div", {}, [HISTORY_KIND_LABEL[entry.kind], entry.status === "failed" ? " (failed)" : ""]),
                 h("div", { class: "muted" }, [amountText ? `${amountText} · ${when}` : when]),
@@ -1523,7 +1575,7 @@ function renderUnshield(status: WalletStatus, balance: Balance) {
 function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: WalletStatus) {
   if (balances.length === 0) {
     balancesCard.replaceChildren(
-      h("div", { class: "empty-state" }, [h("div", { class: "muted" }, ["No tokens yet — claim some testnet XTR above to get started."])])
+      emptyState("No tokens yet — claim some testnet XTR above to get started.", ICON_INBOX)
     );
   } else {
     balancesCard.replaceChildren(
@@ -1621,8 +1673,8 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
       h("div", { class: "detail-value" }, [formatBalanceAmountGrouped(balance.amount, balance.divisibility)]),
       ...(isConfidential
         ? [
-            h("div", { class: "muted" }, ["Private balance"]),
-            h("div", { class: "detail-value" }, [
+            h("div", { class: "muted private-label" }, [icon(ICON_LOCK), "Private balance"]),
+            h("div", { class: "detail-value", style: "color:var(--highlight)" }, [
               formatBalanceAmountGrouped(balance.confidentialAmount, balance.divisibility),
             ]),
             ...(failures > 0
@@ -1689,7 +1741,7 @@ function renderDaemonConnections(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
   const list =
     status.daemonConnections.length === 0
-      ? h("div", { class: "empty-state" }, [h("div", { class: "muted" }, ["No daemon connections yet."])])
+      ? emptyState("No daemon connections yet.", ICON_SERVER)
       : h(
           "div",
           {},
@@ -1728,7 +1780,7 @@ function renderAddressBook(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
   const list =
     status.addressBook.length === 0
-      ? h("div", { class: "empty-state" }, [h("div", { class: "muted" }, ["No saved addresses yet."])])
+      ? emptyState("No saved addresses yet.", ICON_BOOK)
       : h(
           "div",
           {},
@@ -2034,10 +2086,17 @@ function renderMnemonicDisplay(mnemonic: string) {
 }
 
 async function renderConnectedSites() {
+  const backEarly = h("button", { class: "secondary", id: "back" }, ["Back"]);
+  render(h("h1", {}, ["Connected sites"]), h("div", { class: "card" }, [skeletonListRow(), skeletonListRow()]), backEarly);
+  backEarly.addEventListener("click", async () => {
+    const status = await send<WalletStatus>({ kind: "popup-get-status" });
+    await renderHome(status);
+  });
+
   const sites = await send<{ origin: string }[]>({ kind: "popup-get-connected-sites" });
   const list =
     sites.length === 0
-      ? h("div", { class: "empty-state" }, [h("div", { class: "muted" }, ["No connected sites."])])
+      ? emptyState("No connected sites.", ICON_GLOBE)
       : h(
           "div",
           {},

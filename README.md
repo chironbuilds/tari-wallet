@@ -64,6 +64,20 @@ of WalletConnect) and their trade-offs.
 
 ## Recent additions (typecheck/test/build verified; not yet exercised live)
 
+- **Home screen** now shows the wallet (`otl_esm_...`) address instead of the component address —
+  same reasoning as the Receive screen rework, and it's what a sender needs either way now.
+- **Polish tier** (finishing the audit): per-kind icons on History rows (arrows for plain
+  send, lock/unlock for shield-family and private-payment kinds, an external-link glyph for dApp
+  transactions) and per-row icons on every Settings entry; icon + text empty states instead of flat
+  centered text everywhere a list can legitimately be empty; skeleton loading rows on History and
+  Connected sites (previously a bare "Loading…" line); a small entrance animation on success
+  banners (`.status.ok`) instead of a flat color swap; a slightly heavier press transition on
+  `.danger` buttons (Lock/Erase wallet) to differentiate their stakes from routine clicks; the
+  token-detail "Private balance" row gets the same lock-icon + highlight-color treatment the home
+  hero's private balance already had, instead of being the only place that accent showed up.
+  Deliberately **not** done as part of this pass: a fiat-value display (needs a price-data
+  dependency and source decision) and a light theme (a real design commitment, not a mechanical
+  fix) — both left for an explicit decision rather than guessed at.
 - **Structural UI/UX pass** (continuing the audit above): Create Wallet now gates past the
   seed-phrase screen with a spot-check (re-enter 3 randomly-picked words) before finishing —
   previously trusted an unverified "I've saved it" click on the single highest-consequence screen
