@@ -89,6 +89,11 @@ of WalletConnect) and their trade-offs.
   (they identify the same account), so a recipient only ever has to hand out the one address that
   also works for private sends. Not yet re-exercised live (the underlying send-to-a-component-address
   path was; only this new derivation step is unverified against a real testnet address).
+- **Password strength check** on Create/Import (`src/lib/passwordStrength.ts`): blocks an exact or
+  trivially-disguised match against a curated common-password list (leet substitutions, padding,
+  sequential/repeated/keyboard-walk patterns all normalized away first), plus a live advisory
+  strength meter. Addresses the "no strength meter or dictionary check" gap named in
+  `SECURITY_AUDIT.md` §7.
 - **Receive screen now leads with the wallet address**, not the component address, with copy
   explaining why: stealth-type payments (shield/send-privately) derive a fresh one-time on-chain key
   per payment off of it, so it's safe to publish and reuse without ever letting a chain observer link

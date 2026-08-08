@@ -4,6 +4,7 @@ import { isPlausibleMnemonic } from "../lib/cipherSeed";
 import { AUTO_LOCK_OPTIONS, formatAutoLockOption } from "../lib/autoLock";
 import { summarizeArgs, summarizeInstruction } from "../lib/instructionSummary";
 import { avatarSvg } from "../lib/avatar";
+import { estimatePasswordStrength, isBlockedPassword } from "../lib/passwordStrength";
 import { qrCodeSvg } from "../lib/qr";
 import {
   type Balance,
@@ -219,14 +220,34 @@ function renderSetPassword(mode: "create" | "import") {
 
   const pwLabel = h("label", {}, ["Password"]);
   const pw = h("input", { type: "password", id: "pw", maxlength: "256" });
+  const meterBar = h("div", { class: "strength-meter-fill" }, []);
+  const meterLabel = h("div", { class: "muted", style: "font-size:12px;margin-top:2px" }, [""]);
+  const meter = h("div", { class: "strength-meter", style: "display:none" }, [meterBar]);
   const pw2Label = h("label", {}, ["Confirm password"]);
   const pw2 = h("input", { type: "password", id: "pw2", maxlength: "256" });
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
   const submit = h("button", { class: "primary", id: "submit" }, [mode === "create" ? "Create Wallet" : "Import Wallet"]);
   const back = h("button", { class: "secondary", id: "back" }, ["Back"]);
 
-  wrap.append(...mnemonicField, pwLabel, pw, pw2Label, pw2, statusEl, submit, back);
+  wrap.append(...mnemonicField, pwLabel, pw, meter, meterLabel, pw2Label, pw2, statusEl, submit, back);
   render(wrap);
+
+  // Live, advisory-only feedback (SECURITY_AUDIT.md §7) — the actual gate against a known-common
+  // or trivially-patterned password happens at submit time in isBlockedPassword(), below.
+  const STRENGTH_COLORS = ["var(--bad)", "var(--bad)", "var(--fair)", "var(--highlight)", "var(--good)"];
+  pw.addEventListener("input", () => {
+    const value = (pw as HTMLInputElement).value;
+    if (!value) {
+      meter.style.display = "none";
+      meterLabel.textContent = "";
+      return;
+    }
+    const { score, label, feedback } = estimatePasswordStrength(value);
+    meter.style.display = "block";
+    meterBar.style.width = `${((score + 1) / 5) * 100}%`;
+    meterBar.style.background = STRENGTH_COLORS[score]!;
+    meterLabel.textContent = feedback.length > 0 ? `${label} — ${feedback[0]}` : label;
+  });
 
   document.getElementById("back")!.addEventListener("click", renderWelcome);
   document.getElementById("submit")!.addEventListener("click", async () => {
@@ -242,6 +263,9 @@ function renderSetPassword(mode: "create" | "import") {
     // long input (e.g. an accidentally-pasted file) still means a real multi-second UI stall for no
     // security benefit past a reasonable length — 256 chars is generous for an actual passphrase.
     if (password.length > 256) return showStatus("Password must be 256 characters or fewer.");
+    if (isBlockedPassword(password)) {
+      return showStatus("This password is too common or predictable — choose something a stranger couldn't guess in a few tries.");
+    }
     if (password !== password2) return showStatus("Passwords do not match.");
 
     try {

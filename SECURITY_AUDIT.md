@@ -177,9 +177,14 @@ what's fixed can read as "everything is fine" when it isn't the full picture:
   install scripts via `pnpm-workspace.yaml`'s `allowBuilds`, `pnpm audit` in CI, exact
   lockfile pinning) but never eliminable by configuration alone.
 - **Password strength.** The vault's PBKDF2 cost protects against brute-force *speed*,
-  not against a user choosing a guessable password. Current enforcement is a straight
-  8–256 character length check (`src/popup/main.ts:226`) with no strength meter or
-  dictionary check. Worth considering as a future improvement, not addressed this round.
+  not against a user choosing a guessable password. **Addressed**: Create/Import now
+  reject an exact (or trivially-disguised — leet substitutions, padding, sequential/
+  repeated/keyboard-walk patterns) match against a curated common-password list
+  (`src/lib/passwordStrength.ts`'s `isBlockedPassword`), plus a live, advisory-only
+  strength meter. No forced composition rules (uppercase/digit/symbol requirements) —
+  per current NIST SP 800-63B guidance, length and blocklist membership are what
+  actually predict guessability; composition rules mostly just train predictable
+  substitutions (`password` → `P@ssw0rd1`, which this blocklist still catches).
 - **Host OS / browser compromise.** Malware with local disk or process-memory access is
   outside any browser extension's threat model to defend against.
 

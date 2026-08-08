@@ -16,6 +16,7 @@
   --highlight: #ffdd6c;
   --good: #34c98f;
   --bad: #ec5f56;
+  --fair: #f0a63f;
 }
 * {
   box-sizing: border-box;
@@ -112,6 +113,21 @@ textarea {
   resize: vertical;
   min-height: 80px;
   line-height: 1.5;
+}
+.strength-meter {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--box);
+  margin-top: 6px;
+  overflow: hidden;
+}
+.strength-meter-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  transition:
+    width 0.15s ease,
+    background 0.15s ease;
 }
 button {
   border: none;
