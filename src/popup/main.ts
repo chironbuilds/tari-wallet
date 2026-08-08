@@ -550,12 +550,17 @@ async function renderHome(status: WalletStatus) {
     return;
   }
 
-  const copyLabel = h("span", {}, [shortAddr(status.address ?? "", 8)]);
-  const addrPill = h("button", { class: "addr-pill", id: "addrPill", "aria-label": "Copy account address" }, [
+  // The wallet (otl_esm_...) address, not the component address -- same reasoning as the Receive
+  // screen: it's the one safe to publish/reuse (stealth payments derive a fresh one-time on-chain
+  // key per payment off it), and it's now sufficient for a sender to use for a plain send too (see
+  // componentAddressFromWalletAddress). The component address stays reachable from Receive's
+  // "Advanced" disclosure for anything that still needs it.
+  const copyLabel = h("span", {}, [shortAddr(status.receiveAddress ?? "", 8)]);
+  const addrPill = h("button", { class: "addr-pill", id: "addrPill", "aria-label": "Copy wallet address" }, [
     copyLabel,
     h("span", { class: "icon", "aria-hidden": "true" }, [icon(ICON_COPY)]),
   ]);
-  addrPill.addEventListener("click", () => copyToClipboard(status.address ?? "", copyLabel));
+  addrPill.addEventListener("click", () => copyToClipboard(status.receiveAddress ?? "", copyLabel));
   const heroBalanceAmount = h("span", { class: "hero-balance-amount skeleton", style: "display:inline-block;width:90px;height:26px" }, [""]);
   const heroBalance = h("div", { class: "hero-balance" }, [heroBalanceAmount, h("span", { class: "hero-balance-unit" }, ["XTR"])]);
   // Hidden until updateHeroBalance() knows whether there's actually a private balance to show --
