@@ -659,38 +659,54 @@ function renderSettings(status: WalletStatus) {
 function renderReceive(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
 
-  const componentLabel = h("span", {}, ["Copy"]);
-  const componentCopyBtn = h("button", { class: "icon-btn" }, [icon(ICON_COPY), componentLabel]);
-  const componentRow = h("div", { class: "copy-row" }, [h("div", { class: "addr" }, [status.address ?? "—"]), componentCopyBtn]);
-  componentCopyBtn.addEventListener("click", () => copyToClipboard(status.address ?? "", componentLabel));
-
+  // The wallet address (otl_...) is the one to hand out: any sender can derive this account's
+  // component address from it for a plain send (see componentAddressFromWalletAddress), AND it's
+  // the address stealth-type payments (shield/sendPrivately) key off of -- for those, the network
+  // derives a fresh one-time on-chain spend key per payment (payTo defaults to
+  // { StealthPublicKey: {} } in createOutput), so this same address can be reused forever without
+  // ever letting a chain observer link two payments to each other or to this account. There is no
+  // reason to publish the raw component_ address instead -- it buys nothing a sender using this
+  // wallet (or anything doing the same otl_-address derivation) needs, and it actively costs
+  // privacy for plain sends, which record it on-chain exactly as given.
   const walletLabel = h("span", {}, ["Copy"]);
   const walletCopyBtn = h("button", { class: "icon-btn" }, [icon(ICON_COPY), walletLabel]);
   const walletRow = h("div", { class: "copy-row" }, [h("div", { class: "addr" }, [status.receiveAddress ?? "—"]), walletCopyBtn]);
   walletCopyBtn.addEventListener("click", () => copyToClipboard(status.receiveAddress ?? "", walletLabel));
 
   const qrCard = h("div", { class: "card qr-card" }, []);
-  if (status.address) {
-    qrCard.innerHTML = qrCodeSvg(status.address);
+  if (status.receiveAddress) {
+    qrCard.innerHTML = qrCodeSvg(status.receiveAddress);
     qrCard.classList.add("qr-card-filled");
   } else {
     qrCard.textContent = "No address available";
   }
+
+  const componentLabel = h("span", {}, ["Copy"]);
+  const componentCopyBtn = h("button", { class: "icon-btn" }, [icon(ICON_COPY), componentLabel]);
+  const componentRow = h("div", { class: "copy-row" }, [h("div", { class: "addr" }, [status.address ?? "—"]), componentCopyBtn]);
+  componentCopyBtn.addEventListener("click", () => copyToClipboard(status.address ?? "", componentLabel));
+  const componentDetails = h("div", { class: "card" }, [
+    h("details", { class: "raw-details" }, [
+      h("summary", {}, ["Advanced: component address"]),
+      h("p", { class: "muted", style: "margin:6px 0 10px" }, [
+        "Only needed for a tool that can't accept an otl_ address directly. Every payment sent here is a permanent, publicly linkable on-chain record — sharing it undoes the privacy your wallet address already gives you for free.",
+      ]),
+      componentRow,
+    ]),
+  ]);
 
   const isLocalAccount = status.accounts.find((a) => a.id === status.activeAccountId)?.kind === "local";
   const claimCard = isLocalAccount ? buildClaimPrivatePaymentCard(status) : null;
 
   render(
     h("h1", {}, ["Receive"]),
-    h("p", { class: "muted" }, ["Share your account address to receive any token on Tari Ootle."]),
+    h("p", { class: "muted" }, [
+      "Share this address to receive any token on Tari Ootle. It's safe to publish and reuse for every payment — private (stealth) transfers derive a fresh one-time key on-chain each time, so they can never be linked to you or to each other.",
+    ]),
     h("div", { class: "hero" }, [accountAvatar(status.address)]),
     qrCard,
-    h("div", { class: "card" }, [
-      h("div", { class: "muted", style: "margin-bottom:8px" }, ["Component address"]),
-      componentRow,
-      h("div", { class: "muted", style: "margin:14px 0 8px" }, ["Wallet address"]),
-      walletRow,
-    ]),
+    h("div", { class: "card" }, [h("div", { class: "muted", style: "margin-bottom:8px" }, ["Wallet address"]), walletRow]),
+    componentDetails,
     ...(claimCard ? [claimCard] : []),
     back
   );

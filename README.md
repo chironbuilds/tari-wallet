@@ -39,13 +39,21 @@ Loaded as an unpacked extension in real Chrome and exercised against a live Ootl
   constants) — confirmed against tokens with different divisibility (XTR = 6, a custom
   DemoToken = 8)
 - **Send** (to any `component_…` address, for any held token) and **Receive** (address display +
-  copy-to-clipboard), both in the popup UI
+  copy-to-clipboard), both in the popup UI. (Send now takes the recipient's `otl_…` wallet address
+  instead and derives the component address internally — see "Recent additions" below; the
+  underlying component-address send path itself is what was verified live here.)
 - The `window.tari` injected-provider flow end-to-end against a real third-party page: connect
   request → approval popup → account access, and transaction build → approval popup → sign →
   submit → on-chain confirmation
 - A full DEX built against this wallet (`../tari-dex/swap-ui`) exercising it for token creation,
   liquidity-pool creation, adding liquidity, and swaps — including the multi-instruction,
   multi-retry transactions those flows require
+- `tari_withdrawStealthAndExecute` — the dApp-facing RPC method for revealing Stealth-typed funds
+  (e.g. XTR) into a caller's own contract call in one signed transaction (a plain
+  `tari_signAndSubmitTransaction` can't touch Stealth vaults at all — see `OotleAccount
+  .withdrawStealthAndExecute`'s doc comment in `wallet.ts`). Confirmed live via a real sealed bid
+  through `../tari-dex/dao-ui`: reveal → deposit → withdraw_confidential → place_bid, one
+  wallet-signed transaction, no dry run.
 
 **Not yet exercised in the browser: daemon-relayed accounts.** The underlying relay logic is
 verified end-to-end against a live `tari_ootle_walletd` (see "Daemon-relayed accounts" below), but
@@ -76,6 +84,17 @@ of WalletConnect) and their trade-offs.
 - `scripts/local-unshield-test.ts`: a live-verification script mirroring `local-shield-test.ts`,
   since unshield shares shield's fixes but was never explicitly re-verified live after them.
   **Run this yourself** (it needs your real mnemonic) before trusting unshield in production.
+- **Send now takes the recipient's `otl_…` wallet address**, not their `component_…` address —
+  `componentAddressFromWalletAddress()` (`componentAddress.ts`) derives the latter from the former
+  (they identify the same account), so a recipient only ever has to hand out the one address that
+  also works for private sends. Not yet re-exercised live (the underlying send-to-a-component-address
+  path was; only this new derivation step is unverified against a real testnet address).
+- **Receive screen now leads with the wallet address**, not the component address, with copy
+  explaining why: stealth-type payments (shield/send-privately) derive a fresh one-time on-chain key
+  per payment off of it, so it's safe to publish and reuse without ever letting a chain observer link
+  two payments together. The component address moved behind an "Advanced" disclosure — publishing it
+  gives up that privacy for plain sends, which record it exactly as given, and it's otherwise
+  redundant now that Send accepts the wallet address directly.
 
 **`OotleAccount.getComponentAddress()` (`src/lib/wallet.ts`) derives the on-chain component
 address client-side**, via `deriveAccountComponentAddress()` in `src/lib/componentAddress.ts`. This
