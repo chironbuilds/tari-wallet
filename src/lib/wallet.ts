@@ -928,14 +928,28 @@ export class OotleAccount implements WalletAccountApi {
     let newestSeen: string | null = null;
     let lastId: string | null = null;
     const found: ScannedStealthOutput[] = [];
+    // Whether this pass actually walked all the way back to `previousCursor` (or there was none to
+    // reach -- the very first scan ever). Only true in that case is it safe to advance the cursor:
+    // if `maxPages` runs out first, advancing anyway would silently and PERMANENTLY skip the
+    // unscanned gap between here and the old cursor -- the next scan would start from the new
+    // (already-advanced) cursor and never revisit it. Leaving the cursor where it was instead means
+    // the next opportunistic scan just re-tries the same catch-up (redundant work, not data loss);
+    // see this method's own doc comment ("the next scan resumes from the same cursor").
+    let reachedCursor = previousCursor === null;
 
     pages: for (let page = 0; page < maxPages; page++) {
       const { transactions } = await provider.listRecentTransactions({ limit: pageSize, last_id: lastId });
-      if (transactions.length === 0) break;
+      if (transactions.length === 0) {
+        reachedCursor = true; // the indexer's whole history fit before ever finding previousCursor
+        break;
+      }
       if (page === 0) newestSeen = transactions[0]!.transaction_id;
 
       for (const entry of transactions) {
-        if (entry.transaction_id === previousCursor) break pages;
+        if (entry.transaction_id === previousCursor) {
+          reachedCursor = true;
+          break pages;
+        }
         const newlyFound = await scanTransactionsForOwnedOutputs(crypto, viewSecret, [entry], knownCommitments);
         for (const raw of newlyFound) {
           // scanTransactionsForOwnedOutputs' `memo` is the raw JSON-encoded Memo union (see
@@ -951,7 +965,7 @@ export class OotleAccount implements WalletAccountApi {
       lastId = transactions[transactions.length - 1]!.transaction_id;
     }
 
-    if (newestSeen) await setPrivatePaymentScanCursor(accountId, newestSeen);
+    if (newestSeen && reachedCursor) await setPrivatePaymentScanCursor(accountId, newestSeen);
     return { claimed: found.length, found };
   }
 }

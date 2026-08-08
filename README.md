@@ -64,6 +64,17 @@ of WalletConnect) and their trade-offs.
 
 ## Recent additions (typecheck/test/build verified; not yet exercised live)
 
+- **Backend audit — two real bugs found and fixed** (see `SECURITY_AUDIT.md` §4 and §9 for the
+  full writeup): (1) any web page — connected or not, no approval needed — could keep the wallet's
+  auto-lock timer reset forever by calling `tari_getNetwork` on a timer, since `touchActivity()`
+  fired unconditionally before any connection check; now it only fires for requests that actually
+  use an established, approved connection. (2) `scanForPrivatePayments()` could permanently skip an
+  unscanned gap of transactions (silently missing a private payment forever) if a scan ran out of
+  pages before reaching where it left off last time, because it advanced its cursor regardless; now
+  it only advances the cursor once it actually catches up. Also serialized every read-modify-write
+  helper in `storage.ts` against concurrent callers (two popup windows, a page request racing a
+  popup request) that could otherwise silently clobber each other's write — covered by new
+  regression tests in `storage.test.ts`.
 - **Home screen** now shows the wallet (`otl_esm_...`) address instead of the component address —
   same reasoning as the Receive screen rework, and it's what a sender needs either way now.
 - **Polish tier** (finishing the audit): per-kind icons on History rows (arrows for plain

@@ -84,10 +84,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handlePageRequest(message: PageRequestMessage, _sender: chrome.runtime.MessageSender): Promise<unknown> {
   const { origin, method, params } = message;
-  await touchActivity();
 
   switch (method) {
     case "tari_getNetwork": {
+      // No connected-site check on purpose (any page can ask which network this is) -- exactly why
+      // this must NOT touch activity. It used to, unconditionally, at the top of this function:
+      // any page (connected or not, no approval needed) could poll this on a timer and silently
+      // keep the auto-lock countdown reset forever, defeating the point of auto-lock entirely on a
+      // shared/unattended machine. Activity now only counts when a request actually uses an
+      // established, user-approved connection -- see the other cases below.
       const { network } = await getState();
       return network;
     }
@@ -96,7 +101,9 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       const site = await getConnectedSite(origin);
       if (!site || !(await isUnlocked())) return [];
       const account = await getAccountById(site.accountId);
-      return account ? [await account.getComponentAddress()] : [];
+      if (!account) return [];
+      await touchActivity();
+      return [await account.getComponentAddress()];
     }
 
     case "tari_requestAccounts": {
@@ -104,7 +111,10 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       const existing = await getConnectedSite(origin);
       if (existing && (await isUnlocked())) {
         const account = await getAccountById(existing.accountId);
-        if (account) return [await account.getComponentAddress()];
+        if (account) {
+          await touchActivity();
+          return [await account.getComponentAddress()];
+        }
       }
       const approved = await requestApproval({ kind: "connect", origin });
       if (!approved) throw new Error("Connection request rejected.");
@@ -115,6 +125,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       await addConnectedSite(origin, activeAccountId);
       const account = await getAccountById(activeAccountId);
       if (!account) throw new Error("Could not resolve account.");
+      await touchActivity();
       return [await account.getComponentAddress()];
     }
 
@@ -127,7 +138,9 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       const site = await getConnectedSite(origin);
       if (!site || !(await isUnlocked())) return [];
       const account = await getAccountById(site.accountId);
-      return account ? account.getBalances() : [];
+      if (!account) return [];
+      await touchActivity();
+      return account.getBalances();
     }
 
     case "tari_getSubstate": {
@@ -135,6 +148,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
       const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Wallet is locked.");
+      await touchActivity();
       const p = params as { substateId: string; version?: number | null };
       const provider = await account.getProvider();
       return provider.getSubstate(p.substateId, p.version ?? null);
@@ -143,6 +157,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
     case "tari_signAndSubmitTransaction": {
       const site = await getConnectedSite(origin);
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      await touchActivity();
       const p = params as {
         instructions: import("@tari-project/ootle-ts-bindings").Instruction[];
         maxFee?: string;
@@ -195,6 +210,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
     case "tari_withdrawStealthAndExecute": {
       const site = await getConnectedSite(origin);
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      await touchActivity();
       const p = params as {
         resourceAddress: string;
         amount: string;

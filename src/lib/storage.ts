@@ -228,6 +228,25 @@ export async function setState(patch: Partial<WalletState>): Promise<void> {
   await chrome.storage.local.set(patch);
 }
 
+// MV3 service workers process messages concurrently (a page request racing a popup request, or
+// two popup windows open at once both mutating the same list), so two of this file's read-then-
+// write helpers below could interleave: both read the same stale array, both compute their own
+// append/removal from it, and whichever writes second silently clobbers the first's change --
+// nothing about `getState()`/`setState()` on their own makes a read-modify-write cycle atomic.
+// Every mutating helper below runs its whole read-modify-write cycle through this queue so they
+// serialize against each other instead. Reads alone (getConnectedSite, listTransactionHistory,
+// ...) don't need this -- a plain read has nothing to lose by racing a write, it just sees
+// whichever state happens to be current, same as any eventually-consistent read would.
+let writeQueue: Promise<unknown> = Promise.resolve();
+function serialized<T>(fn: () => Promise<T>): Promise<T> {
+  const result = writeQueue.then(fn, fn);
+  writeQueue = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
+
 export async function hasWallet(): Promise<boolean> {
   const { vault } = await getState();
   return vault !== null;
@@ -239,16 +258,20 @@ export async function getConnectedSite(origin: string): Promise<ConnectedSite | 
 }
 
 export async function addConnectedSite(origin: string, accountId: string): Promise<void> {
-  const state = await getState();
-  const withoutExisting = state.connectedSites.filter((s) => s.origin !== origin);
-  await setState({
-    connectedSites: [...withoutExisting, { origin, accountId, connectedAt: Date.now() }],
+  await serialized(async () => {
+    const state = await getState();
+    const withoutExisting = state.connectedSites.filter((s) => s.origin !== origin);
+    await setState({
+      connectedSites: [...withoutExisting, { origin, accountId, connectedAt: Date.now() }],
+    });
   });
 }
 
 export async function removeConnectedSite(origin: string): Promise<void> {
-  const state = await getState();
-  await setState({ connectedSites: state.connectedSites.filter((s) => s.origin !== origin) });
+  await serialized(async () => {
+    const state = await getState();
+    await setState({ connectedSites: state.connectedSites.filter((s) => s.origin !== origin) });
+  });
 }
 
 /** Disconnects every connected site. Each connection is pinned to the account id active at the
@@ -256,51 +279,67 @@ export async function removeConnectedSite(origin: string): Promise<void> {
  * silently talking to the account the user just switched away from — clearing them forces every
  * site to reconnect via `tari_requestAccounts`, which then binds to the newly active account. */
 export async function removeAllConnectedSites(): Promise<void> {
-  await setState({ connectedSites: [] });
+  await serialized(async () => {
+    await setState({ connectedSites: [] });
+  });
 }
 
 export async function addDaemonConnection(config: DaemonConnectionConfig): Promise<void> {
-  const state = await getState();
-  await setState({ daemonConnections: [...state.daemonConnections, config] });
+  await serialized(async () => {
+    const state = await getState();
+    await setState({ daemonConnections: [...state.daemonConnections, config] });
+  });
 }
 
 export async function removeDaemonConnection(id: string): Promise<void> {
-  const state = await getState();
-  await setState({
-    daemonConnections: state.daemonConnections.filter((c) => c.id !== id),
-    daemonAccounts: state.daemonAccounts.filter((a) => a.connectionId !== id),
+  await serialized(async () => {
+    const state = await getState();
+    await setState({
+      daemonConnections: state.daemonConnections.filter((c) => c.id !== id),
+      daemonAccounts: state.daemonAccounts.filter((a) => a.connectionId !== id),
+    });
   });
 }
 
 export async function addDaemonAccount(ref: DaemonAccountRef): Promise<void> {
-  const state = await getState();
-  const withoutExisting = state.daemonAccounts.filter(
-    (a) => !(a.connectionId === ref.connectionId && a.componentAddress === ref.componentAddress)
-  );
-  await setState({ daemonAccounts: [...withoutExisting, ref] });
+  await serialized(async () => {
+    const state = await getState();
+    const withoutExisting = state.daemonAccounts.filter(
+      (a) => !(a.connectionId === ref.connectionId && a.componentAddress === ref.componentAddress)
+    );
+    await setState({ daemonAccounts: [...withoutExisting, ref] });
+  });
 }
 
 export async function removeDaemonAccount(connectionId: string, componentAddress: string): Promise<void> {
-  const state = await getState();
-  await setState({
-    daemonAccounts: state.daemonAccounts.filter((a) => !(a.connectionId === connectionId && a.componentAddress === componentAddress)),
+  await serialized(async () => {
+    const state = await getState();
+    await setState({
+      daemonAccounts: state.daemonAccounts.filter((a) => !(a.connectionId === connectionId && a.componentAddress === componentAddress)),
+    });
   });
 }
 
 export async function addAddressBookEntry(entry: AddressBookEntry): Promise<void> {
-  const state = await getState();
-  await setState({ addressBook: [...state.addressBook, entry] });
+  await serialized(async () => {
+    const state = await getState();
+    await setState({ addressBook: [...state.addressBook, entry] });
+  });
 }
 
 export async function removeAddressBookEntry(id: string): Promise<void> {
-  const state = await getState();
-  await setState({ addressBook: state.addressBook.filter((e) => e.id !== id) });
+  await serialized(async () => {
+    const state = await getState();
+    await setState({ addressBook: state.addressBook.filter((e) => e.id !== id) });
+  });
 }
 
 /** Newest-first; entries beyond MAX_TRANSACTION_HISTORY_ENTRIES are dropped (oldest first). */
 export async function addTransactionHistoryEntry(entry: TransactionHistoryEntry): Promise<void> {
-  const state = await getState();
-  await setState({ transactionHistory: [entry, ...state.transactionHistory].slice(0, MAX_TRANSACTION_HISTORY_ENTRIES) });
+  await serialized(async () => {
+    const state = await getState();
+    await setState({ transactionHistory: [entry, ...state.transactionHistory].slice(0, MAX_TRANSACTION_HISTORY_ENTRIES) });
+  });
 }
 
 export async function listTransactionHistory(accountId: string): Promise<TransactionHistoryEntry[]> {
@@ -309,7 +348,13 @@ export async function listTransactionHistory(accountId: string): Promise<Transac
 }
 
 export async function wipeWallet(): Promise<void> {
-  await chrome.storage.local.clear();
+  // Serialized too, even though it has no prior read to go stale: without this, a write already
+  // in flight (e.g. an addTransactionHistoryEntry from a request that started just before Reset
+  // was clicked) could finish *after* this clear and leave a stray fragment of the "wiped" wallet
+  // behind -- exactly the kind of leftover a deliberate full wipe should never allow.
+  await serialized(async () => {
+    await chrome.storage.local.clear();
+  });
 }
 
 export async function listShieldedOutputs(accountId: string): Promise<ShieldedOutputRecord[]> {
@@ -318,14 +363,18 @@ export async function listShieldedOutputs(accountId: string): Promise<ShieldedOu
 }
 
 export async function addShieldedOutput(record: ShieldedOutputRecord): Promise<void> {
-  const state = await getState();
-  await setState({ shieldedOutputs: [...state.shieldedOutputs, record] });
+  await serialized(async () => {
+    const state = await getState();
+    await setState({ shieldedOutputs: [...state.shieldedOutputs, record] });
+  });
 }
 
 export async function markShieldedOutputSpent(accountId: string, commitment: string): Promise<void> {
-  const state = await getState();
-  await setState({
-    shieldedOutputs: state.shieldedOutputs.map((r) => (r.accountId === accountId && r.commitment === commitment ? { ...r, spent: true } : r)),
+  await serialized(async () => {
+    const state = await getState();
+    await setState({
+      shieldedOutputs: state.shieldedOutputs.map((r) => (r.accountId === accountId && r.commitment === commitment ? { ...r, spent: true } : r)),
+    });
   });
 }
 
@@ -335,14 +384,18 @@ export async function listPendingShields(): Promise<PendingShield[]> {
 }
 
 export async function addPendingShield(pending: PendingShield): Promise<void> {
-  const state = await getState();
-  if (state.pendingShields.some((p) => p.transactionId === pending.transactionId)) return;
-  await setState({ pendingShields: [...state.pendingShields, pending] });
+  await serialized(async () => {
+    const state = await getState();
+    if (state.pendingShields.some((p) => p.transactionId === pending.transactionId)) return;
+    await setState({ pendingShields: [...state.pendingShields, pending] });
+  });
 }
 
 export async function removePendingShield(transactionId: string): Promise<void> {
-  const state = await getState();
-  await setState({ pendingShields: state.pendingShields.filter((p) => p.transactionId !== transactionId) });
+  await serialized(async () => {
+    const state = await getState();
+    await setState({ pendingShields: state.pendingShields.filter((p) => p.transactionId !== transactionId) });
+  });
 }
 
 export async function getPrivatePaymentScanCursor(accountId: string): Promise<string | null> {
@@ -351,6 +404,8 @@ export async function getPrivatePaymentScanCursor(accountId: string): Promise<st
 }
 
 export async function setPrivatePaymentScanCursor(accountId: string, transactionId: string): Promise<void> {
-  const state = await getState();
-  await setState({ privatePaymentScanCursors: { ...state.privatePaymentScanCursors, [accountId]: transactionId } });
+  await serialized(async () => {
+    const state = await getState();
+    await setState({ privatePaymentScanCursors: { ...state.privatePaymentScanCursors, [accountId]: transactionId } });
+  });
 }

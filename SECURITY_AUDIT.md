@@ -121,12 +121,26 @@ point), which rules out a plain `setTimeout` for auto-lock — it would silently
 across a worker restart. Implemented instead with `chrome.alarms`
 (`manifest.json` permission `"alarms"`; `src/background/index.ts`,
 `chrome.alarms.create(AUTO_LOCK_ALARM, { periodInMinutes: 1 })`), which is designed to
-survive exactly this. Activity is timestamped on every real request handled while
-unlocked (`touchActivity()` called at the top of both `handlePageRequest` and
-`handlePopupRequest`), and a 1-minute alarm tick compares elapsed idle time against the
+survive exactly this. A 1-minute alarm tick compares elapsed idle time against the
 user's configured threshold (`src/lib/autoLock.ts`, options: 1/5/15/30/60 minutes or
 never, default 15). Covered by 8 unit tests (`autoLock.test.ts`) including the
 disabled-state and boundary cases.
+
+**Bug found and fixed this round: any page could keep the wallet unlocked forever,
+connected or not.** `handlePageRequest` called `touchActivity()` unconditionally at the
+top, before any connection or approval check. `tari_getNetwork` needs neither — any page
+with the content script injected (every `http(s)://` page, per `content_scripts.matches`)
+could call it on a timer and silently reset the auto-lock countdown with no prior
+approval and no real interaction at all, defeating auto-lock's entire purpose (protecting
+a shared/unattended machine) for the price of one unthrottled polling loop. Fixed by
+moving `touchActivity()` out of the blind top-of-function call and into only the request
+kinds that actually use an established, user-approved connection (`tari_getAccounts`,
+`tari_getBalances`, `tari_getSubstate`, `tari_signAndSubmitTransaction`,
+`tari_withdrawStealthAndExecute`, and a successful `tari_requestAccounts`) — each now
+touches activity only after confirming a connected site and (where relevant) a resolved
+account, not just because a method was called. `handlePopupRequest`'s unconditional touch
+is unaffected and correct as-is: every popup request is genuine direct interaction with
+the extension's own UI, not an arbitrary web page.
 
 ## 5. Transaction Approval UX ("Blind Signing" Risk)
 
@@ -206,6 +220,42 @@ was treated as a hypothesis to check, not a conclusion to report.
   purpose the feature exists for. Replaced with an FNV-1a → splitmix32 construction,
   verified bias-free (0/5000 blank grids sampled) and covered by a regression test
   (`src/lib/avatar.test.ts`).
+
+## 9. Data Integrity Bugs Found and Fixed (Backend Audit)
+
+Two more real bugs, both in state-management code rather than the UI, found by a
+targeted backend audit and fixed this round:
+
+- **Concurrent writes could silently clobber each other.** Every mutating helper in
+  `src/lib/storage.ts` (`addAddressBookEntry`, `removeConnectedSite`,
+  `addDaemonAccount`, ...) reads the current `WalletState`, computes a new value for one
+  field from that read, and writes the whole patch back — a read-modify-write cycle with
+  no atomicity of its own. MV3 service workers process messages concurrently (two popup
+  windows open at once, or a page request racing a popup request), so two of these
+  cycles could interleave: both read the same stale array, both compute their own
+  addition/removal, and whichever writes second silently overwrites the first's change —
+  a lost update, not a crash, so nothing would have surfaced it except data quietly not
+  being there later. Fixed by routing every mutating helper through a single
+  promise-chain serialization queue (`serialized()`) local to `storage.ts`, so a whole
+  read-modify-write cycle always completes before the next one starts. Pure reads
+  (`getConnectedSite`, `listTransactionHistory`, ...) are untouched — a read has nothing
+  to lose by racing a write. Covered by new regression tests
+  (`storage.test.ts`, "concurrent mutations serialize instead of losing updates") that
+  fire real concurrent calls through `Promise.all` and assert every one survives.
+- **A private-payment scan could permanently skip a gap of unscanned transactions.**
+  `OotleAccount.scanForPrivatePayments()` (`src/lib/wallet.ts`) walks the indexer's
+  recent-transaction feed backward in pages, stopping once it reaches the transaction id
+  it left off at last time (`previousCursor`), then advances the persisted cursor to the
+  newest transaction seen this pass. The bug: it advanced the cursor unconditionally,
+  even when the scan ran out of `maxPages` *before* ever reaching `previousCursor` — so
+  if more transactions occurred globally between scans than one pass covers, the
+  unscanned range between where the scan stopped and the old cursor was silently skipped
+  forever; the next scan would start from the newly (wrongly) advanced cursor and never
+  revisit that gap. A private payment landing in that window would never be discovered
+  by either the opportunistic scan or a manual rescan. Fixed by only advancing the
+  cursor when the scan actually reached `previousCursor` (or there was none to reach —
+  the very first scan); otherwise the cursor stays put and the next scan retries the
+  same catch-up, matching what the method's own doc comment already claimed it did.
 
 ---
 
