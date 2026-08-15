@@ -288,6 +288,15 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       const p = params as { requestId: string };
       const record = await getTransactionRequest(p.requestId);
       if (!record || record.origin !== origin) throw new Error("Unknown transaction request.");
+      // The request was bound to whichever account the site was connected to when it was created
+      // (record.accountId, set at createTransactionRequest time). If the site has since reconnected
+      // under a different account (e.g. the user switched accounts in the extension, which drops
+      // every connection, then re-approved this site), the approved request must not spend from an
+      // account the site is no longer bound to -- it would otherwise silently move funds from the
+      // *old* account even though the site is now connected to a different one.
+      if (record.accountId !== site.accountId) {
+        throw new Error("This transaction request belongs to a different account — switch back to that account or create a new request.");
+      }
       if (record.status !== "approved") throw new Error(`Cannot submit: this request's status is "${record.status}".`);
       return submitTransactionRequestOperation(record);
     }
