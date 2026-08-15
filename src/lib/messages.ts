@@ -11,9 +11,68 @@ export type ProviderMethod =
   | "tari_getNetwork"
   | "tari_getBalances"
   | "tari_getSubstate"
+  | "tari_getCapabilities"
+  | "tari_getTransactionResult"
   | "tari_signAndSubmitTransaction"
   | "tari_withdrawStealthAndExecute"
+  | "tari_htlcFund"
+  | "tari_createTransactionRequest"
+  | "tari_getTransactionRequest"
+  | "tari_submitTransactionRequest"
   | "tari_disconnect";
+
+/**
+ * A dApp-proposed transaction's actual operation -- one variant per underlying account call.
+ * Shared verbatim between `tari_createTransactionRequest`'s input and what a
+ * `TransactionRequestRecord` (storage.ts) persists and later executes at submit time, so there is
+ * exactly one place this shape is defined.
+ */
+export type TransactionRequestOperation =
+  // `inputs` lets a dApp pin substates it already knows are needed (e.g. a component it just read
+  // and knows the address of); the wallet's own auto-resolve retry (see OotleAccount.execute())
+  // handles whatever's still missing, so this is an optimization, never required for correctness.
+  | { kind: "instructions"; instructions: Instruction[]; maxFee?: string; inputs?: SubstateRequirement[] }
+  // See `OotleAccount.withdrawStealthAndExecute`'s doc comment: the only way for a dApp to move
+  // Stealth-typed funds (e.g. XTR) into its own contract call in one transaction.
+  | {
+      kind: "withdrawStealthAndExecute";
+      resourceAddress: string;
+      amount: string;
+      workspaceVarName: string;
+      followUpInstructions: Instruction[];
+      relatedComponents?: string[];
+      maxFee?: string;
+    }
+  // See `OotleAccount.htlcFund`'s doc comment: creates an HTLC-locked stealth output, claimable by
+  // `claimantWalletAddress` (with the preimage of `hashLockHex`) before `refundEpoch`, refundable
+  // to this account after. Fund-only for now -- there is no `htlcClaim`/`htlcRefund` operation kind
+  // yet (see the doc comment for why).
+  | {
+      kind: "htlcFund";
+      resourceAddress: string;
+      amount: string;
+      claimantWalletAddress: string;
+      hashLockHex: string;
+      refundEpoch: string;
+      maxFee?: string;
+    };
+
+/** `tari_getTransactionRequest`/`tari_createTransactionRequest`'s result -- the dApp-facing view
+ * of a `TransactionRequestRecord` (storage.ts), with internal fields (the account id, the raw
+ * `operation` the dApp already has its own copy of) stripped. */
+export interface TransactionRequestSummary {
+  requestId: string;
+  status: "pending" | "approved" | "rejected" | "submitted" | "failed";
+  /** Human-readable summary of what this request does, the same text shown on the popup approval
+   * screen -- useful for a dApp's own UI while waiting on approval. */
+  note: string;
+  createdAt: number;
+  expiresAt: number;
+  /** Set once `status` is "submitted". */
+  result?: unknown;
+  /** Set once `status` is "failed". */
+  error?: string;
+}
 
 export interface ProviderRequestParams {
   tari_requestAccounts: undefined;
@@ -23,12 +82,22 @@ export interface ProviderRequestParams {
   // Read-only substate lookup (e.g. a resource's on-chain `divisibility`) — general-purpose, not
   // tied to the connected account, so a dApp can look up any address it already knows.
   tari_getSubstate: { substateId: string; version?: number | null };
-  // `inputs` lets a dApp pin substates it already knows are needed (e.g. a component it just read
-  // and knows the address of); the wallet's own auto-resolve retry (see OotleAccount.execute())
-  // handles whatever's still missing, so this is an optimization, never required for correctness.
+  // Lets a dApp discover which optional provider features the *connected account* actually
+  // supports before relying on them (e.g. `tari_withdrawStealthAndExecute` needs a seed-derived
+  // local account, not a daemon-relayed one) — see `WalletCapabilities` below for the fields.
+  tari_getCapabilities: undefined;
+  // Recovers a past transaction's result by id (e.g. after a page refresh dropped the original
+  // `tari_signAndSubmitTransaction` promise) rather than requiring the dApp to have stayed alive
+  // for the whole submit-and-poll cycle.
+  tari_getTransactionResult: { transactionId: string };
+  /** @deprecated Prefer `tari_createTransactionRequest` + `tari_submitTransactionRequest` -- this
+   * blocks for the whole approval+submit round trip in one call, which can't recover if the page
+   * reloads mid-flight. Still fully supported; implemented as a thin wrapper over the same
+   * create/submit primitives. `dryRun: true` is unaffected -- it never needed approval and stays a
+   * direct, un-request-tracked call either way. */
   tari_signAndSubmitTransaction: { instructions: Instruction[]; maxFee?: string; dryRun?: boolean; inputs?: SubstateRequirement[] };
-  // See `OotleAccount.withdrawStealthAndExecute`'s doc comment: the only way for a dApp to move
-  // Stealth-typed funds (e.g. XTR) into its own contract call in one transaction.
+  /** @deprecated Prefer `tari_createTransactionRequest({ kind: "withdrawStealthAndExecute", ... })`
+   * + `tari_submitTransactionRequest`. Still fully supported; implemented as a thin wrapper. */
   tari_withdrawStealthAndExecute: {
     resourceAddress: string;
     amount: string;
@@ -37,6 +106,33 @@ export interface ProviderRequestParams {
     relatedComponents?: string[];
     maxFee?: string;
   };
+  /** @deprecated Prefer `tari_createTransactionRequest({ kind: "htlcFund", ... })` +
+   * `tari_submitTransactionRequest`. Still fully supported; implemented as a thin wrapper. */
+  tari_htlcFund: {
+    resourceAddress: string;
+    amount: string;
+    claimantWalletAddress: string;
+    hashLockHex: string;
+    refundEpoch: string;
+    maxFee?: string;
+  };
+  /**
+   * Proposes a transaction and returns a `requestId` immediately, without waiting for the user to
+   * approve it -- mirrors `tari_ootle_walletd`'s `transaction_requests.create` (tari-project/
+   * tari-ootle#2348). Opens the same approval popup `tari_signAndSubmitTransaction` always has;
+   * the difference is this call doesn't block on it. Poll `tari_getTransactionRequest` (survives a
+   * page reload -- the request is persisted, not tied to this call's own promise) until `status`
+   * is `"approved"`, then call `tari_submitTransactionRequest`. There is deliberately no
+   * dApp-facing "approve" method -- only the human, via the popup, can approve a request; a dApp
+   * approving its own request would defeat the entire point of asking.
+   */
+  tari_createTransactionRequest: TransactionRequestOperation;
+  /** Looks up a transaction request this same origin created, by id. Works after a page
+   * reload/service-worker restart -- the record is persisted, not held only in memory. */
+  tari_getTransactionRequest: { requestId: string };
+  /** Executes an `"approved"` transaction request and returns its result -- throws if the request
+   * isn't approved yet (still `"pending"`), was rejected, already submitted, or has expired. */
+  tari_submitTransactionRequest: { requestId: string };
   tari_disconnect: undefined;
 }
 
@@ -54,6 +150,41 @@ export interface PageResponseMessage {
   id: string;
   result?: unknown;
   error?: string;
+}
+
+/** `tari_getCapabilities`'s result -- reflects what the *currently connected account* can
+ * actually do, not just what the wallet extension's codebase supports (e.g. `stealthWithdraw` is
+ * false for a daemon-relayed account even though the wallet has the feature). */
+export interface WalletCapabilities {
+  /** `tari_signAndSubmitTransaction`'s `inputs` param already lets a dApp pin exact
+   * `SubstateRequirement`s (including a specific UTXO it already knows about) instead of relying
+   * on the wallet's own auto-resolve retry. Always true today. */
+  exactInputSelection: boolean;
+  /** `tari_withdrawStealthAndExecute` -- moves Stealth-typed funds into a dApp's own contract call
+   * in one signed transaction. Only a seed-derived local account can produce the stealth balance
+   * proof this needs; a daemon-relayed account can't. */
+  stealthWithdraw: boolean;
+  /** `tari_htlcFund` -- creates an HTLC-locked (hashlock/timelock ScriptPath) stealth output.
+   * Only a seed-derived local account can build the `PayTo::Conditions` output witness this
+   * needs; a daemon-relayed account can't. */
+  htlcFund: boolean;
+  /** Spending a ScriptPath/conditional-locked stealth output (e.g. `tari_htlcClaim`/
+   * `tari_htlcRefund`, the other half of `tari_htlcFund`). Not implemented yet -- always false.
+   * Blocked on an upstream wasm export for covenant-claim generation; see
+   * `OotleAccount.htlcFund`'s doc comment. */
+  scriptPathSpend: boolean;
+  /** `tari_getTransactionResult` -- look up a past transaction's result by id. Always true today. */
+  transactionResultLookup: boolean;
+  /** `tari_createTransactionRequest`/`tari_getTransactionRequest`/`tari_submitTransactionRequest`
+   * -- the create/submit transaction flow, mirroring `tari_ootle_walletd`'s `transaction_requests`
+   * (tari-project/tari-ootle#2348). Always true today; `tari_signAndSubmitTransaction` and friends
+   * remain supported as deprecated wrappers over the same primitives. */
+  transactionRequests: boolean;
+  /** Whether `tari_signAndSubmitTransaction`'s `dryRun: true` executes locally (no network
+   * egress) or is simulated remotely by the indexer. False today -- a transaction carrying secret
+   * witness data (e.g. a future ScriptPath preimage) should not be dry-run through this wallet
+   * until this is true. */
+  dryRunIsLocal: boolean;
 }
 
 /**

@@ -4,6 +4,7 @@
 // through the normal message channel (it can't receive them directly since chrome.windows.create
 // only takes a URL, not a message payload).
 import type { PendingApproval, PendingApprovalInput } from "../lib/messages";
+import { setTransactionRequestStatus } from "../lib/storage";
 
 interface PendingEntry {
   approval: PendingApproval;
@@ -17,9 +18,15 @@ function randomId(): string {
   return crypto.randomUUID();
 }
 
-/** Opens an approval popup and resolves once the user approves or rejects (or closes the window). */
-export async function requestApproval(approval: PendingApprovalInput): Promise<boolean> {
-  const id = randomId();
+/**
+ * Opens an approval popup and resolves once the user approves or rejects (or closes the window).
+ *
+ * `id`, when supplied, lets a caller pre-generate the id (e.g. `createTransactionRequest` in
+ * background/index.ts, so the approval id matches the persisted `TransactionRequestRecord`'s own
+ * id -- `resolveApproval` then updates that record's status too, whether or not this promise is
+ * ever awaited). Callers that don't need that (the "connect" approval kind) can omit it.
+ */
+export async function requestApproval(approval: PendingApprovalInput, id: string = randomId()): Promise<boolean> {
   const full = { ...approval, id } as PendingApproval;
 
   const approved = await new Promise<boolean>((resolve) => {
@@ -43,22 +50,31 @@ export function getPendingApproval(id: string): PendingApproval | undefined {
 }
 
 /**
- * Resolves a pending approval, returning whether it actually found one to resolve. A missed
- * lookup here (`pending` is a plain in-memory Map) doesn't just mean "unknown id" — it happens for
- * real whenever the service worker restarts (Chrome tears MV3 workers down after ~30s idle) while
- * an approval popup is still open and unanswered: the *page's own* original request has already
- * died with it (its `sendResponse` closure died the same way), so the popup clicking Approve here
- * would otherwise silently no-op and close, falsely implying the click did something. The caller
- * uses this return value to tell the user that instead of just closing the window.
+ * Resolves a pending approval, returning whether it actually did anything -- either woke a live
+ * in-memory waiter (the deprecated blocking RPCs, e.g. `tari_signAndSubmitTransaction`) or updated
+ * a persisted `TransactionRequestRecord`'s status (the create/submit RPCs, e.g.
+ * `tari_createTransactionRequest`), or both, since a single approval id can serve both at once.
+ *
+ * Only when *neither* happens does this genuinely mean "too late" — most commonly, the in-memory
+ * `pending` Map (this file's own state) doesn't survive a service worker restart (Chrome tears MV3
+ * workers down after ~30s idle), which used to always mean "the click did nothing, silently" for
+ * *every* approval. It still means exactly that for a deprecated blocking call, whose own
+ * `sendResponse` closure died in the same restart — there is no way to recover that specific
+ * promise. But it's no longer true for a create/submit-based request: `setTransactionRequestStatus`
+ * writes through `chrome.storage`, which survives the restart, so the click still lands and the
+ * dApp can pick it up via `tari_getTransactionRequest`/`tari_submitTransactionRequest` after the
+ * fact. The caller uses this return value to tell the user whether the click was lost outright.
  */
-export function resolveApproval(id: string, approved: boolean): boolean {
+export async function resolveApproval(id: string, approved: boolean): Promise<boolean> {
   const entry = pending.get(id);
-  if (!entry) return false;
-  entry.resolve(approved);
-  if (entry.windowId !== undefined) {
-    chrome.windows.remove(entry.windowId).catch(() => {});
+  if (entry) {
+    entry.resolve(approved);
+    if (entry.windowId !== undefined) {
+      chrome.windows.remove(entry.windowId).catch(() => {});
+    }
   }
-  return true;
+  const persisted = await setTransactionRequestStatus(id, { status: approved ? "approved" : "rejected" });
+  return entry !== undefined || persisted;
 }
 
 // If the user closes the approval window without clicking a button, treat it as a rejection.
@@ -67,6 +83,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
     if (entry.windowId === windowId) {
       entry.resolve(false);
       pending.delete(id);
+      void setTransactionRequestStatus(id, { status: "rejected" });
     }
   }
 });

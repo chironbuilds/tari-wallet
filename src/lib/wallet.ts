@@ -33,11 +33,13 @@ import type {
 } from "@tari-project/ootle-ts-bindings";
 import { IndexerProvider } from "@tari-project/ootle-indexer";
 import { SecretKeyWallet } from "@tari-project/ootle-secret-key-wallet";
+import { parseOotleAddress } from "@tari-project/ootle-wasm";
 import type { WalletAccountApi } from "./accountApi";
 import { deriveAccountComponentAddress } from "./componentAddress";
 import { scanTransactionsForOwnedOutputs, sumConfidentialCommitments } from "./confidential";
 import type { ScannedStealthOutput } from "./confidential";
 import { deriveAccountKeys } from "./derivation";
+import { htlcConditions } from "./htlc";
 import { type NetworkName, toOotleNetwork } from "./ootleNetwork";
 import {
   addPendingShield,
@@ -52,7 +54,7 @@ import {
 } from "./storage";
 import type { ShieldedOutputRecord } from "./storage";
 import { withTimeout } from "./timeout";
-import { fromHex } from "./vault";
+import { fromHex, toHex } from "./vault";
 
 export interface TokenBalance {
   resourceAddress: string;
@@ -776,6 +778,83 @@ export class OotleAccount implements WalletAccountApi {
     const response = await withTimeout(pollTransactionResult(provider, transactionId), 60_000, "submitting the transaction");
     await recordKnownVersions(response);
     return { transactionId };
+  }
+
+  /**
+   * Funds an HTLC (hashed timelock contract): creates a stealth output for `amount` of
+   * `resourceAddress`, gated not by a normal one-time stealth key but by a two-leaf TIP-0006
+   * condition tree (`htlcConditions` in `./htlc.ts`) — a claim path admissible only to
+   * `claimantWalletAddress` (revealing the SHA-256 preimage of `hashLockHex`, before
+   * `refundEpoch`), and a refund path admissible only to this account (at/after `refundEpoch`).
+   * `htlcConditions`'s own doc comment covers the exact leaf shapes.
+   *
+   * This account never needs (and must never be given) the actual preimage — only its hash. The
+   * caller resolves `refundEpoch` from a desired wall-clock deadline via the provider/network's
+   * current epoch, the same as any other epoch-relative on-chain deadline.
+   *
+   * Returns the full `conditions` tree alongside the transaction id and this output's own
+   * commitment: only the tree's **root** is committed on-chain, so the claimant needs the exact
+   * leaves — out of band, via whatever swap protocol coordinates the two sides — to later reveal
+   * the claim leaf. **There is currently no way for this wallet to spend such an output (claim or
+   * refund).** Doing that safely needs covenant-claim generation (required whenever a script-path
+   * input is spent, to prove balance integrity across the spent/created outputs sharing that
+   * input's condition root) — that has no wasm export yet, unlike the witness-construction half
+   * (`buildScriptPathWitness`, from tari-project/tari-ootle#2426). Fund-only until a follow-up
+   * upstream change exposes it; see the `tari-ootle-scriptpath-htlc` memory for the full story.
+   *
+   * `destination` is set to the claimant's own wallet address (not this account's) so the
+   * claimant can independently decrypt and verify the funded amount themselves, the same as any
+   * other stealth payment addressed to them — spend authority is governed entirely separately, by
+   * `payTo`.
+   */
+  async htlcFund(
+    resourceAddress: string,
+    amount: bigint,
+    claimantWalletAddress: string,
+    hashLockHex: string,
+    refundEpoch: bigint,
+    maxFee = 50000n
+  ): Promise<{ transactionId: string; conditions: object[]; ownCommitment: string }> {
+    const provider = await this.getProvider();
+    const account = await this.getComponentAddress();
+    const walletAddress = await this.getWalletAddress();
+
+    const claimant = parseOotleAddress(claimantWalletAddress);
+    const refunder = parseOotleAddress(walletAddress);
+    const conditions = htlcConditions({
+      hashLockHex,
+      refundEpoch,
+      claimantPublicKeyHex: toHex(claimant.owner_key),
+      refunderPublicKeyHex: toHex(refunder.owner_key),
+    });
+
+    // See shield()'s comment: the resource's own substate must be pinned explicitly -- prepare()
+    // never adds it on its own.
+    const spec = await new StealthTransfer(provider, resourceAddress)
+      .withBuilder((b) => b.addInput({ substate_id: resourceAddress, version: null }))
+      .spendRevealedInput(account, amount)
+      .toStealthOutput(
+        createOutput({ destination: claimantWalletAddress, amount, resourceAddress, payTo: { Conditions: conditions } })
+      )
+      .payFeeFromRevealed(maxFee)
+      .prepare();
+    const ownCommitment = extractOutputCommitment(spec, 0);
+
+    const wallet = new OotleWallet().registerKeyProvider(account, this.signer).setDefaultSigner(account);
+    // No stealth inputs to unblind (revealed-only source), so no viewSecret needed -- same as shield().
+    const authorized = await WalletStealthAuthorizer.fromSpec(wallet, spec, { crypto: new WasmStealthCrypto(this.network) }).prepare(
+      provider
+    );
+    const envelope = await authorized.seal();
+    const transactionId = await submitTransaction(provider, envelope);
+
+    const response = await withTimeout(
+      pollTransactionResult(provider, transactionId),
+      60_000,
+      "submitting the HTLC funding transaction"
+    );
+    await recordKnownVersions(response);
+    return { transactionId, conditions, ownCommitment };
   }
 
   /**

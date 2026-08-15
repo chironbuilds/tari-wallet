@@ -3,3 +3,8 @@ node_modules/
 *.log
 .DS_Store
 *.zip
+
+# Scratch clone of tari-project/ootle.ts's full source (461MB), used to read the vendored SDK's
+# unminified internals -- not itself a vendor patch (unlike vendor/*-patched/, which are), so it
+# doesn't belong in the repo.
+/vendor/ootle-src/

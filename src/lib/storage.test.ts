@@ -1,5 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addAddressBookEntry, daemonAccountId, getState, localAccountId, parseAccountId, removeAddressBookEntry } from "./storage";
+import {
+  addAddressBookEntry,
+  addTransactionRequest,
+  daemonAccountId,
+  getState,
+  getTransactionRequest,
+  localAccountId,
+  parseAccountId,
+  removeAddressBookEntry,
+  setTransactionRequestStatus,
+  type TransactionRequestRecord,
+} from "./storage";
 
 /** A minimal in-memory stand-in for chrome.storage.local -- get/set semantics only (get returns
  * whichever requested keys exist, set shallow-merges), enough for storage.ts's own usage. Not used
@@ -93,5 +104,93 @@ describe("concurrent mutations serialize instead of losing updates", () => {
     ]);
     const { addressBook } = await getState();
     expect(addressBook.map((e) => e.id).sort()).toEqual(["new"]);
+  });
+});
+
+describe("transaction requests", () => {
+  beforeEach(() => installChromeStorageStub());
+  afterEach(() => vi.unstubAllGlobals());
+
+  function pendingRecord(overrides: Partial<TransactionRequestRecord> = {}): TransactionRequestRecord {
+    const now = Date.now();
+    return {
+      id: "req-1",
+      origin: "https://dapp.example",
+      accountId: "local:0",
+      operation: { kind: "instructions", instructions: [] },
+      note: "",
+      status: "pending",
+      createdAt: now,
+      expiresAt: now + 60_000,
+      ...overrides,
+    };
+  }
+
+  it("round-trips a stored record", async () => {
+    await addTransactionRequest(pendingRecord());
+    const record = await getTransactionRequest("req-1");
+    expect(record?.status).toBe("pending");
+    expect(record?.origin).toBe("https://dapp.example");
+  });
+
+  it("returns undefined for an unknown id", async () => {
+    expect(await getTransactionRequest("does-not-exist")).toBeUndefined();
+  });
+
+  it("transitions pending -> approved -> submitted, carrying the result", async () => {
+    await addTransactionRequest(pendingRecord());
+    expect(await setTransactionRequestStatus("req-1", { status: "approved" })).toBe(true);
+    expect((await getTransactionRequest("req-1"))?.status).toBe("approved");
+
+    await setTransactionRequestStatus("req-1", { status: "submitted", result: { transactionId: "tx-123" } });
+    const submitted = await getTransactionRequest("req-1");
+    expect(submitted?.status).toBe("submitted");
+    expect(submitted?.result).toEqual({ transactionId: "tx-123" });
+  });
+
+  it("transitions to failed, carrying the error", async () => {
+    await addTransactionRequest(pendingRecord({ status: "approved" }));
+    await setTransactionRequestStatus("req-1", { status: "failed", error: "insufficient funds" });
+    const record = await getTransactionRequest("req-1");
+    expect(record?.status).toBe("failed");
+    expect(record?.error).toBe("insufficient funds");
+  });
+
+  it("setTransactionRequestStatus returns false for an unknown id, without throwing", async () => {
+    expect(await setTransactionRequestStatus("does-not-exist", { status: "approved" })).toBe(false);
+  });
+
+  it("a stale pending request reads back as rejected/expired instead of staying approvable forever", async () => {
+    await addTransactionRequest(pendingRecord({ expiresAt: Date.now() - 1000 }));
+    const record = await getTransactionRequest("req-1");
+    expect(record?.status).toBe("rejected");
+    expect(record?.error).toMatch(/expired/i);
+  });
+
+  it("a stale approved (but never submitted) request also reads back as expired", async () => {
+    await addTransactionRequest(pendingRecord({ status: "approved", expiresAt: Date.now() - 1000 }));
+    const record = await getTransactionRequest("req-1");
+    expect(record?.status).toBe("rejected");
+  });
+
+  it("an already-submitted request never reads back as expired, however old", async () => {
+    await addTransactionRequest(pendingRecord({ status: "submitted", result: { ok: true }, expiresAt: Date.now() - 1000 }));
+    const record = await getTransactionRequest("req-1");
+    expect(record?.status).toBe("submitted");
+  });
+
+  it("expiry is derived on read, never written back to storage", async () => {
+    await addTransactionRequest(pendingRecord({ expiresAt: Date.now() - 1000 }));
+    await getTransactionRequest("req-1"); // trigger the lazy-expiry read path
+    // A fresh read still sees the original "pending" status in storage -- setTransactionRequestStatus
+    // would still succeed against it (an approval that arrives just as a request goes stale should
+    // still be honored, not silently dropped because a read happened to observe it as expired first).
+    expect(await setTransactionRequestStatus("req-1", { status: "approved" })).toBe(true);
+  });
+
+  it("many concurrent addTransactionRequest calls all survive", async () => {
+    await Promise.all(Array.from({ length: 20 }, (_, i) => addTransactionRequest(pendingRecord({ id: `req-${i}` }))));
+    const results = await Promise.all(Array.from({ length: 20 }, (_, i) => getTransactionRequest(`req-${i}`)));
+    expect(results.every((r) => r !== undefined)).toBe(true);
   });
 });

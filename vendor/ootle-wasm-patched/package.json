@@ -1,0 +1,26 @@
+{
+  "name": "@tari-project/ootle-wasm",
+  "type": "module",
+  "collaborators": [
+    "The Tari Development Community"
+  ],
+  "description": "WASM bindings for Tari Ootle client-side crypto — thin wasm-bindgen shell over ootle-wasm-core",
+  "version": "0.39.0",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tari-project/tari-ootle"
+  },
+  "files": [
+    "ootle_wasm_bg.wasm",
+    "ootle_wasm.js",
+    "ootle_wasm_bg.js",
+    "ootle_wasm.d.ts"
+  ],
+  "main": "ootle_wasm.js",
+  "types": "ootle_wasm.d.ts",
+  "sideEffects": [
+    "./ootle_wasm.js",
+    "./snippets/*"
+  ]
+}

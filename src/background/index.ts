@@ -6,9 +6,11 @@ import {
   addDaemonAccount,
   addDaemonConnection,
   addTransactionHistoryEntry,
+  addTransactionRequest,
   daemonAccountId,
   getConnectedSite,
   getState,
+  getTransactionRequest,
   listTransactionHistory,
   localAccountId,
   removeAddressBookEntry,
@@ -17,7 +19,10 @@ import {
   removeDaemonAccount,
   removeDaemonConnection,
   setState,
+  setTransactionRequestStatus,
+  TRANSACTION_REQUEST_TTL_MS,
   type TransactionHistoryEntry,
+  type TransactionRequestRecord,
   wipeWallet,
 } from "../lib/storage";
 import { summarizeInstruction } from "../lib/instructionSummary";
@@ -29,8 +34,12 @@ import type {
   PageResponseMessage,
   PendingApprovalInput,
   PopupRequest,
+  TransactionRequestOperation,
+  TransactionRequestSummary,
+  WalletCapabilities,
   WalletStatus,
 } from "../lib/messages";
+import type { Instruction, SubstateRequirement } from "@tari-project/ootle-ts-bindings";
 import { isStealthTransferInstruction } from "@tari-project/ootle";
 import { componentAddressFromWalletAddress } from "../lib/componentAddress";
 import { DaemonAccount } from "../lib/daemonAccount";
@@ -154,59 +163,71 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       return provider.getSubstate(p.substateId, p.version ?? null);
     }
 
+    case "tari_getCapabilities": {
+      const site = await getConnectedSite(origin);
+      if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      const account = await getAccountById(site.accountId);
+      if (!account) throw new Error("Wallet is locked.");
+      await touchActivity();
+      const capabilities: WalletCapabilities = {
+        exactInputSelection: true,
+        // Matches the instanceof checks tari_withdrawStealthAndExecute/tari_htlcFund themselves
+        // enforce below -- keep these in sync if a third account kind is ever added.
+        stealthWithdraw: account instanceof OotleAccount,
+        htlcFund: account instanceof OotleAccount,
+        scriptPathSpend: false,
+        transactionResultLookup: true,
+        transactionRequests: true,
+        dryRunIsLocal: false,
+      };
+      return capabilities;
+    }
+
+    case "tari_getTransactionResult": {
+      const site = await getConnectedSite(origin);
+      if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      const account = await getAccountById(site.accountId);
+      if (!account) throw new Error("Wallet is locked.");
+      await touchActivity();
+      const p = params as { transactionId: string };
+      const provider = await account.getProvider();
+      return provider.getTransactionResult(p.transactionId);
+    }
+
+    // Deprecated (see messages.ts): a thin wrapper over createTransactionRequest +
+    // submitTransactionRequestOperation, blocking for the whole round trip like it always has.
     case "tari_signAndSubmitTransaction": {
       const site = await getConnectedSite(origin);
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
       await touchActivity();
-      const p = params as {
-        instructions: import("@tari-project/ootle-ts-bindings").Instruction[];
-        maxFee?: string;
-        dryRun?: boolean;
-        inputs?: import("@tari-project/ootle-ts-bindings").SubstateRequirement[];
-      };
-      // account.execute() only builds/signs/seals via TransactionBuilder -- it never runs
-      // WalletStealthAuthorizer, so it can't produce the balance proof or per-input one-time
-      // authorizations a real StealthTransfer instruction needs. The engine would reject an
-      // incomplete statement anyway (no fund-loss risk), but failing fast with a clear message
-      // beats a confusing late rejection, and skips popping an approval window for a tx that
-      // can never succeed via this path.
-      if (p.instructions.some(isStealthTransferInstruction)) {
-        throw new Error("Stealth transfers aren't supported via a connected app yet — use the wallet's own Shield/Unshield screens.");
-      }
+      const p = params as { instructions: Instruction[]; maxFee?: string; dryRun?: boolean; inputs?: SubstateRequirement[] };
+      assertNoStealthTransferInstruction(p.instructions);
       // Dry runs are read-only simulations (quotes, balance-adjacent lookups) — a DEX price quote
       // that reprices on every keystroke would otherwise pop an approval window per keystroke.
-      // Only a real submission spends anything, so only that needs the user's sign-off.
-      if (!p.dryRun) {
-        const approval: PendingApprovalInput = {
-          kind: "transaction",
-          origin,
-          instructions: p.instructions,
-          maxFee: p.maxFee,
-          dryRun: p.dryRun,
-          accountId: site.accountId,
-        };
-        const approved = await requestApproval(approval);
-        if (!approved) throw new Error("Transaction rejected.");
+      // Only a real submission spends anything, so only that needs the user's sign-off; dry runs
+      // never go through the request/approval system at all, deprecated or not.
+      if (p.dryRun) {
+        if (!(await isUnlocked())) throw new Error("Wallet is locked.");
+        const account = await getAccountById(site.accountId);
+        if (!account) throw new Error("Could not resolve account.");
+        const maxFee = p.maxFee ? BigInt(p.maxFee) : undefined;
+        return account.execute(p.instructions, { maxFee, dryRun: true, inputs: p.inputs });
       }
-      if (!(await isUnlocked())) throw new Error("Wallet is locked.");
-      const account = await getAccountById(site.accountId);
-      if (!account) throw new Error("Could not resolve account.");
-      const maxFee = p.maxFee ? BigInt(p.maxFee) : undefined;
-      const doExecute = () => account.execute(p.instructions, { maxFee, dryRun: p.dryRun, inputs: p.inputs });
-      // A dry run spends nothing and never reaches the network's mempool -- recording it as a
-      // "transaction" would be misleading (see instructionSummary.ts's "never decode a Literal"
-      // policy for why the label below is structural only, not amounts).
-      if (p.dryRun) return doExecute();
-      const summary = p.instructions.map((i) => summarizeInstruction(i).title).join(", ");
-      return withHistory({ accountId: site.accountId, kind: "dapp-transaction", counterparty: `${origin}: ${summary}` }, doExecute);
+      const operation: TransactionRequestOperation = {
+        kind: "instructions",
+        instructions: p.instructions,
+        maxFee: p.maxFee,
+        inputs: p.inputs,
+      };
+      return createAndWaitToSubmit(origin, site.accountId, operation);
     }
 
-    // The only way for a connected dApp to move Stealth-typed funds (e.g. XTR) into its own
-    // contract call — `tari_signAndSubmitTransaction`'s `account.execute()` cannot: a plain
-    // `CallMethod withdraw` on a Stealth vault is not a standalone-valid instruction (confirmed:
-    // fails client-side with a generic `TransactionInput` deserialization error, even alone with
-    // no other instructions). See `OotleAccount.withdrawStealthAndExecute`'s own doc comment for
-    // the full story.
+    // Deprecated (see messages.ts). The only way for a connected dApp to move Stealth-typed funds
+    // (e.g. XTR) into its own contract call — `tari_signAndSubmitTransaction`'s `account.execute()`
+    // cannot: a plain `CallMethod withdraw` on a Stealth vault is not a standalone-valid instruction
+    // (confirmed: fails client-side with a generic `TransactionInput` deserialization error, even
+    // alone with no other instructions). See `OotleAccount.withdrawStealthAndExecute`'s own doc
+    // comment for the full story.
     case "tari_withdrawStealthAndExecute": {
       const site = await getConnectedSite(origin);
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
@@ -215,51 +236,241 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
         resourceAddress: string;
         amount: string;
         workspaceVarName: string;
-        followUpInstructions: import("@tari-project/ootle-ts-bindings").Instruction[];
+        followUpInstructions: Instruction[];
         relatedComponents?: string[];
         maxFee?: string;
       };
-      const amount = BigInt(p.amount);
-      const note = `Reveals ${amount.toString()} of ${p.resourceAddress} for use in this transaction.`;
-      const approval: PendingApprovalInput = {
-        kind: "transaction",
-        origin,
-        instructions: p.followUpInstructions,
-        maxFee: p.maxFee,
-        note,
-        accountId: site.accountId,
+      const operation: TransactionRequestOperation = { kind: "withdrawStealthAndExecute", ...p };
+      return createAndWaitToSubmit(origin, site.accountId, operation);
+    }
+
+    // Deprecated (see messages.ts). See `OotleAccount.htlcFund`'s doc comment: fund-only for now
+    // (no way to claim/refund yet).
+    case "tari_htlcFund": {
+      const site = await getConnectedSite(origin);
+      if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      await touchActivity();
+      const p = params as {
+        resourceAddress: string;
+        amount: string;
+        claimantWalletAddress: string;
+        hashLockHex: string;
+        refundEpoch: string;
+        maxFee?: string;
       };
-      const approved = await requestApproval(approval);
-      if (!approved) throw new Error("Transaction rejected.");
-      if (!(await isUnlocked())) throw new Error("Wallet is locked.");
-      const account = await getAccountById(site.accountId);
-      if (!account) throw new Error("Could not resolve account.");
-      // Needs this account's own view secret + one-time stealth signing (SecretKeyWallet), same
-      // as shield()/unshield() — a daemon-relayed account can't provide either (see
-      // WalletDaemonSigner's own doc comment). Not on WalletAccountApi at all, matching how
-      // shield/unshield are handled in the popup-shield/popup-unshield cases above.
-      if (!(account instanceof OotleAccount)) {
-        throw new Error("Withdrawing stealth funds isn't available for daemon-connected accounts -- switch to a local account first.");
-      }
-      const maxFee = p.maxFee ? BigInt(p.maxFee) : undefined;
-      const summary = p.followUpInstructions.map((i) => summarizeInstruction(i).title).join(", ");
-      return withHistory(
-        { accountId: site.accountId, kind: "dapp-transaction", counterparty: `${origin}: reveal + ${summary}` },
-        () =>
-          account.withdrawStealthAndExecute(
-            p.resourceAddress,
-            amount,
-            p.workspaceVarName,
-            p.followUpInstructions,
-            p.relatedComponents ?? [],
-            maxFee
-          )
-      );
+      const operation: TransactionRequestOperation = { kind: "htlcFund", ...p };
+      return createAndWaitToSubmit(origin, site.accountId, operation);
+    }
+
+    case "tari_createTransactionRequest": {
+      const site = await getConnectedSite(origin);
+      if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      await touchActivity();
+      const operation = params as TransactionRequestOperation;
+      if (operation.kind === "instructions") assertNoStealthTransferInstruction(operation.instructions);
+      const { requestId } = await createTransactionRequest(origin, site.accountId, operation);
+      return { requestId };
+    }
+
+    case "tari_getTransactionRequest": {
+      const site = await getConnectedSite(origin);
+      if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      const p = params as { requestId: string };
+      const record = await getTransactionRequest(p.requestId);
+      if (!record || record.origin !== origin) throw new Error("Unknown transaction request.");
+      return toTransactionRequestSummary(record);
+    }
+
+    case "tari_submitTransactionRequest": {
+      const site = await getConnectedSite(origin);
+      if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      await touchActivity();
+      const p = params as { requestId: string };
+      const record = await getTransactionRequest(p.requestId);
+      if (!record || record.origin !== origin) throw new Error("Unknown transaction request.");
+      if (record.status !== "approved") throw new Error(`Cannot submit: this request's status is "${record.status}".`);
+      return submitTransactionRequestOperation(record);
     }
 
     default:
       throw new Error(`Unknown method: ${method satisfies never}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Transaction requests: create -> (popup approval) -> submit
+//
+// Shared by both the new tari_createTransactionRequest/tari_getTransactionRequest/
+// tari_submitTransactionRequest RPCs and the deprecated single-call RPCs (tari_
+// signAndSubmitTransaction/tari_withdrawStealthAndExecute/tari_htlcFund), which are thin wrappers
+// over the same primitives -- see messages.ts's TransactionRequestOperation doc comment.
+// ---------------------------------------------------------------------------
+
+// account.execute() only builds/signs/seals via TransactionBuilder -- it never runs
+// WalletStealthAuthorizer, so it can't produce the balance proof or per-input one-time
+// authorizations a real StealthTransfer instruction needs. The engine would reject an incomplete
+// statement anyway (no fund-loss risk), but failing fast with a clear message beats a confusing
+// late rejection, and skips popping an approval window for a tx that can never succeed via this
+// path.
+function assertNoStealthTransferInstruction(instructions: Instruction[]): void {
+  if (instructions.some(isStealthTransferInstruction)) {
+    throw new Error("Stealth transfers aren't supported via a connected app yet — use the wallet's own Shield/Unshield screens.");
+  }
+}
+
+/** The (instructions to display, note to explain) pair shown on the popup approval screen for
+ * `operation` -- one case per kind, matching exactly what each of the three deprecated RPCs
+ * showed before they became wrappers over this shared flow. */
+function summarizeOperationForApproval(operation: TransactionRequestOperation): { instructions: Instruction[]; note?: string } {
+  switch (operation.kind) {
+    case "instructions":
+      return { instructions: operation.instructions };
+    case "withdrawStealthAndExecute":
+      return {
+        instructions: operation.followUpInstructions,
+        note: `Reveals ${BigInt(operation.amount).toString()} of ${operation.resourceAddress} for use in this transaction.`,
+      };
+    case "htlcFund":
+      return {
+        instructions: [],
+        note: `Locks ${BigInt(operation.amount).toString()} of ${operation.resourceAddress} in an HTLC, claimable by ${
+          operation.claimantWalletAddress
+        } (with the matching secret) before epoch ${BigInt(operation.refundEpoch).toString()}, refundable back to this account after.`,
+      };
+  }
+}
+
+/** The transaction-history `counterparty` label for `operation` -- one case per kind, matching
+ * exactly what each of the three deprecated RPCs recorded before they became wrappers. */
+function operationHistoryLabel(origin: string, operation: TransactionRequestOperation): string {
+  switch (operation.kind) {
+    case "instructions": {
+      const summary = operation.instructions.map((i) => summarizeInstruction(i).title).join(", ");
+      return `${origin}: ${summary}`;
+    }
+    case "withdrawStealthAndExecute": {
+      const summary = operation.followUpInstructions.map((i) => summarizeInstruction(i).title).join(", ");
+      return `${origin}: reveal + ${summary}`;
+    }
+    case "htlcFund":
+      return `${origin}: HTLC fund -> ${operation.claimantWalletAddress}`;
+  }
+}
+
+function toTransactionRequestSummary(record: TransactionRequestRecord): TransactionRequestSummary {
+  return {
+    requestId: record.id,
+    status: record.status,
+    note: record.note,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+    result: record.result,
+    error: record.error,
+  };
+}
+
+/**
+ * Persists a `TransactionRequestRecord` (status "pending") and fires off — without awaiting — the
+ * same popup approval every transaction always required, sharing the approval's id with the
+ * record's id (see approvals.ts's `requestApproval` doc comment) so the popup's click updates this
+ * exact record. Returns immediately; `approved` resolves later, whenever the user actually clicks
+ * — callers that need to block on it (the deprecated wrappers) await it themselves.
+ */
+async function createTransactionRequest(
+  origin: string,
+  accountId: string,
+  operation: TransactionRequestOperation
+): Promise<{ requestId: string; approved: Promise<boolean> }> {
+  const requestId = crypto.randomUUID();
+  const { instructions, note } = summarizeOperationForApproval(operation);
+  const maxFee = "maxFee" in operation ? operation.maxFee : undefined;
+  const now = Date.now();
+  const record: TransactionRequestRecord = {
+    id: requestId,
+    origin,
+    accountId,
+    operation,
+    note: note ?? "",
+    status: "pending",
+    createdAt: now,
+    expiresAt: now + TRANSACTION_REQUEST_TTL_MS,
+  };
+  // Written before the approval popup can possibly be interacted with, so resolveApproval's dual
+  // write (background/approvals.ts) always finds this record -- there is no window where the user
+  // could click before it exists.
+  await addTransactionRequest(record);
+  const approval: PendingApprovalInput = { kind: "transaction", origin, instructions, maxFee, note, accountId };
+  const approved = requestApproval(approval, requestId);
+  return { requestId, approved };
+}
+
+/**
+ * Executes an `"approved"` request's operation via the matching account method, updates its
+ * persisted status to `"submitted"`/`"failed"`, and returns the result (or rethrows) -- shared by
+ * `tari_submitTransactionRequest` and every deprecated wrapper's final step.
+ */
+async function submitTransactionRequestOperation(record: TransactionRequestRecord): Promise<unknown> {
+  if (!(await isUnlocked())) throw new Error("Wallet is locked.");
+  const account = await getAccountById(record.accountId);
+  if (!account) throw new Error("Could not resolve account.");
+  const operation = record.operation;
+  const maxFee = operation.maxFee !== undefined ? BigInt(operation.maxFee) : undefined;
+
+  const doExecute = (): Promise<unknown> => {
+    switch (operation.kind) {
+      case "instructions":
+        return account.execute(operation.instructions, { maxFee, inputs: operation.inputs });
+      case "withdrawStealthAndExecute":
+        // Needs this account's own view secret + one-time stealth signing (SecretKeyWallet), same
+        // as shield()/unshield() — a daemon-relayed account can't provide either (see
+        // WalletDaemonSigner's own doc comment).
+        if (!(account instanceof OotleAccount)) {
+          throw new Error("Withdrawing stealth funds isn't available for daemon-connected accounts -- switch to a local account first.");
+        }
+        return account.withdrawStealthAndExecute(
+          operation.resourceAddress,
+          BigInt(operation.amount),
+          operation.workspaceVarName,
+          operation.followUpInstructions,
+          operation.relatedComponents ?? [],
+          maxFee
+        );
+      case "htlcFund":
+        // See tari_withdrawStealthAndExecute's own comment: only a seed-derived local account can
+        // build the PayTo::Conditions output witness this needs.
+        if (!(account instanceof OotleAccount)) {
+          throw new Error("Funding an HTLC isn't available for daemon-connected accounts -- switch to a local account first.");
+        }
+        return account.htlcFund(
+          operation.resourceAddress,
+          BigInt(operation.amount),
+          operation.claimantWalletAddress,
+          operation.hashLockHex,
+          BigInt(operation.refundEpoch),
+          maxFee
+        );
+    }
+  };
+
+  const counterparty = operationHistoryLabel(record.origin, operation);
+  try {
+    const result = await withHistory({ accountId: record.accountId, kind: "dapp-transaction", counterparty }, doExecute);
+    await setTransactionRequestStatus(record.id, { status: "submitted", result: sanitizeForMessage(result) });
+    return result;
+  } catch (e) {
+    await setTransactionRequestStatus(record.id, { status: "failed", error: String(e instanceof Error ? e.message : e) });
+    throw e;
+  }
+}
+
+/** The deprecated-RPC path: create, block until the user responds (exactly like these methods
+ * always blocked), then submit. */
+async function createAndWaitToSubmit(origin: string, accountId: string, operation: TransactionRequestOperation): Promise<unknown> {
+  const { requestId, approved } = await createTransactionRequest(origin, accountId, operation);
+  if (!(await approved)) throw new Error("Transaction rejected.");
+  const record = await getTransactionRequest(requestId);
+  if (!record) throw new Error("Transaction request expired.");
+  return submitTransactionRequestOperation(record);
 }
 
 /**
@@ -640,7 +851,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       return getPendingApproval(message.approvalId) ?? null;
 
     case "popup-resolve-approval":
-      return { resolved: resolveApproval(message.approvalId, message.approve) };
+      return { resolved: await resolveApproval(message.approvalId, message.approve) };
 
     case "popup-reset-wallet": {
       await clearUnlockedSeed();

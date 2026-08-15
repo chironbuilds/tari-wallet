@@ -2,6 +2,7 @@
 // restarts. The encrypted vault blob and every daemon connection's API key are the sensitive
 // pieces here — see vault.ts and secretAtRest.ts respectively for how each is protected;
 // everything else in this file is plain metadata.
+import type { TransactionRequestOperation } from "./messages";
 import type { EncryptedVault } from "./vault";
 import type { EncryptedSecret } from "./secretAtRest";
 import { DEFAULT_AUTO_LOCK_MINUTES } from "./autoLock";
@@ -146,6 +147,46 @@ export interface TransactionHistoryEntry {
 
 const MAX_TRANSACTION_HISTORY_ENTRIES = 500;
 
+/**
+ * A dApp-proposed transaction, tracked through create -> (popup approval) -> submit -- mirrors
+ * `tari_ootle_walletd`'s `transaction_requests.create/approve/submit` flow (tari-project/
+ * tari-ootle#2348), adapted for a browser extension where the *approver* is always the human via
+ * the popup (never the dApp itself; there is deliberately no dApp-facing "approve" RPC -- that
+ * would let a dApp approve its own request).
+ *
+ * Persisted (unlike the plain in-memory approval queue in background/approvals.ts) specifically
+ * so `tari_getTransactionRequest`/`tari_submitTransactionRequest` keep working across a service
+ * worker restart (MV3 tears the worker down after ~30s idle) -- a dApp that created a request,
+ * had the user approve it, then the worker recycled before it called submit, can still discover
+ * the "approved" status and submit, instead of the whole flow being silently lost.
+ */
+export interface TransactionRequestRecord {
+  id: string;
+  origin: string;
+  accountId: string;
+  operation: TransactionRequestOperation;
+  /** Human-readable summary shown on the popup approval screen and returned to the dApp --
+   * computed once at creation from `operation` (see background/index.ts). */
+  note: string;
+  status: "pending" | "approved" | "rejected" | "submitted" | "failed";
+  createdAt: number;
+  /** A stale "pending"/"approved" request reads back as expired (checked lazily on read, never
+   * written -- mirrors walletd's own "Expired = derived on read" design) rather than being
+   * submittable indefinitely against possibly-stale substate versions/fee estimates. */
+  expiresAt: number;
+  /** Set once `status` is "submitted" -- the sanitized (BigInt-free) result of executing
+   * `operation`. */
+  result?: unknown;
+  /** Set once `status` is "failed". */
+  error?: string;
+}
+
+const MAX_TRANSACTION_REQUESTS = 200;
+/** How long a "pending"/"approved" request stays submittable -- see `getTransactionRequest`'s
+ * lazy-expiry doc comment. Exported so background/index.ts can stamp `expiresAt` at creation
+ * without duplicating the constant. */
+export const TRANSACTION_REQUEST_TTL_MS = 15 * 60 * 1000;
+
 export interface WalletState {
   vault: EncryptedVault | null;
   accountCount: number; // how many *local* (seed-derived) accounts have been derived/revealed
@@ -180,6 +221,9 @@ export interface WalletState {
    * glance" pattern -- the address can't be derived without decrypting the seed, so there'd
    * otherwise be no way to know it before the password is entered. */
   lastKnownAddress: string | null;
+  /** dApp-proposed transactions tracked through create -> approve -> submit, newest first,
+   * capped at MAX_TRANSACTION_REQUESTS -- see TransactionRequestRecord's doc comment. */
+  transactionRequests: TransactionRequestRecord[];
 }
 
 const DEFAULTS: WalletState = {
@@ -197,6 +241,7 @@ const DEFAULTS: WalletState = {
   pendingShields: [],
   privatePaymentScanCursors: {},
   lastKnownAddress: null,
+  transactionRequests: [],
 };
 
 export function localAccountId(index: number): string {
@@ -345,6 +390,46 @@ export async function addTransactionHistoryEntry(entry: TransactionHistoryEntry)
 export async function listTransactionHistory(accountId: string): Promise<TransactionHistoryEntry[]> {
   const { transactionHistory } = await getState();
   return transactionHistory.filter((e) => e.accountId === accountId);
+}
+
+/** Newest-first; entries beyond MAX_TRANSACTION_REQUESTS are dropped (oldest first) -- these are
+ * short-lived (a few minutes, per TRANSACTION_REQUEST_TTL_MS), so the cap is mainly a defense
+ * against a misbehaving/spamming site, not normal usage. */
+export async function addTransactionRequest(record: TransactionRequestRecord): Promise<void> {
+  await serialized(async () => {
+    const state = await getState();
+    await setState({ transactionRequests: [record, ...state.transactionRequests].slice(0, MAX_TRANSACTION_REQUESTS) });
+  });
+}
+
+/** Reports a lazily-computed "expired" status (never written back) for a stale pending/approved
+ * request, mirroring walletd's own "Expired = derived on read" design -- see
+ * TransactionRequestRecord's doc comment. */
+export async function getTransactionRequest(id: string): Promise<TransactionRequestRecord | undefined> {
+  const { transactionRequests } = await getState();
+  const record = transactionRequests.find((r) => r.id === id);
+  if (!record) return undefined;
+  if ((record.status === "pending" || record.status === "approved") && Date.now() > record.expiresAt) {
+    return { ...record, status: "rejected", error: "This request expired before it was submitted." };
+  }
+  return record;
+}
+
+/** Transitions a request to "approved"/"rejected" (from the popup's click) or "submitted"/"failed"
+ * (from actually executing it). Returns whether a matching record was found. */
+export async function setTransactionRequestStatus(
+  id: string,
+  update: { status: "approved" | "rejected" } | { status: "submitted"; result: unknown } | { status: "failed"; error: string }
+): Promise<boolean> {
+  return serialized(async () => {
+    const state = await getState();
+    const index = state.transactionRequests.findIndex((r) => r.id === id);
+    if (index === -1) return false;
+    const transactionRequests = [...state.transactionRequests];
+    transactionRequests[index] = { ...transactionRequests[index]!, ...update };
+    await setState({ transactionRequests });
+    return true;
+  });
 }
 
 export async function wipeWallet(): Promise<void> {

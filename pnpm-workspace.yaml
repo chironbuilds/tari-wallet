@@ -20,11 +20,22 @@ overrides:
   uuid: ^11.1.1
   # @tari-project/ootle (0.1.0, frozen since 2026-06-01) pins its own internal ootle-wasm
   # dependency to ^0.32.0 -- pnpm resolves that strictly to its own nested copy, separate from
-  # the ^0.37.0 this project requires directly. Confirmed (diffing the two installed .d.ts files)
+  # the version this project requires directly. Confirmed (diffing the two installed .d.ts files)
   # that createStealthOutputWitness's internal JSON wrapper key renamed spend_condition -> auth
   # between those versions, with the same JS function signature either way -- so StealthTransfer/
   # WalletStealthAuthorizer (which call this via WasmStealthCrypto) were silently building stealth
   # outputs in the stale pre-rename shape. This forces a single, current copy everywhere.
+  #
+  # TEMPORARILY REVERTED to the last known-good published version (2026-08-15) -- the
+  # vendor/ootle-wasm-patched build (see that dir's README) was built from tari-ootle's bleeding-
+  # edge `development` branch to pick up tari-project/tari-ootle#2426's HTLC exports, but that
+  # branch had accumulated many *unrelated* commits since 0.37.0/0.38.0 was cut. Confirmed live
+  # (via tari-dex/swap-ui, both the old tari_signAndSubmitTransaction path and the new create/
+  # submit path) that plain, non-stealth transaction submission started failing server-side with
+  # "Invalid transaction signature" after that swap -- something in the newer wasm build's
+  # signing/hashing changed in a way the (older, stable) validator/indexer doesn't accept. Do not
+  # re-vendor from a bleeding-edge branch commit again without a real live round-trip test of a
+  # plain CallMethod transaction, not just the new stealth exports.
   '@tari-project/ootle-wasm': ^0.37.0
   # @tari-project/ootle@0.1.0 also omits `covenant_claims` from the stealth-transfer statement
   # it signs -- a field the current protocol's wire struct requires, causing shield/unshield to
