@@ -40,7 +40,7 @@ one-time key at all, but a **condition tree** (TIP-0006 `PayTo::Conditions`) —
 of alternative spend paths, only the root of which is committed on-chain. `src/lib/htlc.ts` builds
 the specific two-leaf shape this wallet uses:
 
-- **Claim leaf**: SHA-256 hashlock of a secret, AND before a refund epoch, AND the claimant's
+- **Claim leaf**: SHA-256 hashlock of a secret (exactly 64 hex characters), AND before a refund epoch, AND the claimant's
   public key.
 - **Refund leaf**: at/after the refund epoch, AND the refunder's (funder's own) public key.
 
