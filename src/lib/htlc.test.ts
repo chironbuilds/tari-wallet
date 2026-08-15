@@ -66,6 +66,39 @@ describe("htlcConditions", () => {
       })
     ).toThrow(/safe JS integer/);
   });
+
+  it("rejects a non-positive refundEpoch", () => {
+    expect(() =>
+      htlcConditions({
+        hashLockHex: HASH_LOCK_HEX,
+        refundEpoch: 0n,
+        claimantPublicKeyHex: CLAIMANT_PK_HEX,
+        refunderPublicKeyHex: REFUNDER_PK_HEX,
+      })
+    ).toThrow(/positive epoch/);
+  });
+
+  it("rejects a hashLockHex that isn't exactly 64 hex characters", () => {
+    expect(() =>
+      htlcConditions({
+        hashLockHex: "abcd",
+        refundEpoch: REFUND_EPOCH,
+        claimantPublicKeyHex: CLAIMANT_PK_HEX,
+        refunderPublicKeyHex: REFUNDER_PK_HEX,
+      })
+    ).toThrow(/64 hex characters/);
+  });
+
+  it("rejects a hashLockHex containing non-hex characters", () => {
+    expect(() =>
+      htlcConditions({
+        hashLockHex: "z".repeat(64),
+        refundEpoch: REFUND_EPOCH,
+        claimantPublicKeyHex: CLAIMANT_PK_HEX,
+        refunderPublicKeyHex: REFUNDER_PK_HEX,
+      })
+    ).toThrow(/64 hex characters/);
+  });
 });
 
 describe("accessRuleRequiringPublicKey", () => {

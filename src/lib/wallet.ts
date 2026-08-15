@@ -50,6 +50,7 @@ import {
   localAccountId,
   markShieldedOutputSpent,
   removePendingShield,
+  serialized,
   setPrivatePaymentScanCursor,
 } from "./storage";
 import type { ShieldedOutputRecord } from "./storage";
@@ -1313,9 +1314,26 @@ async function recordKnownVersions(response: IndexerGetTransactionResultResponse
         : undefined;
   if (!upSubstates || upSubstates.length === 0) return;
 
-  const known = await loadKnownVersions();
-  for (const [id, substate] of upSubstates) known.set(id, substate.version);
-  await chrome.storage.local.set({ [KNOWN_VERSIONS_STORAGE_KEY]: Object.fromEntries(known) });
+  const updates = new Map<string, number>();
+  for (const [id, substate] of upSubstates) updates.set(id, substate.version);
+
+  // Serialized through the same write queue as every other storage mutation (see storage.ts's
+  // `serialized`) so two concurrent confirmations can't interleave their read-modify-write on
+  // this key and lose an update, and so this write can't race `wipeWallet()`'s
+  // `chrome.storage.local.clear()` to leave a wiped wallet's version numbers behind.
+  await serialized(async () => {
+    const known = await loadKnownVersions();
+    for (const [id, version] of updates) known.set(id, version);
+    await chrome.storage.local.set({ [KNOWN_VERSIONS_STORAGE_KEY]: Object.fromEntries(known) });
+  });
+}
+
+/** Drops the in-memory known-versions cache. Called on wallet reset (see background/index.ts's
+ * `popup-reset-wallet`) so a freshly-created wallet can't inherit the previous wallet's cached
+ * version numbers — the storage side of that wipe is already handled by `wipeWallet()`'s
+ * serialized clear. */
+export function resetKnownVersions(): void {
+  knownVersionsPromise = null;
 }
 
 /**

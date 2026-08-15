@@ -43,7 +43,7 @@ import type { Instruction, SubstateRequirement } from "@tari-project/ootle-ts-bi
 import { isStealthTransferInstruction } from "@tari-project/ootle";
 import { componentAddressFromWalletAddress } from "../lib/componentAddress";
 import { DaemonAccount } from "../lib/daemonAccount";
-import { OotleAccount, recoverPendingShields } from "../lib/wallet";
+import { OotleAccount, recoverPendingShields, resetKnownVersions } from "../lib/wallet";
 import { clearAccountCache, getAccountById, getActiveAccount, getDaemonClient } from "./accounts";
 import { clearUnlockedSeed, getLastActivity, getUnlockedSeed, isUnlocked, setUnlockedSeed, touchActivity } from "./session";
 import { getPendingApproval, requestApproval, resolveApproval } from "./approvals";
@@ -79,7 +79,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handlePopupRequest(message as PopupRequest)
       .then((result) => sendResponse({ ok: true, result: sanitizeForMessage(result) }))
       .catch((err) => {
-        console.error(`[popup-request:${message.kind}]`, err); // TEMP diagnostic -- see wallet.ts shield() debugging
+        // Deliberately not logging the error text: a failed popup request's error can embed the
+        // user-entered daemon URL, which shouldn't leak into the extension console.
         sendResponse({ ok: false, error: String(err?.message ?? err) });
       });
     return true;
@@ -865,6 +866,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     case "popup-reset-wallet": {
       await clearUnlockedSeed();
       clearAccountCache();
+      resetKnownVersions();
       await wipeWallet();
       return {};
     }

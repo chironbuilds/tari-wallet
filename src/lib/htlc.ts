@@ -57,12 +57,23 @@ export interface HtlcConditionsParams {
  * that's committed publicly; these full leaves must be handed to the claimant out of band (e.g. by
  * the swap protocol/dApp) so they can later reveal the claim leaf via `buildScriptPathWitness`. */
 export function htlcConditions(params: HtlcConditionsParams): object[] {
+  // The hash is the SHA-256 digest of the secret preimage: exactly 32 bytes (64 hex chars). A
+  // malformed value here silently produces a claim path that can never be satisfied by the
+  // intended claimant, so reject it up front rather than funding an unclaimable output. Hex is
+  // case-insensitive; normalize to lowercase for a canonical, deterministic hash string.
+  if (!/^[0-9a-f]{64}$/i.test(params.hashLockHex)) {
+    throw new Error(`htlcConditions: hashLockHex must be exactly 64 hex characters (32 bytes), got ${JSON.stringify(params.hashLockHex)}`);
+  }
   if (!Number.isSafeInteger(Number(params.refundEpoch))) {
     throw new Error(`htlcConditions: refundEpoch ${params.refundEpoch} is not representable as a safe JS integer`);
   }
+  if (params.refundEpoch <= 0n) {
+    throw new Error(`htlcConditions: refundEpoch must be a positive epoch, got ${params.refundEpoch}`);
+  }
+  const hashLockHex = params.hashLockHex.toLowerCase();
   const refundEpoch = Number(params.refundEpoch);
   const claim = [
-    { Builtin: { HashLock: { hash: params.hashLockHex, alg: "Sha256" } } },
+    { Builtin: { HashLock: { hash: hashLockHex, alg: "Sha256" } } },
     { Builtin: { BeforeEpoch: refundEpoch } },
     { AccessRule: accessRuleRequiringPublicKey(params.claimantPublicKeyHex) },
   ];

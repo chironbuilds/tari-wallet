@@ -283,7 +283,7 @@ export async function setState(patch: Partial<WalletState>): Promise<void> {
 // ...) don't need this -- a plain read has nothing to lose by racing a write, it just sees
 // whichever state happens to be current, same as any eventually-consistent read would.
 let writeQueue: Promise<unknown> = Promise.resolve();
-function serialized<T>(fn: () => Promise<T>): Promise<T> {
+export function serialized<T>(fn: () => Promise<T>): Promise<T> {
   const result = writeQueue.then(fn, fn);
   writeQueue = result.then(
     () => undefined,
