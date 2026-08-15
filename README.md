@@ -19,6 +19,10 @@ See "Daemon-relayed accounts" below.
 — listed there under the extension's original name/version pending a store update; the current
 name is Sapient. **Testnet-only. Under active development. Do not use it to hold real value.**
 
+📖 **[Full documentation](docs/README.md)** — architecture (extension internals, transaction
+lifecycle, stealth/HTLC support) and integration (provider API reference, transaction-request flow,
+what to expect) as a [GitBook](https://www.gitbook.com)-structured book under `docs/`.
+
 ## License
 
 [PolyForm Noncommercial 1.0.0](LICENSE) — free to use, modify, and share for any noncommercial
