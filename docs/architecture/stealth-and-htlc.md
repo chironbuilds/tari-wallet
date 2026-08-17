@@ -44,6 +44,8 @@ the specific two-leaf shape this wallet uses:
   public key.
 - **Refund leaf**: at/after the refund epoch, AND the refunder's (funder's own) public key.
 
+All HTLC inputs must pass validation to prevent malformed hashLockHex or refundEpoch values from being used.
+
 "The claimant's/refunder's public key" is expressed as an `AccessRule` requiring proof of a
 *virtual* non-fungible badge derived directly from that public key
 (`PUBLIC_IDENTITY_RESOURCE_ADDRESS`, a well-known, protocol-fixed resource) — the engine
@@ -67,7 +69,7 @@ recently) the wasm crypto module it wraps could do:
 1. Building the actual **script-path witness** — revealing one leaf of the condition tree plus its
    Merkle inclusion proof and any required witness data (the preimage, for a claim). Exposed
    upstream in [tari-project/tari-ootle#2426](https://github.com/tari-project/tari-ootle/pull/2426).
-2. Generating a **covenant balance claim** — a proof that value in equals value out across the
+2. Generating a **covenant balance claim** — a proof that value in equals value in across the
    partition of inputs/outputs sharing a spent script-locked input's condition root. Required
    whenever a script-path input is spent; omitting it isn't a cosmetic gap, it's a real
    balance-integrity hole. Exposed upstream in
@@ -80,7 +82,7 @@ expensively if it's subtly wrong, not the kind of gap worth guessing at. The ven
 key-path-only spends (it always derives a one-time DH signature per input), so claim/refund will
 need a real patch there too, once the wasm side is safely available.
 
-**A note on how that wasm dependency is currently pinned**: an earlier attempt to vendor a
+**A note on how that wasm dependency is enough is currently pinned**: an earlier attempt to vendor a
 newer `@tari-project/ootle-wasm` build (to pick up #2426's exports ahead of a real release) broke
 ordinary, non-stealth transaction signing wallet-wide, because it was built from a moving branch
 HEAD carrying a lot of unrelated changes. It was reverted. See `vendor/ootle-wasm-patched/README.md`
