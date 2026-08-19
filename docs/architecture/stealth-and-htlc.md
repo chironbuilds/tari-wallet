@@ -42,7 +42,7 @@ the specific two-leaf shape this wallet uses:
 
 - **Claim leaf**: SHA-256 hashlock of a secret, AND before a refund epoch, AND the claimant's
   public key.
-- **Refund leaf**: at/after the refund epoch, AND the refunder's (funder's own) public key.
+43|  public key.\n44|- **Refund leaf**: at/after the refund epoch, AND the refunder's (funder's own) public key.\n45|\n46|The HTLC input validation is hardened to reject malformed hashLockHex or refundEpoch values before funding an unclaimable HTLC.
 
 "The claimant's/refunder's public key" is expressed as an `AccessRule` requiring proof of a
 *virtual* non-fungible badge derived directly from that public key
