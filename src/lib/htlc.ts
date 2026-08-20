@@ -1,6 +1,7 @@
 // HTLC (hashed timelock contract) condition-tree helpers for stealth outputs, built on TIP-0006
-// script-path spending (`PayTo::Conditions`). See vendor/ootle-wasm-patched/README.md and
-// tari-project/tari-ootle#2426 for the underlying wasm capability this builds on.
+// script-path spending (`PayTo::Conditions`). See tari-project/tari-ootle#2426 and #2431 for the
+// underlying wasm capability this builds on (buildScriptPathWitness/buildStealthTransferStatement,
+// published in @tari-project/ootle-wasm@0.39.0).
 //
 // The exact nested shape here (`AccessRule`/`RestrictedAccessRule`/`RequireRule`/`RuleRequirement`/
 // `NonFungibleAddress`) mirrors `tari-ootle`'s own reference implementation

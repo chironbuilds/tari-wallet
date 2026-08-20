@@ -1,4 +1,12 @@
-import { Network, TransactionBuilder, amountLiteral, defaultIndexerUrl, resolveTransaction, resourceAddressLiteral } from "@tari-project/ootle";
+import {
+  Network,
+  TransactionBuilder,
+  amountLiteral,
+  defaultIndexerUrl,
+  resolveMaxEpoch,
+  resolveTransaction,
+  resourceAddressLiteral,
+} from "@tari-project/ootle";
 import { IndexerProvider } from "@tari-project/ootle-indexer";
 import { WalletDaemonClient } from "@tari-project/ootle-wallet-daemon-signer";
 import type {
@@ -233,7 +241,10 @@ export class DaemonAccount implements WalletAccountApi {
     if (!ownerKeyId) throw new Error("This daemon account has no owner key — it is view-only and cannot sign transactions.");
 
     const maxFee = opts.maxFee ?? 5000n;
-    const builder = TransactionBuilder.new(this.network).withInstructions(instructions).feeTransactionPayFromComponent(this.account.component_address, maxFee);
+    const maxEpoch = await resolveMaxEpoch(this.indexerProvider);
+    const builder = TransactionBuilder.new(this.network, maxEpoch)
+      .withInstructions(instructions)
+      .feeTransactionPayFromComponent(this.account.component_address, maxFee);
     if (opts.inputs?.length) builder.withInputs(opts.inputs);
     const unsignedTx = await withTimeout(
       resolveTransaction(this.indexerProvider, builder.buildUnsignedTransaction()),
@@ -332,6 +343,7 @@ export function toIndexerResultShape(response: TransactionWaitResultResponse): I
           execution_time: { secs: 0, nanos: 0 },
           execute_epoch: null,
           wasm_execution_points: 0n,
+          native_execution_points: 0n,
         },
         execution_time: { secs: 0, nanos: 0 },
         finalized_time: new Date().toISOString(),

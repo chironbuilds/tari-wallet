@@ -83,9 +83,11 @@ need a real patch there too, once the wasm side is safely available.
 **A note on how that wasm dependency is currently pinned**: an earlier attempt to vendor a
 newer `@tari-project/ootle-wasm` build (to pick up #2426's exports ahead of a real release) broke
 ordinary, non-stealth transaction signing wallet-wide, because it was built from a moving branch
-HEAD carrying a lot of unrelated changes. It was reverted. See `vendor/ootle-wasm-patched/README.md`
-for the full story if you're the one picking this work back up — it has specific guidance on how to
-do it safely next time.
+HEAD carrying a lot of unrelated changes. It was reverted at the time. Both #2426 and #2431 have
+since shipped in a real, officially published release (`@tari-project/ootle-wasm@0.39.0`+) — this
+project now depends on that directly (`^0.39.1`, no override, no vendor copy), confirmed to export
+`buildScriptPathWitness`/`buildStealthInputsStatementFromInputs`/`buildStealthTransferStatement`
+and to still sign an ordinary, non-stealth transaction correctly.
 
 ### `tari_getCapabilities` reflects this honestly
 

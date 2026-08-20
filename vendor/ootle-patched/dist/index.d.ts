@@ -48,7 +48,7 @@ import { WorkspaceOffsetId } from '@tari-project/ootle-ts-bindings';
  *
  * @example
  * ```ts
- * const tx = new AccountInvokeBuilder(network)
+ * const tx = new AccountInvokeBuilder(network, maxEpoch)
  *   .feeTransactionPayFromComponent(accountAddress, 1000n)
  *   .publicTransfer(accountAddress, resourceAddress, 500n, recipientAddress)
  *   .build();
@@ -56,7 +56,7 @@ import { WorkspaceOffsetId } from '@tari-project/ootle-ts-bindings';
  */
 export declare class AccountInvokeBuilder {
     private builder;
-    constructor(network: Network | number);
+    constructor(network: Network | number, maxEpoch: number);
     /**
      * Declares the transaction's substate inputs (e.g. the source account and its
      * vaults) so the indexer resolves their versions before submission.
@@ -80,14 +80,19 @@ export declare class AccountInvokeBuilder {
      * for a follow-up instruction.
      */
     publishTemplate(_sourceAccount: ComponentAddress, templateBinaryBase64: string, workspaceBucket?: string): this;
-    build(): UnsignedTransactionWithBlobs;
+    build(): UnsignedTransactionV1;
 }
 
 export { Amount }
 
 /**
- * CBOR-encode an `Amount` (u128) as the `[lo_u64, hi_u64]` pair the runtime
- * deserialises via `tari_bor`.
+ * CBOR-encode an `Amount` (u128) the way the runtime's `minicbor` codec does:
+ * a plain CBOR unsigned integer while the value fits the CBOR integer range
+ * (`0..=u64::MAX`), and an RFC 8949 tag-2 unsigned bignum (minimal-length
+ * big-endian byte string) above it.
+ *
+ * Wire-breaking against the pre-0.39 `[lo_u64, hi_u64]` digit-array form —
+ * templates built against an older `tari_template_lib` cannot decode this.
  *
  * @throws {InvalidArgumentError} if `value` is negative or overflows u128.
  */
@@ -351,7 +356,7 @@ export { Decision }
  * The result of decrypting an owned output via the AEAD path (`unblindOutput`).
  *
  * Maps from the WASM `DecryptedOutputResult { mask: Uint8Array, value: bigint,
- * memo_json: string | undefined }`. Per the verified 0.32 ABI, `memo` is the
+ * memo_json: string | undefined }`. Per the verified 0.38 ABI, `memo` is the
  * **JSON-encoded `Memo` string** (`U256` / `Message` / `Bytes` / `PayRefAndBytes`),
  * not raw bytes — callers parse it if needed.
  */
@@ -407,6 +412,14 @@ export declare interface DecryptInputOptions {
 export declare function decryptOwnedUtxo(crypto: StealthCryptoProvider, viewSecret: Uint8Array, substate: IndexerGetSubstateResponse, substateId: string): Promise<DecryptedData | null>;
 
 /**
+ * The validity window {@link resolveMaxEpoch} applies when the caller does not name one.
+ * Ten epochs is comfortably longer than a transaction takes to finalize while still
+ * letting a stuck transaction die on its own rather than lingering as a resubmittable
+ * intent.
+ */
+export declare const DEFAULT_TRANSACTION_VALIDITY_EPOCHS = 10;
+
+/**
  * Returns a known default indexer URL for the given network.
  * Mirrors `default_indexer_url()` from the Rust ootle-rs crate.
  *
@@ -442,7 +455,7 @@ export { ExecuteResult }
  *
  * @example
  * ```ts
- * const tx = new FaucetInvokeBuilder(network, faucetAddress)
+ * const tx = new FaucetInvokeBuilder(network, maxEpoch, faucetAddress)
  *   .feeTransactionPayFromComponent(accountAddress, 1000n)
  *   .takeFaucetFunds(accountAddress, 10_000n)
  *   .build();
@@ -451,7 +464,7 @@ export { ExecuteResult }
 export declare class FaucetInvokeBuilder {
     private builder;
     private readonly faucetAddress;
-    constructor(network: Network | number, faucetAddress: ComponentAddress);
+    constructor(network: Network | number, maxEpoch: number, faucetAddress: ComponentAddress);
     feeTransactionPayFromComponent(componentAddress: ComponentAddress, maxFee: bigint): this;
     /**
      * Takes `amount` of funds from the faucet and deposits them into `destinationAccount`.
@@ -468,7 +481,7 @@ export declare class FaucetInvokeBuilder {
      * Mirrors `FaucetInvokeBuilder::publish_template` from ootle-rs.
      */
     publishTemplate(templateAddress: PublishedTemplateAddress, workspaceBucket?: string): this;
-    build(): UnsignedTransactionWithBlobs;
+    build(): UnsignedTransactionV1;
 }
 
 export { FinalizeOutcome }
@@ -566,8 +579,8 @@ export { InstructionArg }
 
 /**
  * CBOR-encode a plain integer (Rust `u8`…`u128` / `i8`…`i128`) as a bare CBOR
- * integer. Distinct from {@link amountLiteral}, which encodes the `Amount` type
- * as a two-element array.
+ * integer. Distinct from {@link amountLiteral} only above the CBOR integer
+ * range, where an `Amount` becomes a tag-2 bignum and this throws instead.
  *
  * @throws {InvalidArgumentError} if the magnitude exceeds the 64-bit CBOR
  *   integer range (128-bit bignum encoding is not supported).
@@ -634,6 +647,14 @@ export declare class Mask extends Bytes32 {
     /** Parse a 64-char hex string into a `Mask` (validates length). */
     static fromHex(hex: string): Mask;
 }
+
+/**
+ * The longest validity window any network accepts, in epochs
+ * (`ConsensusConstants::max_transaction_validity_epochs`, ~30 days). A transaction whose
+ * `max_epoch` sits further ahead of the current epoch than this is aborted with
+ * `AbortReason::ValidityWindowTooLong`.
+ */
+export declare const MAX_TRANSACTION_VALIDITY_EPOCHS = 2160;
 
 /**
  * CBOR-encode a `Metadata` map as `Tag(129, Map<text, text>)`. Keys are emitted
@@ -880,6 +901,15 @@ export declare function patchStealthStatement(unsignedTx: UnsignedTransactionV1,
 export declare interface Provider {
     /** Returns the network this provider is connected to. */
     network(): Network;
+    /**
+     * Returns the epoch the network is currently on.
+     *
+     * Every transaction carries a mandatory `max_epoch`, capped at
+     * `MAX_TRANSACTION_VALIDITY_EPOCHS` past this value, so a builder needs the chain tip
+     * before it can be constructed: `TransactionBuilder.new(network, await
+     * provider.getCurrentEpoch() + 10)`.
+     */
+    getCurrentEpoch(): Promise<number>;
     /** Fetches a single substate by ID and optional version. */
     getSubstate(substateId: string, version?: number | null): Promise<IndexerGetSubstateResponse>;
     /**
@@ -934,6 +964,20 @@ declare interface ResolvedStealthInput {
     /** The fetched UTXO's sender public nonce (`OutputBody.public_nonce`), raw bytes. */
     publicNonce: Uint8Array;
 }
+
+/**
+ * Reads the chain tip and returns the `max_epoch` a transaction built now should carry:
+ * `currentEpoch + leadEpochs`.
+ *
+ * ```ts
+ * const builder = TransactionBuilder.new(provider.network(), await resolveMaxEpoch(provider));
+ * ```
+ *
+ * @throws {InvalidArgumentError} if `leadEpochs` is not a positive integer, or exceeds
+ *   {@link MAX_TRANSACTION_VALIDITY_EPOCHS} (which the network would reject with
+ *   `AbortReason::ValidityWindowTooLong`).
+ */
+export declare function resolveMaxEpoch(provider: Provider, leadEpochs?: number): Promise<number>;
 
 /**
  * Resolves unversioned inputs in the unsigned transaction by fetching their current
@@ -992,6 +1036,12 @@ export declare function sendTransaction(provider: Provider, signers: Signer | Si
  * losslessly. We therefore stringify each carrier as a unique placeholder, then splice the raw
  * fragment in place of the quoted placeholder, never round-tripping the amounts through a JS
  * number.
+ *
+ * Any `bigint` field (e.g. a large `nonce`) is emitted as a decimal *string*, matching the
+ * Tari clients' wire encoding: every 64-bit field on these APIs accepts a string as well as a
+ * number, and a string is the only lossless encoding above `Number.MAX_SAFE_INTEGER`. Plain
+ * `JSON.stringify` throws on a `bigint`, and the global `BigInt.prototype.toJSON` patch the
+ * client packages used to install was removed in 0.39.
  */
 export declare function serializeUnsignedTx(unsignedTx: UnsignedTransactionV1): string;
 
@@ -1308,22 +1358,16 @@ export declare class StealthTransfer {
     private readonly crypto;
     private builder;
     private readonly state;
+    /** Set by {@link withMaxEpoch}; `null` means {@link prepare} resolves one from the chain tip. */
+    private maxEpoch;
     /** Guards against a second {@link prepare} re-emitting instructions into the same builder. */
     private prepared;
     /**
-     * When set, revealed change is captured as a bucket on the workspace under this name
-     * instead of being auto-deposited back to `revealedInput.source` — see
-     * {@link toRevealedOutputAsBucket}.
+     * Set by {@link toRevealedOutputAsBucket}; when non-null, {@link emitInstructions} leaves the
+     * revealed-change bucket on the workspace under this name instead of auto-depositing it back
+     * to the revealed source account.
      */
     private revealedOutputBucketVar;
-    /**
-     * Extra instructions appended after the native `StealthTransfer` instruction (and its
-     * change-bucket handling), in the same transaction — see {@link andThen}. Lets a caller
-     * chain e.g. a custom contract call that consumes the bucket saved by
-     * {@link toRevealedOutputAsBucket}, all signed together by the authorizer in one
-     * transaction instead of needing a separate one.
-     */
-    private followUpInstructions;
     /**
      * @param provider - Read-only chain access (used by {@link prepare} to resolve inputs).
      * @param resourceAddress - The resource being transferred.
@@ -1350,30 +1394,32 @@ export declare class StealthTransfer {
      */
     toRevealedOutput(amount: bigint): this;
     /**
-     * Like {@link toRevealedOutput}, but instead of auto-depositing the change back into
-     * `revealedInput.source`, the `StealthTransfer` instruction's bucket output is left on the
-     * workspace under `workspaceVarName` for {@link andThen}'s instructions (or a caller-supplied
-     * `withBuilder` continuation) to consume directly — e.g. passing it straight into a custom
-     * contract call in the same transaction, rather than requiring a second transaction that
-     * withdraws it back out again (which a plain `CallMethod withdraw` on a Stealth-typed vault
-     * cannot do standalone — see this class's own `emitInstructions` doc comment: the account
-     * template's `withdraw` only produces a valid bucket when paired with the native
-     * `StealthTransfer` instruction in the same transaction).
+     * Like {@link toRevealedOutput}, but leaves the revealed-change bucket on the workspace under
+     * `workspaceVarName` instead of auto-depositing it back to the revealed source account. Pairs
+     * with {@link andThen} so a caller can route Stealth-typed funds into its own follow-up
+     * instructions in the same signed transaction — a plain `CallMethod withdraw` on a Stealth
+     * vault is not a standalone-valid instruction; moving Stealth funds anywhere always requires
+     * the native `StealthTransfer` instruction this builder already emits.
      *
-     * A real `toStealthOutput` is still required elsewhere on this builder (`validate()` enforces
-     * it): the bundled `ootle-wasm@0.37.0` signer cannot parse a statement with zero stealth
-     * outputs at all — confirmed live, `signTransaction`'s own WASM call throws the generic "did
-     * not match any variant of untagged enum TransactionInput" error regardless of how
-     * `balance_proof` is represented. A small dust self-output (as `OotleAccount.
-     * withdrawStealthAndExecute` in tari-wallet-extension does) satisfies this cheaply.
+     * Mutually exclusive with {@link toRevealedOutput} in the same builder — call one or the
+     * other, not both, since they disagree on where the change bucket ends up.
      *
-     * @throws {InvalidArgumentError} if `amount` is not `> 0`.
+     * @throws {InvalidArgumentError} if `amount` is not `> 0`, or a different workspace name was
+     *   already set by an earlier call.
      */
     toRevealedOutputAsBucket(amount: bigint, workspaceVarName: string): this;
     /**
-     * Append `instructions` after the native `StealthTransfer` instruction (and its bucket
-     * handling), so they run in the same signed transaction — typically consuming the bucket
-     * {@link toRevealedOutputAsBucket} saved to the workspace. Repeatable; each call appends.
+     * Append raw instructions to run in the same signed transaction, after the native
+     * `StealthTransfer` instruction (and the revealed-change bucket save from
+     * {@link toRevealedOutputAsBucket}, if any) — typically used to consume that bucket in a
+     * custom contract call.
+     *
+     * Workspace variable ids are a single flat counter across the whole transaction:
+     * `StealthTransfer` claims id `0` (and `1`, when there's a revealed input) internally via its
+     * own `saveVar` calls before these run, so instructions referencing workspace variables by
+     * **name** (`{ Workspace: "name" }`) resolve correctly through the builder's own name → id
+     * map — but any instruction constructed with a raw numeric `WorkspaceOffsetId` by hand must
+     * account for those already-claimed ids itself.
      */
     andThen(instructions: Instruction[]): this;
     /**
@@ -1382,6 +1428,14 @@ export declare class StealthTransfer {
      * @throws {InvalidArgumentError} if no source account is set, or `amount` is not `> 0`.
      */
     payFeeFromRevealed(amount: bigint): this;
+    /**
+     * Set the transaction's validity window explicitly. Without this, {@link prepare}
+     * reads the current epoch from the provider and applies
+     * `DEFAULT_TRANSACTION_VALIDITY_EPOCHS`.
+     *
+     * @throws {InvalidArgumentError} if `maxEpoch` is not a non-negative integer.
+     */
+    withMaxEpoch(maxEpoch: number): this;
     /** Escape hatch over the inner {@link TransactionBuilder} (e.g. extra instructions). */
     withBuilder(fn: (b: TransactionBuilder) => TransactionBuilder): this;
     /**
@@ -1717,10 +1771,20 @@ export declare interface TransactionAuthorization {
  */
 export declare class TransactionBuilder {
     private unsignedTransaction;
-    private allocatedIds;
-    private currentId;
-    constructor(network: Network | number);
-    static new(network: Network | number): TransactionBuilder;
+    private workspaceIds;
+    private feeWorkspaceIds;
+    /**
+     * `maxEpoch` is required: every transaction now carries a bounded validity window
+     * (`UnsignedTransactionV1.max_epoch`), so the last epoch in which it may be sequenced
+     * is decided up front rather than left open. The network rejects a window longer than
+     * {@link MAX_TRANSACTION_VALIDITY_EPOCHS} epochs past the current one with
+     * `AbortReason::ValidityWindowTooLong`, so derive it from the chain tip — e.g.
+     * `(await provider.getCurrentEpoch()) + 10`.
+     *
+     * @throws {InvalidArgumentError} if `maxEpoch` is not a non-negative integer.
+     */
+    constructor(network: Network | number, maxEpoch: number);
+    static new(network: Network | number, maxEpoch: number): TransactionBuilder;
     callFunction<T extends TariFunctionDefinition>(func: T, args: Exclude<T["args"], undefined>): this;
     /**
      * @throws {InvalidArgumentError} if `method` provides neither `componentAddress`
@@ -1763,11 +1827,51 @@ export declare class TransactionBuilder {
     addFeeInstruction(instruction: Instruction): this;
     withInstructions(instructions: Instruction[]): this;
     withFeeInstructions(instructions: Instruction[]): this;
+    /**
+     * Account for slots claimed by instructions the builder did not allocate itself, so a
+     * later `saveVar` cannot re-issue one. Rust does this inline in `add_instruction`.
+     */
+    private observeAllocations;
+    /**
+     * Build the fee instructions with a nested builder, mirroring the Rust builder's separate
+     * fee-instruction builder. The nested builder gets its own workspace scope — correct,
+     * because the engine clears the workspace between the fee and main instruction runs.
+     *
+     * Note this REPLACES any fee instructions already set, as it always has.
+     */
     withFeeInstructionsBuilder(builder: (b: TransactionBuilder) => TransactionBuilder): this;
     addInput(input: SubstateRequirement): this;
     withInputs(inputs: SubstateRequirement[]): this;
+    /** @throws {InvalidArgumentError} if `minEpoch` is not a non-negative integer. */
     withMinEpoch(minEpoch: number): this;
+    /**
+     * Overrides the validity window set at construction. See the constructor for the
+     * network's cap on how far ahead of the current epoch this may sit.
+     *
+     * @throws {InvalidArgumentError} if `maxEpoch` is not a non-negative integer.
+     */
     withMaxEpoch(maxEpoch: number): this;
+    /**
+     * Stamps the transaction nonce, which distinguishes otherwise-identical transactions.
+     *
+     * The transaction id excludes the seal signature's witness data, so two identical
+     * bodies sealed by the same key are the *same* transaction — submitting both executes
+     * once. Give each intent a distinct nonce when repeated submissions must each execute.
+     * Defaults to `0`.
+     *
+     * @throws {InvalidArgumentError} if `nonce` is negative or overflows u64.
+     */
+    withNonce(nonce: number | bigint): this;
+    /**
+     * Adopt an existing transaction and keep building on it.
+     *
+     * The adopted transaction is **copied**, not aliased: subsequent builder calls must not
+     * reach back into the caller's object. The manual co-signing flow ships
+     * `JSON.stringify(unsigned)` across a boundary, so mutating a transaction the caller has
+     * already serialized or signed makes the two sides disagree — surfacing only at submit
+     * time as the opaque engine error `"Transaction has one or more invalid signature(s)"`.
+     * This mirrors the copy {@link buildUnsignedTransaction} makes on the way out.
+     */
     withUnsignedTransaction(unsignedTransaction: UnsignedTransactionV1): this;
     /**
      * Resolves a workspace variable name (supporting dot-notation offsets, e.g. `"bucket.0"`)
@@ -1780,7 +1884,7 @@ export declare class TransactionBuilder {
      * @throws {InvalidArgumentError} if no workspace variable with that name has been defined.
      */
     resolveWorkspaceOffsetId(name: string): WorkspaceOffsetId;
-    buildUnsignedTransaction(): UnsignedTransactionWithBlobs;
+    buildUnsignedTransaction(): UnsignedTransactionV1;
     private addNamedId;
     private requireNamedId;
     private getOffsetIdFromWorkspaceName;
@@ -1842,10 +1946,12 @@ export { UnsignedTransactionV1 }
 /**
  * `UnsignedTransactionV1` with the `blobs` list: standard-base64 payloads
  * referenced from instructions by index (see {@link TransactionBuilder.publishTemplate}).
+ *
+ * @deprecated `blobs` is now a field of `UnsignedTransactionV1` itself (ootle-ts-bindings
+ * ≥ 1.47), so this intersection adds nothing. Kept as an alias for one release; use
+ * `UnsignedTransactionV1` directly.
  */
-export declare type UnsignedTransactionWithBlobs = UnsignedTransactionV1 & {
-    blobs: string[];
-};
+export declare type UnsignedTransactionWithBlobs = UnsignedTransactionV1;
 
 /**
  * CBOR-encode a `UtxoAddress` as `Tag(141, [ResourceAddress, UtxoId])`, where the
@@ -1957,7 +2063,7 @@ export declare interface WalletStealthAuthorizerOptions {
 }
 
 /**
- * The real `StealthCryptoProvider`, backed by `@tari-project/ootle-wasm@0.32.0`.
+ * The real `StealthCryptoProvider`, backed by `@tari-project/ootle-wasm@0.38.0`.
  *
  * Marshals between the step-02 domain types (`Mask`, `Output`, statements) and the raw
  * WASM ABI (snake_case result fields, positional args, raw `Uint8Array`s/`bigint`s).

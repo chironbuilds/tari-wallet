@@ -45,8 +45,6 @@ export function summarizeInstruction(instr: Instruction): InstructionSummary {
     }
     case "PutLastInstructionOutputOnWorkspace":
       return { title: "Save the previous result for later in this transaction" };
-    case "EmitLog":
-      return { title: "Log a message", detail: String(body.message) };
     case "ClaimBurn":
       return { title: "Claim a burned Minotari (L1) output" };
     case "ClaimValidatorFees":

@@ -66,17 +66,17 @@ function x(e11) {
   for (let n2 = 0; n2 < t2.length; n2++) t2[n2] = parseInt(e11.substring(n2 * 2, n2 * 2 + 2), 16);
   return t2;
 }
-var S = (1n << 64n) - 1n, C = 32, le = C * 2, ue = 32, de = 128, fe = 129, pe = 130, w = 131, me = 132, he = 136, ge = 137, _e = 138, ve = 141, T = 0, ye = 32, E = 64, be = 96, D = 128, xe = 160, O = 192;
-function Se(e11) {
+var S = (1n << 64n) - 1n, le = 2n, C = 32, ue = C * 2, de = 32, fe = 128, pe = 129, me = 130, w = 131, he = 132, ge = 136, _e = 137, ve = 138, ye = 141, T = 0, be = 32, E = 64, xe = 96, D = 128, Se = 160, O = 192;
+function Ce(e11) {
   switch (typeof e11) {
     case "bigint":
       return k(e11);
     case "string":
-      return we(e11);
+      return Ee(e11);
     case "boolean":
-      return Te(e11);
+      return Oe(e11);
     default:
-      if (e11 instanceof Uint8Array) return A(e11);
+      if (e11 instanceof Uint8Array) return De(e11);
       throw new v(`literalArg: cannot CBOR-encode value of type ${typeof e11}`);
   }
 }
@@ -84,123 +84,128 @@ function k(e11) {
   if (e11 < 0n) throw new v(`amountLiteral: amount must be non-negative, got ${e11}`);
   if (e11 >> 128n != 0n) throw new v(`amountLiteral: amount overflows u128: ${e11}`);
   let t2 = [];
-  return I(t2, D, 2n), I(t2, T, e11 & S), I(t2, T, e11 >> 64n & S), L(t2);
+  return e11 <= S ? F(t2, T, e11) : we(t2, e11), I(t2);
 }
-function Ce(e11) {
+function we(e11, t2) {
+  let n2 = [], r2 = t2;
+  for (; r2 > 0n; ) n2.unshift(Number(r2 & 255n)), r2 >>= 8n;
+  F(e11, O, le), F(e11, E, BigInt(n2.length)), P(e11, n2);
+}
+function Te(e11) {
   let t2 = [];
   if (e11 >= 0n) {
     if (e11 > S) throw new v(`intLiteral: value exceeds the 64-bit CBOR integer range: ${e11}`);
-    I(t2, T, e11);
+    F(t2, T, e11);
   } else {
     let n2 = -1n - e11;
     if (n2 > S) throw new v(`intLiteral: value exceeds the 64-bit CBOR integer range: ${e11}`);
-    I(t2, ye, n2);
+    F(t2, be, n2);
   }
-  return L(t2);
-}
-function we(e11) {
-  let t2 = [];
-  return P(t2, e11), L(t2);
-}
-function A(e11) {
-  let t2 = [];
-  return I(t2, E, BigInt(e11.length)), F(t2, e11), L(t2);
-}
-function Te(e11) {
-  return { Literal: e11 ? "f5" : "f4" };
-}
-function j(e11) {
-  return M(w, e11, "resource_");
+  return I(t2);
 }
 function Ee(e11) {
-  return M(de, e11, "component_");
+  let t2 = [];
+  return N(t2, e11), I(t2);
 }
 function De(e11) {
-  let t2 = e11 instanceof Map ? e11 : new Map(Object.entries(e11)), n2 = new TextEncoder(), r2 = [...t2.entries()].sort(([e12], [t3]) => Le(n2.encode(e12), n2.encode(t3))), i2 = [];
-  I(i2, O, BigInt(fe)), I(i2, xe, BigInt(r2.length));
-  for (let [e12, t3] of r2) P(i2, e12), P(i2, t3);
-  return L(i2);
+  let t2 = [];
+  return F(t2, E, BigInt(e11.length)), P(t2, e11), I(t2);
 }
 function Oe(e11) {
-  return M(me, e11, "vault_");
+  return { Literal: e11 ? "f5" : "f4" };
+}
+function A(e11) {
+  return j(w, e11, "resource_");
 }
 function ke(e11) {
-  return M(ge, e11, "template_");
+  return j(fe, e11, "component_");
 }
 function Ae(e11) {
-  return M(he, e11, "tombstone_");
+  let t2 = e11 instanceof Map ? e11 : new Map(Object.entries(e11)), n2 = new TextEncoder(), r2 = [...t2.entries()].sort(([e12], [t3]) => Be(n2.encode(e12), n2.encode(t3))), i2 = [];
+  F(i2, O, BigInt(pe)), F(i2, Se, BigInt(r2.length));
+  for (let [e12, t3] of r2) N(i2, e12), N(i2, t3);
+  return I(i2);
 }
 function je(e11) {
-  return M(_e, e11, "vnfp_");
+  return j(he, e11, "vault_");
 }
 function Me(e11) {
-  let t2 = typeof e11 == "string" ? x(e11) : e11;
-  return y(t2, ue, "publicKeyLiteral"), A(t2);
+  return j(_e, e11, "template_");
 }
 function Ne(e11) {
-  let t2 = [];
-  return I(t2, O, BigInt(pe)), I(t2, D, 2n), N(t2, w, e11.resource_address, "resource_"), Fe(t2, e11.id), L(t2);
+  return j(ge, e11, "tombstone_");
 }
 function Pe(e11) {
+  return j(ve, e11, "vnfp_");
+}
+function Fe(e11) {
+  let t2 = typeof e11 == "string" ? x(e11) : e11;
+  return y(t2, de, "publicKeyLiteral"), De(t2);
+}
+function Ie(e11) {
   let t2 = [];
-  I(t2, O, BigInt(ve)), I(t2, D, 2n), N(t2, w, e11.resource_address, "resource_");
+  return F(t2, O, BigInt(me)), F(t2, D, 2n), M(t2, w, e11.resource_address, "resource_"), Re(t2, e11.id), I(t2);
+}
+function Le(e11) {
+  let t2 = [];
+  F(t2, O, BigInt(ye)), F(t2, D, 2n), M(t2, w, e11.resource_address, "resource_");
   let n2 = x(e11.id);
-  return y(n2, C, "utxoAddressLiteral: id"), I(t2, E, BigInt(C)), F(t2, n2), L(t2);
+  return y(n2, C, "utxoAddressLiteral: id"), F(t2, E, BigInt(C)), P(t2, n2), I(t2);
 }
-function M(e11, t2, n2) {
+function j(e11, t2, n2) {
   let r2 = [];
-  return N(r2, e11, t2, n2), L(r2);
+  return M(r2, e11, t2, n2), I(r2);
 }
-function N(e11, t2, n2, r2) {
+function M(e11, t2, n2, r2) {
   let i2 = n2.startsWith(r2) ? n2.slice(r2.length) : n2;
-  if (i2.length !== le) throw new v(`${r2}address must be 32 bytes (${le} hex chars), got ${i2.length}`);
-  I(e11, O, BigInt(t2)), I(e11, E, BigInt(C)), F(e11, x(i2));
+  if (i2.length !== ue) throw new v(`${r2}address must be 32 bytes (${ue} hex chars), got ${i2.length}`);
+  F(e11, O, BigInt(t2)), F(e11, E, BigInt(C)), P(e11, x(i2));
 }
-function Fe(e11, t2) {
-  if (I(e11, D, 2n), "U256" in t2) {
-    I(e11, T, 0n), I(e11, D, 1n);
+function Re(e11, t2) {
+  if (F(e11, D, 2n), "U256" in t2) {
+    F(e11, T, 0n), F(e11, D, 1n);
     let n2 = x(t2.U256);
-    y(n2, C, "NonFungibleId.U256"), I(e11, E, BigInt(C)), F(e11, n2);
-  } else if ("String" in t2) I(e11, T, 1n), I(e11, D, 1n), P(e11, t2.String);
-  else if ("Uint32" in t2) I(e11, T, 2n), I(e11, D, 1n), Ie(e11, t2.Uint32, "NonFungibleId.Uint32", (1n << 32n) - 1n);
-  else if ("Uint64" in t2) I(e11, T, 3n), I(e11, D, 1n), Ie(e11, t2.Uint64, "NonFungibleId.Uint64", S);
+    y(n2, C, "NonFungibleId.U256"), F(e11, E, BigInt(C)), P(e11, n2);
+  } else if ("String" in t2) F(e11, T, 1n), F(e11, D, 1n), N(e11, t2.String);
+  else if ("Uint32" in t2) F(e11, T, 2n), F(e11, D, 1n), ze(e11, t2.Uint32, "NonFungibleId.Uint32", (1n << 32n) - 1n);
+  else if ("Uint64" in t2) F(e11, T, 3n), F(e11, D, 1n), ze(e11, t2.Uint64, "NonFungibleId.Uint64", S);
   else throw new v(`nonFungibleAddressLiteral: unrecognised NonFungibleId variant: ${JSON.stringify(t2)}`);
 }
-function Ie(e11, t2, n2, r2) {
+function ze(e11, t2, n2, r2) {
   if (!Number.isInteger(t2) || t2 < 0) throw new v(`${n2} must be a non-negative integer, got ${t2}`);
   if (r2 > BigInt(2 ** 53 - 1) && t2 > 2 ** 53 - 1) throw new v(`${n2} value ${t2} exceeds Number.MAX_SAFE_INTEGER (2^53-1) and cannot be encoded without precision loss \u2014 the binding types this id as a JS number. Use a U256/String id for large values.`);
   let i2 = BigInt(t2);
   if (i2 > r2) throw new v(`${n2} value ${t2} exceeds its maximum of ${r2}`);
-  I(e11, T, i2);
+  F(e11, T, i2);
+}
+function N(e11, t2) {
+  let n2 = new TextEncoder().encode(t2);
+  F(e11, xe, BigInt(n2.length)), P(e11, n2);
 }
 function P(e11, t2) {
-  let n2 = new TextEncoder().encode(t2);
-  I(e11, be, BigInt(n2.length)), F(e11, n2);
-}
-function F(e11, t2) {
   let n2 = e11.length;
   e11.length = n2 + t2.length;
   for (let r2 = 0; r2 < t2.length; r2++) e11[n2 + r2] = t2[r2];
 }
-function Le(e11, t2) {
+function Be(e11, t2) {
   let n2 = Math.min(e11.length, t2.length);
   for (let r2 = 0; r2 < n2; r2++) if (e11[r2] !== t2[r2]) return e11[r2] < t2[r2] ? -1 : 1;
   return e11.length - t2.length;
 }
-function I(e11, t2, n2) {
+function F(e11, t2, n2) {
   n2 < 24n ? e11.push(t2 | Number(n2)) : n2 < 1n << 8n ? e11.push(t2 | 24, Number(n2)) : n2 < 1n << 16n ? e11.push(t2 | 25, Number(n2 >> 8n & 255n), Number(n2 & 255n)) : n2 < 1n << 32n ? e11.push(t2 | 26, Number(n2 >> 24n & 255n), Number(n2 >> 16n & 255n), Number(n2 >> 8n & 255n), Number(n2 & 255n)) : e11.push(t2 | 27, Number(n2 >> 56n & 255n), Number(n2 >> 48n & 255n), Number(n2 >> 40n & 255n), Number(n2 >> 32n & 255n), Number(n2 >> 24n & 255n), Number(n2 >> 16n & 255n), Number(n2 >> 8n & 255n), Number(n2 & 255n));
 }
-function L(e11) {
+function I(e11) {
   return { Literal: b(Uint8Array.from(e11)) };
 }
-function R(e11) {
+function L(e11) {
   return k(e11);
 }
-function Re(e11) {
+function Ve(e11) {
   if (e11 < 0n) throw new v(`microTariString: amount must be non-negative, got ${e11}`);
   return e11.toString();
 }
-function ze(e11) {
+function He(e11) {
   let t2 = e11.split(".");
   if (t2.length > 2) throw new v("Invalid workspace key format. Only one dot is allowed.");
   let n2 = t2[0];
@@ -215,36 +220,80 @@ function ze(e11) {
     offset: r2
   };
 }
-function Be(e11) {
+var Ue = 2160, We = 10;
+async function Ge(e11, t2 = 10) {
+  if (!Number.isInteger(t2) || t2 < 1) throw new v(`resolveMaxEpoch: leadEpochs must be a positive integer, got ${t2}`);
+  if (t2 > 2160) throw new v(`resolveMaxEpoch: leadEpochs ${t2} exceeds the network's maximum validity window of ${Ue} epochs`);
+  return await e11.getCurrentEpoch() + t2;
+}
+var Ke = (1n << 64n) - 1n;
+function R(e11, t2) {
+  if (!Number.isInteger(e11) || e11 < 0) throw new v(`${t2} must be a non-negative integer epoch, got ${e11}`);
+  return e11;
+}
+function qe(e11) {
   return e11.startsWith("template_") ? e11.slice(9) : e11;
 }
-function Ve(e11) {
+function Je(e11) {
+  return typeof e11 != "object" || !e11 ? null : "PutLastInstructionOutputOnWorkspace" in e11 ? e11.PutLastInstructionOutputOnWorkspace.key : "TakeFromBucket" in e11 ? e11.TakeFromBucket.output_bucket : "AllocateAddress" in e11 ? e11.AllocateAddress.workspace_id : null;
+}
+var Ye = class {
+  constructor() {
+    __publicField(this, "nextId", 0);
+    __publicField(this, "ids", /* @__PURE__ */ new Map());
+  }
+  insert(e11) {
+    let t2 = this.nextId;
+    return this.ids.set(e11, t2), this.nextId += 1, t2;
+  }
+  get(e11) {
+    return this.ids.get(e11);
+  }
+  get next() {
+    return this.nextId;
+  }
+  observeAllocated(e11) {
+    e11 + 1 > this.nextId && (this.nextId = e11 + 1);
+  }
+  reset() {
+    this.nextId = 0, this.ids.clear();
+  }
+  resetFrom(e11) {
+    this.reset();
+    for (let t2 of e11) {
+      let e12 = Je(t2);
+      e12 !== null && this.observeAllocated(e12);
+    }
+  }
+};
+function Xe(e11) {
   return new v(`No workspace variable named "${e11}" has been defined. Call builder.saveVar(${JSON.stringify(e11)}) on a preceding instruction whose output you want to reference.`);
 }
 var z = class e2 {
-  constructor(e11) {
+  constructor(e11, t2) {
     __publicField(this, "unsignedTransaction");
-    __publicField(this, "allocatedIds");
-    __publicField(this, "currentId");
+    __publicField(this, "workspaceIds");
+    __publicField(this, "feeWorkspaceIds");
     this.unsignedTransaction = {
       network: e11,
       fee_instructions: [],
       instructions: [],
       inputs: [],
       min_epoch: null,
-      max_epoch: null,
+      max_epoch: R(t2, "maxEpoch"),
       dry_run: false,
       is_seal_signer_authorized: false,
-      blobs: []
-    }, this.allocatedIds = /* @__PURE__ */ new Map(), this.currentId = 0;
+      blobs: [],
+      nonce: 0
+    }, this.workspaceIds = new Ye(), this.feeWorkspaceIds = new Ye();
   }
-  static new(t2) {
-    return new e2(t2);
+  static new(t2, n2) {
+    return new e2(t2, n2);
   }
   callFunction(e11, t2) {
     let n2 = this.resolveArgs(t2);
     return this.addInstruction({ CallFunction: {
-      address: Be(e11.templateAddress),
+      address: qe(e11.templateAddress),
       function: e11.functionName,
       args: n2
     } });
@@ -274,7 +323,7 @@ var z = class e2 {
     return this.addInstruction({ CallMethod: {
       call: { Address: e11 },
       method: "create_proof_for_resource",
-      args: [j(t2)]
+      args: [A(t2)]
     } });
   }
   claimBurn(e11, t2) {
@@ -298,7 +347,7 @@ var z = class e2 {
     return this.addFeeInstruction({ CallMethod: {
       call: { Address: e11 },
       method: "pay_fee",
-      args: [R(t2)]
+      args: [L(t2)]
     } });
   }
   feeTransactionPayFromComponentConfidential(e11, t2) {
@@ -315,20 +364,26 @@ var z = class e2 {
     } });
   }
   addInstruction(e11) {
-    return this.unsignedTransaction.instructions.push(e11), this;
+    return this.observeAllocations(this.workspaceIds, [e11]), this.unsignedTransaction.instructions.push(e11), this;
   }
   addFeeInstruction(e11) {
-    return this.unsignedTransaction.fee_instructions.push(e11), this;
+    return this.observeAllocations(this.feeWorkspaceIds, [e11]), this.unsignedTransaction.fee_instructions.push(e11), this;
   }
   withInstructions(e11) {
-    return this.unsignedTransaction.instructions.push(...e11), this;
+    return this.observeAllocations(this.workspaceIds, e11), this.unsignedTransaction.instructions.push(...e11), this;
   }
   withFeeInstructions(e11) {
-    return this.unsignedTransaction.fee_instructions.push(...e11), this;
+    return this.observeAllocations(this.feeWorkspaceIds, e11), this.unsignedTransaction.fee_instructions.push(...e11), this;
+  }
+  observeAllocations(e11, t2) {
+    for (let n2 of t2) {
+      let t3 = Je(n2);
+      t3 !== null && e11.observeAllocated(t3);
+    }
   }
   withFeeInstructionsBuilder(t2) {
-    let n2 = t2(new e2(this.unsignedTransaction.network));
-    return this.unsignedTransaction.fee_instructions = n2.unsignedTransaction.instructions, this;
+    let n2 = t2(new e2(this.unsignedTransaction.network, this.unsignedTransaction.max_epoch));
+    return this.unsignedTransaction.fee_instructions = n2.unsignedTransaction.instructions, this.feeWorkspaceIds.resetFrom(this.unsignedTransaction.fee_instructions), this;
   }
   addInput(e11) {
     return this.unsignedTransaction.inputs.push(e11), this;
@@ -337,16 +392,27 @@ var z = class e2 {
     return this.unsignedTransaction.inputs.push(...e11), this;
   }
   withMinEpoch(e11) {
-    return this.unsignedTransaction.min_epoch = e11, this;
+    return this.unsignedTransaction.min_epoch = R(e11, "minEpoch"), this;
   }
   withMaxEpoch(e11) {
-    return this.unsignedTransaction.max_epoch = e11, this;
+    return this.unsignedTransaction.max_epoch = R(e11, "maxEpoch"), this;
+  }
+  withNonce(e11) {
+    if (typeof e11 == "number" && !Number.isInteger(e11)) throw new v(`withNonce: nonce must be an integer, got ${e11}`);
+    let t2 = typeof e11 == "bigint" ? e11 : BigInt(e11);
+    if (t2 < 0n || t2 > Ke) throw new v(`withNonce: nonce must fit an unsigned 64-bit integer, got ${e11}`);
+    return this.unsignedTransaction.nonce = t2 > BigInt(2 ** 53 - 1) ? t2 : Number(t2), this;
   }
   withUnsignedTransaction(e11) {
     return this.unsignedTransaction = {
       ...e11,
-      blobs: e11.blobs ?? []
-    }, this.allocatedIds = /* @__PURE__ */ new Map(), this.currentId = 0, this;
+      instructions: [...e11.instructions],
+      fee_instructions: [...e11.fee_instructions],
+      inputs: [...e11.inputs],
+      blobs: [...e11.blobs ?? []],
+      nonce: e11.nonce ?? 0,
+      max_epoch: R(e11.max_epoch, "withUnsignedTransaction: max_epoch")
+    }, this.workspaceIds.resetFrom(this.unsignedTransaction.instructions), this.feeWorkspaceIds.resetFrom(this.unsignedTransaction.fee_instructions), this;
   }
   resolveWorkspaceOffsetId(e11) {
     return this.getOffsetIdFromWorkspaceName(e11);
@@ -361,16 +427,15 @@ var z = class e2 {
     };
   }
   addNamedId(e11) {
-    let t2 = this.currentId;
-    return this.allocatedIds.set(e11, t2), this.currentId += 1, t2;
+    return this.workspaceIds.insert(e11);
   }
   requireNamedId(e11) {
-    let t2 = this.allocatedIds.get(e11);
-    if (t2 === void 0) throw Ve(e11);
+    let t2 = this.workspaceIds.get(e11);
+    if (t2 === void 0) throw Xe(e11);
     return t2;
   }
   getOffsetIdFromWorkspaceName(e11) {
-    let t2 = ze(e11);
+    let t2 = He(e11);
     return {
       id: this.requireNamedId(t2.name),
       offset: t2.offset
@@ -379,23 +444,23 @@ var z = class e2 {
   resolveArgs(e11) {
     return e11.map((e12) => typeof e12 == "object" && e12 && "Workspace" in e12 && typeof e12.Workspace == "string" ? { Workspace: this.getOffsetIdFromWorkspaceName(e12.Workspace) } : e12);
   }
-}, He = {
+}, Ze = {
   [u.LocalNet]: "http://localhost:12500",
   [u.Esmeralda]: "https://ootle-indexer-a.tari.com"
 };
-function Ue(e11) {
-  let t2 = He[e11];
+function Qe(e11) {
+  let t2 = Ze[e11];
   if (t2 !== void 0) return t2;
   throw new v(`No default indexer URL is configured for ${u[e11]}. Pass an explicit URL via ProviderBuilder.withUrl(...) or IndexerProvider.connect({ url, network: Network.${u[e11]} }).`);
 }
-var We = 132, Ge = 32;
-function* Ke(e11) {
+var $e = 132, et = 32;
+function* tt(e11) {
   let t2 = /* @__PURE__ */ new Set();
-  for (let n2 of B(e11, We)) n2.length === Ge * 2 && !t2.has(n2) && (t2.add(n2), yield `vault_${n2}`);
+  for (let n2 of B(e11, $e)) n2.length === et * 2 && !t2.has(n2) && (t2.add(n2), yield `vault_${n2}`);
 }
-async function qe(e11, t2) {
+async function nt(e11, t2) {
   let n2 = (await e11.getSubstate(t2)).substate;
-  return Ye(n2) ? Array.from(Ke(n2.Component.body.state)) : [];
+  return it(n2) ? Array.from(tt(n2.Component.body.state)) : [];
 }
 function* B(e11, t2) {
   if (Array.isArray(e11)) {
@@ -408,7 +473,7 @@ function* B(e11, t2) {
     if (r2 === "tag") {
       let e12 = n2.value;
       if (n2.tag === t2) {
-        let t3 = Je(e12);
+        let t3 = rt(e12);
         t3 !== null && (yield t3);
       }
       yield* B(e12, t2);
@@ -420,18 +485,18 @@ function* B(e11, t2) {
   }
   for (let e12 of Object.values(n2)) yield* B(e12, t2);
 }
-function Je(e11) {
+function rt(e11) {
   if (typeof e11 != "object" || !e11) return null;
   let t2 = e11;
   if (t2["@cbor"] !== "bytes") return null;
   let n2 = t2.hex;
   return typeof n2 == "string" ? n2 : null;
 }
-function Ye(e11) {
+function it(e11) {
   return typeof e11 == "object" && !!e11 && "Component" in e11;
 }
-var Xe = "resource_0101010101010101010101010101010101010101010101010101010101010101", Ze = "component_0102030000000000000000000000000000000000000000000000000000000000", Qe = "vault_0102030000000000000000000000000000000000000000000000000000000001", $e = "resource_0102030000000000000000000000000000000000000000000000000000000002", et = "__ootleRawJson", tt = "stealth_revealed_input", nt = "stealth_revealed_change";
-function rt(e11, t2) {
+var at = "resource_0101010101010101010101010101010101010101010101010101010101010101", ot = "component_0102030000000000000000000000000000000000000000000000000000000000", st = "vault_0102030000000000000000000000000000000000000000000000000000000001", ct = "resource_0102030000000000000000000000000000000000000000000000000000000002", lt = "__ootleRawJson", ut = "stealth_revealed_input", dt = "stealth_revealed_change";
+function ft(e11, t2) {
   let n2 = e11.revealedInputBucket === null ? null : t2(e11.revealedInputBucket);
   return { StealthTransfer: {
     resource_address_ref: { Address: e11.resourceAddress },
@@ -440,16 +505,17 @@ function rt(e11, t2) {
   } };
 }
 function V(e11) {
-  return { [et]: e11.toCompactJson() };
+  return { [lt]: e11.toCompactJson() };
 }
 function H(e11) {
   return typeof e11 == "object" && !!e11 && "StealthTransfer" in e11;
 }
 function U(e11) {
   let t2 = [], n2 = (e12) => `__ootleRawJson:${e12}__`, r2 = JSON.stringify(e11, (e12, r3) => {
+    if (typeof r3 == "bigint") return r3.toString();
     if (typeof r3 == "object" && r3 && "__ootleRawJson" in r3) {
       let e13 = n2(t2.length);
-      return t2.push(r3[et]), e13;
+      return t2.push(r3[lt]), e13;
     }
     return r3;
   });
@@ -468,14 +534,14 @@ async function W(e11, t2) {
     inputs: n2
   };
 }
-function it() {
+function pt() {
   let { secret_key: e11, public_key: t2 } = a();
   return {
     secret_key: e11,
     public_key: t2
   };
 }
-function at(e11, t2) {
+function mt(e11, t2) {
   return {
     public_key: b(y(e11, 32, "publicKey")),
     signature: {
@@ -499,10 +565,10 @@ async function G(e11, t2, n2) {
 function K(e11) {
   return t(e11.sealedJson);
 }
-async function ot(e11, t2) {
+async function ht(e11, t2) {
   return (await e11.submitTransaction(t2)).transaction_id;
 }
-function st(e11) {
+function gt(e11) {
   var _a, _b;
   if (e11 === "Pending" || !("Finalized" in e11)) return null;
   let t2 = e11.Finalized, n2 = t2.final_decision;
@@ -520,12 +586,12 @@ function st(e11) {
   }
   throw new v(`Unexpected final_decision variant: ${JSON.stringify(n2)}`);
 }
-async function ct(e11, t2, n2) {
+async function _t(e11, t2, n2) {
   let r2 = (n2 == null ? void 0 : n2.pollIntervalMs) ?? 500, i2 = (n2 == null ? void 0 : n2.timeoutMs) ?? 6e4, a2 = Date.now() + i2;
   for (; ; ) {
     let n3 = await e11.getTransactionResult(t2), o2 = n3.result;
     if (o2 !== "Pending" && "Finalized" in o2) {
-      let { outcome: e12, reason: r3 } = st(o2) ?? { outcome: "Reject" };
+      let { outcome: e12, reason: r3 } = gt(o2) ?? { outcome: "Reject" };
       if (e12 === "Reject") throw new f(`Transaction ${t2} was rejected: ${r3}`, {
         txId: t2,
         reason: r3 ?? ""
@@ -540,20 +606,20 @@ async function ct(e11, t2, n2) {
     await new Promise((e12) => setTimeout(e12, r2));
   }
 }
-async function lt(e11, t2, n2, r2) {
+async function vt(e11, t2, n2, r2) {
   let i2 = await W(e11, n2);
-  return ct(e11, await ot(e11, K(await G(Array.isArray(t2) ? t2 : [t2], i2))), r2);
+  return _t(e11, await ht(e11, K(await G(Array.isArray(t2) ? t2 : [t2], i2))), r2);
 }
-async function ut(e11, t2, n2, r2) {
-  return lt(e11, t2, {
+async function yt(e11, t2, n2, r2) {
+  return vt(e11, t2, {
     ...n2,
     dry_run: true
   }, r2);
 }
-var dt = class {
-  constructor(e11) {
+var bt = class {
+  constructor(e11, t2) {
     __publicField(this, "builder");
-    this.builder = z.new(e11);
+    this.builder = z.new(e11, t2);
   }
   withInputs(e11) {
     return this.builder.withInputs(e11), this;
@@ -565,7 +631,7 @@ var dt = class {
     return this.builder.callMethod({
       componentAddress: e11,
       methodName: "withdraw"
-    }, [j(t2), R(n2)]).saveVar("bucket").callMethod({
+    }, [A(t2), L(n2)]).saveVar("bucket").callMethod({
       componentAddress: r2,
       methodName: "deposit"
     }, [{ Workspace: "bucket" }]), this;
@@ -576,11 +642,11 @@ var dt = class {
   build() {
     return this.builder.buildUnsignedTransaction();
   }
-}, ft = class {
-  constructor(e11, t2) {
+}, xt = class {
+  constructor(e11, t2, n2) {
     __publicField(this, "builder");
     __publicField(this, "faucetAddress");
-    this.builder = z.new(e11), this.faucetAddress = t2;
+    this.builder = z.new(e11, t2), this.faucetAddress = n2;
   }
   feeTransactionPayFromComponent(e11, t2) {
     return this.builder.feeTransactionPayFromComponent(e11, t2), this;
@@ -589,7 +655,7 @@ var dt = class {
     return this.builder.callMethod({
       componentAddress: this.faucetAddress,
       methodName: "take_free_coins"
-    }, [R(t2)]).saveVar("faucet_bucket").callMethod({
+    }, [L(t2)]).saveVar("faucet_bucket").callMethod({
       componentAddress: e11,
       methodName: "deposit"
     }, [{ Workspace: "faucet_bucket" }]), this;
@@ -613,7 +679,7 @@ var dt = class {
   build() {
     return this.builder.buildUnsignedTransaction();
   }
-}, pt = class {
+}, St = class {
   constructor() {
     __publicField(this, "keyProviders");
     __publicField(this, "defaultSignerAddress", null);
@@ -659,7 +725,7 @@ var dt = class {
     if (n2 === void 0) throw new m(t2 === "default" ? `No key provider registered for default address: ${e11}. Call wallet.registerKeyProvider(address, signer) for that address, or pick a different default with setDefaultSigner(otherAddress).` : `No key provider registered for address: ${e11}. Call wallet.registerKeyProvider(${JSON.stringify(e11)}, signer) before signing.`, { address: e11 });
     return n2;
   }
-}, mt = class {
+}, Ct = class {
   constructor(e11, t2) {
     __publicField(this, "bytes");
     this.bytes = new Uint8Array(y(e11, 32, t2));
@@ -670,7 +736,7 @@ var dt = class {
   toHex() {
     return b(this.bytes);
   }
-}, q = class e3 extends mt {
+}, q = class e3 extends Ct {
   constructor(e11) {
     super(e11, "Mask");
   }
@@ -683,7 +749,7 @@ var dt = class {
   static fromHex(t2) {
     return new e3(x(t2));
   }
-}, ht = class e4 {
+}, wt = class e4 {
   constructor(e11) {
     __publicField(this, "bytes");
     this.bytes = new Uint8Array(e11);
@@ -697,8 +763,8 @@ var dt = class {
   toHex() {
     return b(this.bytes);
   }
-}, gt = Object.freeze({ StealthPublicKey: Object.freeze({}) });
-function _t(e11) {
+}, Tt = Object.freeze({ StealthPublicKey: Object.freeze({}) });
+function Et(e11) {
   if (e11.amount <= 0n) throw new v(`Output amount must be > 0, got ${e11.amount}`);
   return {
     destination: e11.destination,
@@ -706,19 +772,19 @@ function _t(e11) {
     resourceAddress: e11.resourceAddress,
     resourceViewKey: e11.resourceViewKey === void 0 ? void 0 : new Uint8Array(e11.resourceViewKey),
     memo: e11.memo,
-    payTo: e11.payTo ?? gt,
+    payTo: e11.payTo ?? Tt,
     minimumValuePromise: e11.minimumValuePromise ?? 0n
   };
 }
-function vt(e11, t2) {
+function Dt(e11, t2) {
   if (e11.trim() === "") throw new v(`${t2} must be a non-empty decimal string`);
   return BigInt(e11);
 }
-function yt(e11, t2) {
+function Ot(e11, t2) {
   let n2 = e11.trim();
   if (!n2.startsWith("{") || !n2.endsWith("}")) throw new v(`StealthTransferStatement.toCompactJson: ${t2} fragment is not a JSON object (got: ${e11.slice(0, 60)}...)`);
 }
-var J = class e5 extends mt {
+var J = class e5 extends Ct {
   constructor(e11) {
     super(e11, "StealthInput.commitment");
   }
@@ -765,13 +831,13 @@ var J = class e5 extends mt {
   toJSON() {
     return {
       inputs: this.inputs.map((e11) => e11.toJSON()),
-      revealed_amount: Re(this.revealedAmount)
+      revealed_amount: Ve(this.revealedAmount)
     };
   }
   static fromJSON(t2) {
-    return new e7(t2.inputs.map(J.fromJSON), vt(t2.revealed_amount, "revealed_amount"));
+    return new e7(t2.inputs.map(J.fromJSON), Dt(t2.revealed_amount, "revealed_amount"));
   }
-}, bt = class e8 {
+}, Z = class e8 {
   constructor(e11) {
     __publicField(this, "statementJson");
     this.statementJson = e11;
@@ -785,7 +851,7 @@ var J = class e5 extends mt {
   static fromJSON(t2) {
     return new e8(t2);
   }
-}, Z = class e9 {
+}, Q = class e9 {
   constructor(e11, t2, n2) {
     __publicField(this, "inputsStatement");
     __publicField(this, "outputsStatement");
@@ -801,15 +867,15 @@ var J = class e5 extends mt {
   }
   toCompactJson() {
     let e11 = this.inputsStatement.statementJson ?? JSON.stringify(this.inputsStatement.toJSON()), t2 = this.outputsStatement.statementJson;
-    yt(e11, "inputs_statement"), yt(t2, "outputs_statement");
+    Ot(e11, "inputs_statement"), Ot(t2, "outputs_statement");
     let n2 = `{"inputs_statement":${e11},"outputs_statement":${t2},"covenant_claims":[]`;
     return this.balanceProof !== void 0 && (n2 += `,"balance_proof":${JSON.stringify(this.balanceProof.toJSON())}`), n2 + "}";
   }
   static fromJSON(t2) {
-    return new e9(X.fromJSON(t2.inputs), bt.fromJSON(t2.outputs), t2.balance_proof === void 0 ? void 0 : Y.fromJSON(t2.balance_proof));
+    return new e9(X.fromJSON(t2.inputs), Z.fromJSON(t2.outputs), t2.balance_proof === void 0 ? void 0 : Y.fromJSON(t2.balance_proof));
   }
 };
-function xt(e11, t2) {
+function kt(e11, t2) {
   let n2 = new Uint8Array(e11.length * 32);
   for (let r2 = 0; r2 < e11.length; r2++) {
     let i2 = e11[r2];
@@ -817,7 +883,7 @@ function xt(e11, t2) {
   }
   return n2;
 }
-var St = class {
+var At = class {
   constructor(e11 = u.LocalNet) {
     __publicField(this, "network");
     this.network = e11;
@@ -825,16 +891,16 @@ var St = class {
   async generateOutputsStatement(e11, t2) {
     let n2 = s(`[${e11.map((e12) => this.outputWitness(e12)).join(",")}]`, t2);
     return y(n2.aggregated_output_mask, 32, "StealthOutputsResult.aggregated_output_mask"), {
-      statement: bt.fromJSON(n2.statement_json),
+      statement: Z.fromJSON(n2.statement_json),
       outputMask: q.fromBytes(n2.aggregated_output_mask)
     };
   }
   outputWitness(e11) {
-    let t2 = c(e11.destination), n2 = Ct(e11.payTo) ? null : JSON.stringify(e11.payTo), i2 = e11.memo === void 0 ? null : JSON.stringify(e11.memo), a2 = e11.resourceViewKey ?? null;
+    let t2 = c(e11.destination), n2 = jt(e11.payTo) ? null : JSON.stringify(e11.payTo), i2 = e11.memo === void 0 ? null : JSON.stringify(e11.memo), a2 = e11.resourceViewKey ?? null;
     return r(this.network, t2.owner_key, t2.view_key, e11.amount, e11.resourceAddress, a2, i2, n2, e11.minimumValuePromise);
   }
   async buildInputsStatement(e11, t2) {
-    return new X(e11, t2, n(xt(e11.map((e12) => e12.commitment), "input commitment"), t2));
+    return new X(e11, t2, n(kt(e11.map((e12) => e12.commitment), "input commitment"), t2));
   }
   async generateBalanceProofSignature(e11, t2, n2, r2) {
     let i2 = o(e11.toBytes(), t2.toBytes(), n2, r2);
@@ -858,7 +924,7 @@ var St = class {
     };
   }
   async aggregateInputMasks(t2) {
-    let n2 = e(xt(t2.map((e11) => e11.toBytes()), "input mask"));
+    let n2 = e(kt(t2.map((e11) => e11.toBytes()), "input mask"));
     return q.fromBytes(n2);
   }
   async stealthDhSecret(e11, t2, n2) {
@@ -870,50 +936,50 @@ var St = class {
     re(e11.toCompactJson(), null);
   }
 };
-function Ct(e11) {
+function jt(e11) {
   let t2 = Object.keys(e11);
   if (t2.length !== 1 || t2[0] !== "StealthPublicKey") return false;
   let n2 = e11.StealthPublicKey;
   return typeof n2 == "object" && !!n2 && Object.keys(n2).length === 0;
 }
-var wt = "utxo";
-function Tt(e11, t2) {
-  return `${wt}_${e11.startsWith("resource_") ? e11.slice(9) : e11}_${b(t2)}`;
+var Mt = "utxo";
+function Nt(e11, t2) {
+  return `${Mt}_${e11.startsWith("resource_") ? e11.slice(9) : e11}_${b(t2)}`;
 }
-var Et = 64;
-function Dt(e11) {
+var Pt = 64;
+function Ft(e11) {
   return typeof e11 == "object" && !!e11 && "Utxo" in e11;
 }
-function Ot(e11) {
+function It(e11) {
   return e11.length > 0 && /^[0-9a-fA-F]+$/.test(e11);
 }
-function kt(e11) {
+function Lt(e11) {
   let t2 = e11.split("_");
-  if (t2.length < 3 || t2[0] !== wt) return null;
+  if (t2.length < 3 || t2[0] !== Mt) return null;
   let n2 = t2[t2.length - 1];
-  return n2.length !== Et || !Ot(n2) ? null : x(n2);
+  return n2.length !== Pt || !It(n2) ? null : x(n2);
 }
-function At(e11, t2) {
+function Rt(e11, t2) {
   let n2 = e11.substate;
-  if (!Dt(n2)) return null;
+  if (!Ft(n2)) return null;
   let r2 = n2.Utxo;
   if (r2.output === null || r2.is_frozen) return null;
-  let i2 = kt(t2);
+  let i2 = Lt(t2);
   return i2 === null ? null : {
     commitment: i2,
     body: r2.output.output
   };
 }
-var jt = class {
-  constructor(e11, t2, n2 = new St(e11.network())) {
+var zt = 0, Bt = class {
+  constructor(e11, t2, n2 = new At(e11.network())) {
     __publicField(this, "provider");
     __publicField(this, "crypto");
     __publicField(this, "builder");
     __publicField(this, "state");
+    __publicField(this, "maxEpoch", null);
     __publicField(this, "prepared", false);
     __publicField(this, "revealedOutputBucketVar", null);
-    __publicField(this, "followUpInstructions", []);
-    this.provider = e11, this.crypto = n2, this.builder = z.new(e11.network()), this.state = {
+    this.provider = e11, this.crypto = n2, this.builder = z.new(e11.network(), zt), this.state = {
       resource: t2,
       revealedInput: null,
       inputsToSpend: /* @__PURE__ */ new Map(),
@@ -939,15 +1005,19 @@ var jt = class {
   }
   toRevealedOutputAsBucket(e11, t2) {
     if (e11 <= 0n) throw new v(`toRevealedOutputAsBucket amount must be > 0, got ${e11}`);
-    return this.state.revealedOutputAmount += e11, this.revealedOutputBucketVar = t2, this;
+    if (this.revealedOutputBucketVar !== null && this.revealedOutputBucketVar !== t2) throw new v(`toRevealedOutputAsBucket: already routing revealed change to workspace "${this.revealedOutputBucketVar}" \u2014 call with the same name to accumulate, or use a single call`);
+    return this.revealedOutputBucketVar = t2, this.state.revealedOutputAmount += e11, this;
   }
   andThen(e11) {
-    return this.followUpInstructions.push(...e11), this;
+    return this.builder.withInstructions(e11), this;
   }
   payFeeFromRevealed(e11) {
     if (this.state.revealedInput === null) throw new v("payFeeFromRevealed: call spendRevealedInput first to set the source account");
     if (e11 <= 0n) throw new v(`payFeeFromRevealed amount must be > 0, got ${e11}`);
     return this.builder.feeTransactionPayFromComponent(this.state.revealedInput.source, e11), this;
+  }
+  withMaxEpoch(e11) {
+    return this.builder.withMaxEpoch(e11), this.maxEpoch = e11, this;
   }
   withBuilder(e11) {
     return this.builder = e11(this.builder), this;
@@ -964,8 +1034,8 @@ var jt = class {
     var _a;
     if (this.prepared) throw new v("StealthTransfer.prepare: already prepared \u2014 create a new StealthTransfer to build again");
     this.validate(), this.prepared = true;
-    let { statement: e11, outputMask: t2 } = await this.crypto.generateOutputsStatement(this.state.outputs, this.state.revealedOutputAmount), n2 = new Z(await this.crypto.buildInputsStatement([...this.state.inputsToSpend.values()].map((e12) => e12.input), ((_a = this.state.revealedInput) == null ? void 0 : _a.amount) ?? 0n), e11, void 0);
-    this.emitInstructions(n2);
+    let { statement: e11, outputMask: t2 } = await this.crypto.generateOutputsStatement(this.state.outputs, this.state.revealedOutputAmount), n2 = new Q(await this.crypto.buildInputsStatement([...this.state.inputsToSpend.values()].map((e12) => e12.input), ((_a = this.state.revealedInput) == null ? void 0 : _a.amount) ?? 0n), e11, void 0);
+    this.emitInstructions(n2), this.maxEpoch === null && this.builder.buildUnsignedTransaction().max_epoch === zt && this.builder.withMaxEpoch(await Ge(this.provider));
     let r2 = /* @__PURE__ */ new Set();
     if (this.state.revealedInput !== null) {
       let e12 = this.state.revealedInput.source;
@@ -973,14 +1043,14 @@ var jt = class {
         substate_id: e12,
         version: null
       }), r2.add(e12);
-      let t3 = await qe(this.provider, e12);
+      let t3 = await nt(this.provider, e12);
       for (let e13 of t3) r2.has(e13) || (this.builder.addInput({
         substate_id: e13,
         version: null
       }), r2.add(e13));
     }
     for (let { input: e12 } of this.state.inputsToSpend.values()) {
-      let t3 = Tt(this.state.resource, e12.commitment);
+      let t3 = Nt(this.state.resource, e12.commitment);
       r2.has(t3) || (this.builder.addInput({
         substate_id: t3,
         version: null
@@ -1008,7 +1078,7 @@ var jt = class {
     if (!(t2 > 0n || e11)) throw new v("StealthTransfer.prepare: no inputs \u2014 call spendRevealedInput or spendStealthInput first");
     if (this.state.outputs.length === 0 && this.state.revealedOutputAmount === 0n) throw new v("StealthTransfer.prepare: no outputs \u2014 call toStealthOutput or toRevealedOutput first");
     if (this.state.outputs.length === 0) throw new v("StealthTransfer.prepare: at least one stealth output is required");
-    if (this.state.revealedOutputAmount > 0n && this.state.revealedInput === null && this.revealedOutputBucketVar === null) throw new v("StealthTransfer.prepare: revealed change requires a revealed source account to deposit into");
+    if (this.state.revealedOutputAmount > 0n && this.state.revealedInput === null) throw new v("StealthTransfer.prepare: revealed change requires a revealed source account to deposit into");
     if (!e11) {
       let e12 = this.state.outputs.reduce((e13, t3) => e13 + t3.amount, 0n), n2 = e12 + this.state.revealedOutputAmount, r2 = t2;
       if (r2 !== n2) throw new v(`StealthTransfer.prepare: unbalanced transfer \u2014 revealed input ${r2} != stealth out ${e12} + revealed out ${this.state.revealedOutputAmount} (= ${n2})`);
@@ -1019,34 +1089,34 @@ var jt = class {
     t2 !== null && (this.builder.callMethod({
       componentAddress: t2.source,
       methodName: "withdraw"
-    }, [j(this.state.resource), k(t2.amount)]).saveVar(tt), n2 = tt), this.builder.addInstruction(rt({
+    }, [A(this.state.resource), k(t2.amount)]).saveVar(ut), n2 = ut), this.builder.addInstruction(ft({
       resourceAddress: this.state.resource,
       revealedInputBucket: n2,
       statement: e11
-    }, (e12) => this.builder.resolveWorkspaceOffsetId(e12))), this.state.revealedOutputAmount > 0n && this.revealedOutputBucketVar !== null ? this.builder.saveVar(this.revealedOutputBucketVar) : this.state.revealedOutputAmount > 0n && t2 !== null && this.builder.saveVar(nt).callMethod({
+    }, (e12) => this.builder.resolveWorkspaceOffsetId(e12))), this.state.revealedOutputAmount > 0n && t2 !== null && (this.revealedOutputBucketVar === null ? this.builder.saveVar(dt).callMethod({
       componentAddress: t2.source,
       methodName: "deposit"
-    }, [{ Workspace: nt }]), this.followUpInstructions.length > 0 && this.builder.withInstructions(this.followUpInstructions);
+    }, [{ Workspace: dt }]) : this.builder.saveVar(this.revealedOutputBucketVar));
   }
 };
-function Mt(e11) {
-  if (Nt(e11) || e11.statementJson !== void 0) return e11.statementJson;
+function Vt(e11) {
+  if (Ht(e11) || e11.statementJson !== void 0) return e11.statementJson;
   if (e11.inputs.length > 0) throw new _("inputs statement has confidential inputs but no WASM statementJson \u2014 call buildInputsStatement first", { context: "statementJsonFor" });
   return JSON.stringify(e11.toJSON());
 }
-function Nt(e11) {
+function Ht(e11) {
   return !("inputs" in e11);
 }
-async function Q(e11, t2, n2, r2, i2) {
-  let a2 = Mt(r2), o2 = Mt(i2);
+async function Ut(e11, t2, n2, r2, i2) {
+  let a2 = Vt(r2), o2 = Vt(i2);
   return e11.generateBalanceProofSignature(t2, n2, a2, o2);
 }
 async function $(e11, t2, n2, r2) {
   let i2 = await e11.deriveAeadKey(r2.viewSecret, r2.senderPublicNonce);
   return e11.unblindOutput(t2, n2, i2, r2.skipMemo);
 }
-async function Pt(e11, t2, n2, r2) {
-  let i2 = At(n2, r2);
+async function Wt(e11, t2, n2, r2) {
+  let i2 = Rt(n2, r2);
   if (i2 === null) return null;
   let a2 = x(i2.body.encrypted_data), o2 = x(i2.body.public_nonce);
   try {
@@ -1059,33 +1129,33 @@ async function Pt(e11, t2, n2, r2) {
     return null;
   }
 }
-async function Ft(e11, t2, n2) {
+async function Gt(e11, t2, n2) {
   if (t2.length === 0) throw new v("generateOutputsStatement: at least one stealth output is required");
   let { statement: r2, outputMask: i2 } = await e11.generateOutputsStatement(t2, n2), a2 = await e11.buildInputsStatement([], 0n);
-  return new Z(a2, r2, await Q(e11, q.zero(), i2, a2, r2));
+  return new Q(a2, r2, await Ut(e11, q.zero(), i2, a2, r2));
 }
-var It = class e10 {
+var Kt = class e10 {
   constructor(e11, t2, n2, r2, i2) {
     this.wallet = e11, this.spec = t2, this.crypto = n2, this.mustSignWithAccountKey = r2, this.viewSecret = i2;
   }
   static fromSpec(t2, n2, r2 = {}) {
-    return new e10(t2, n2, r2.crypto ?? new St(), r2.mustSignWithAccountKey ?? true, r2.viewSecret);
+    return new e10(t2, n2, r2.crypto ?? new At(), r2.mustSignWithAccountKey ?? true, r2.viewSecret);
   }
   async prepare(e11) {
-    let t2 = await this.resolveStealthInputs(e11), n2 = t2.length === 0 ? q.zero() : await this.crypto.aggregateInputMasks(t2.map((e12) => e12.mask)), r2 = await Q(this.crypto, n2, this.spec.outputMask, this.spec.statement.inputsStatement, this.spec.statement.outputsStatement), i2 = new Z(this.spec.statement.inputsStatement, this.spec.statement.outputsStatement, r2);
+    let t2 = await this.resolveStealthInputs(e11), n2 = t2.length === 0 ? q.zero() : await this.crypto.aggregateInputMasks(t2.map((e12) => e12.mask)), r2 = await Ut(this.crypto, n2, this.spec.outputMask, this.spec.statement.inputsStatement, this.spec.statement.outputsStatement), i2 = new Q(this.spec.statement.inputsStatement, this.spec.statement.outputsStatement, r2);
     await this.crypto.validateTransfer(i2);
-    let a2 = Rt(this.spec.unsignedTx, i2), o2 = {
+    let a2 = Jt(this.spec.unsignedTx, i2), o2 = {
       ...this.spec,
       unsignedTx: a2,
       statement: i2
     };
-    return new Lt({
+    return new qt({
       wallet: this.wallet,
       crypto: this.crypto,
       spec: o2,
       resolvedInputs: t2,
       mustSignWithAccountKey: this.mustSignWithAccountKey,
-      sealKeypair: it()
+      sealKeypair: pt()
     });
   }
   async resolveViewSecret() {
@@ -1110,7 +1180,7 @@ var It = class e10 {
     let t2 = await this.resolveViewSecret(), n2 = this.spec.state.resource, r2 = await Promise.allSettled(this.spec.inputs.map(async ({ input: r3, owner: i3 }) => {
       let a2 = b(r3.commitment), o2 = await e11.getStealthUtxo(n2, r3.commitment);
       if (o2 === null) throw new p(`WalletStealthAuthorizer.prepare: stealth input UTXO not found (spent or never created) for ${a2}`);
-      let s2 = At(o2, Tt(n2, r3.commitment));
+      let s2 = Rt(o2, Nt(n2, r3.commitment));
       if (s2 === null) throw new p(`WalletStealthAuthorizer.prepare: stealth input ${a2} is not a live, spendable UTXO`);
       let c2 = x(s2.body.public_nonce), l2;
       try {
@@ -1135,7 +1205,7 @@ var It = class e10 {
     if (i2 !== void 0) throw i2.reason;
     return r2.map((e12) => e12.value);
   }
-}, Lt = class {
+}, qt = class {
   constructor(e11) {
     __publicField(this, "wallet");
     __publicField(this, "crypto");
@@ -1178,10 +1248,10 @@ var It = class e10 {
     let e11 = (await this.createAuthorizations()).flatMap((e12) => e12.signatures), t2 = [];
     this.mustSignWithAccountKey && t2.push(this.wallet);
     let n2 = [...e11, ...this.extraSignatures];
-    return n2.length > 0 && t2.push(new zt(n2)), K(await G(t2, this.spec.unsignedTx, this.sealKeypair));
+    return n2.length > 0 && t2.push(new Yt(n2)), K(await G(t2, this.spec.unsignedTx, this.sealKeypair));
   }
 };
-function Rt(e11, t2) {
+function Jt(e11, t2) {
   let n2 = e11.instructions.findIndex(H);
   if (n2 < 0) throw new v("patchStealthStatement: expected exactly one StealthTransfer instruction, found 0 (not a stealth tx)");
   if (e11.instructions.slice(n2 + 1).findIndex(H) >= 0) throw new v("patchStealthStatement: expected exactly one StealthTransfer instruction, found more than one (malformed)");
@@ -1194,7 +1264,7 @@ function Rt(e11, t2) {
     instructions: i2
   };
 }
-var zt = class {
+var Yt = class {
   constructor(e11) {
     this.signatures = e11;
   }
@@ -1209,84 +1279,87 @@ var zt = class {
   }
 };
 export {
-  dt as AccountInvokeBuilder,
-  Lt as AuthorizedTransfer,
+  bt as AccountInvokeBuilder,
+  qt as AuthorizedTransfer,
   Y as BalanceProofSignature,
   _ as CryptoBridgeError,
+  We as DEFAULT_TRANSACTION_VALIDITY_EPOCHS,
   h as DefaultSignerNotSetError,
-  ht as EncryptedData,
-  ft as FaucetInvokeBuilder,
+  wt as EncryptedData,
+  xt as FaucetInvokeBuilder,
   ie as IndexerClientError,
   v as InvalidArgumentError,
   m as KeyProviderNotFoundError,
+  Ue as MAX_TRANSACTION_VALIDITY_EPOCHS,
   q as Mask,
   u as Network,
   d as OotleError,
-  pt as OotleWallet,
+  St as OotleWallet,
   oe as OperationCancelledError,
   g as SignerError,
   J as StealthInput,
   X as StealthInputsStatement,
-  bt as StealthOutputsStatement,
-  jt as StealthTransfer,
-  Z as StealthTransferStatement,
-  Xe as TARI_RESOURCE_ADDRESS,
+  Z as StealthOutputsStatement,
+  Bt as StealthTransfer,
+  Q as StealthTransferStatement,
+  at as TARI_RESOURCE_ADDRESS,
   z as TransactionBuilder,
   f as TransactionRejectedError,
   ae as TransactionTimeoutError,
   p as WalletError,
-  It as WalletStealthAuthorizer,
-  St as WasmStealthCrypto,
-  $e as XTR_FAUCET_CLAIM_RESOURCE_ADDRESS,
-  Ze as XTR_FAUCET_COMPONENT_ADDRESS,
-  Qe as XTR_FAUCET_VAULT_ADDRESS,
+  Kt as WalletStealthAuthorizer,
+  At as WasmStealthCrypto,
+  ct as XTR_FAUCET_CLAIM_RESOURCE_ADDRESS,
+  ot as XTR_FAUCET_COMPONENT_ADDRESS,
+  st as XTR_FAUCET_VAULT_ADDRESS,
   k as amountLiteral,
   y as assertByteLength,
   se as assertUnreachable,
-  Te as boolLiteral,
-  at as buildTransactionSignature,
-  A as bytesLiteral,
-  Ae as claimedOutputTombstoneAddressLiteral,
-  st as classifyOutcome,
-  kt as commitmentOf,
-  Ee as componentAddressLiteral,
-  _t as createOutput,
+  Oe as boolLiteral,
+  mt as buildTransactionSignature,
+  De as bytesLiteral,
+  Ne as claimedOutputTombstoneAddressLiteral,
+  gt as classifyOutcome,
+  Lt as commitmentOf,
+  ke as componentAddressLiteral,
+  Et as createOutput,
   $ as decryptInputData,
-  Pt as decryptOwnedUtxo,
-  Ue as defaultIndexerUrl,
+  Wt as decryptOwnedUtxo,
+  Qe as defaultIndexerUrl,
   x as fromHexStr,
-  Ft as generateOutputsStatement,
-  it as generateSealKeypair,
-  qe as getVaultIdsForAccount,
-  Ce as intLiteral,
+  Gt as generateOutputsStatement,
+  pt as generateSealKeypair,
+  nt as getVaultIdsForAccount,
+  Te as intLiteral,
   H as isStealthTransferInstruction,
-  Ke as iterVaultIdsInState,
-  Se as literalArg,
-  De as metadataLiteral,
-  R as microTariLiteral,
-  Re as microTariString,
-  Ne as nonFungibleAddressLiteral,
-  At as parseSubstateUtxo,
-  ze as parseWorkspaceStringKey,
-  Rt as patchStealthStatement,
-  Me as publicKeyLiteral,
+  tt as iterVaultIdsInState,
+  Ce as literalArg,
+  Ae as metadataLiteral,
+  L as microTariLiteral,
+  Ve as microTariString,
+  Ie as nonFungibleAddressLiteral,
+  Rt as parseSubstateUtxo,
+  He as parseWorkspaceStringKey,
+  Jt as patchStealthStatement,
+  Fe as publicKeyLiteral,
+  Ge as resolveMaxEpoch,
   W as resolveTransaction,
-  j as resourceAddressLiteral,
+  A as resourceAddressLiteral,
   K as sealTransaction,
-  ut as sendDryRun,
-  lt as sendTransaction,
+  yt as sendDryRun,
+  vt as sendTransaction,
   U as serializeUnsignedTx,
-  Q as signBalanceProof,
+  Ut as signBalanceProof,
   G as signTransaction,
   V as statementAsWire,
-  rt as stealthTransferInstruction,
-  Tt as stealthUtxoSubstateId,
-  we as stringLiteral,
-  ot as submitTransaction,
-  ke as templateAddressLiteral,
+  ft as stealthTransferInstruction,
+  Nt as stealthUtxoSubstateId,
+  Ee as stringLiteral,
+  ht as submitTransaction,
+  Me as templateAddressLiteral,
   b as toHexStr,
-  Pe as utxoAddressLiteral,
-  je as validatorFeePoolAddressLiteral,
-  Oe as vaultIdLiteral,
-  ct as watchTransaction
+  Le as utxoAddressLiteral,
+  Pe as validatorFeePoolAddressLiteral,
+  je as vaultIdLiteral,
+  _t as watchTransaction
 };

@@ -30,9 +30,9 @@ describe("summarizeInstruction", () => {
     expect(summary.detail).toContain("template");
   });
 
-  it("surfaces the literal log message for EmitLog (plain string, safe to show verbatim)", () => {
-    const instr: Instruction = { EmitLog: { level: "Info", message: "hello from a contract" } };
-    expect(summarizeInstruction(instr)).toEqual({ title: "Log a message", detail: "hello from a contract" });
+  it("summarizes PutIntoBucket", () => {
+    const instr: Instruction = { PutIntoBucket: { src: { id: 0, offset: null }, dest: { id: 1, offset: null } } };
+    expect(summarizeInstruction(instr)).toEqual({ title: "Move a value into a bucket" });
   });
 
   it("falls back to the raw variant name for anything not explicitly handled", () => {

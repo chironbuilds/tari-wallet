@@ -13,6 +13,7 @@ import {
   decryptOwnedUtxo,
   defaultIndexerUrl,
   getVaultIdsForAccount,
+  resolveMaxEpoch,
   resolveTransaction,
   resourceAddressLiteral,
   sealTransaction,
@@ -23,13 +24,14 @@ import {
 } from "@tari-project/ootle";
 import type { StealthTransferSpec, UnsignedTransactionWithBlobs } from "@tari-project/ootle";
 import type {
+  ExecuteResult,
   IndexerGetTransactionResultResponse,
-  IndexerSubmitTransactionResponse,
   Instruction,
   Memo,
   OutputBody,
   Substate,
   SubstateRequirement,
+  TransactionId,
 } from "@tari-project/ootle-ts-bindings";
 import { IndexerProvider } from "@tari-project/ootle-indexer";
 import { SecretKeyWallet } from "@tari-project/ootle-secret-key-wallet";
@@ -322,6 +324,11 @@ export class OotleAccount implements WalletAccountApi {
     const provider = await this.getProvider();
     const account = await this.getComponentAddress();
     const maxFee = opts.maxFee ?? 5000n;
+    // Resolved once, outside the retry loop below: every transaction now carries a mandatory
+    // `max_epoch`, and a fresh chain-tip lookup on every retry would buy nothing (the loop's
+    // whole retry budget runs in well under an epoch in practice) at the cost of an extra
+    // round trip per attempt.
+    const maxEpoch = await resolveMaxEpoch(provider);
     // A first-time transaction into brand-new resources needs one retry per previously-unknown
     // substate it discovers (each pool, each pool's own internal vaults, and any new vault the
     // account itself needs created to hold a token it's never held before) — confirmed empirically
@@ -334,7 +341,9 @@ export class OotleAccount implements WalletAccountApi {
     let inputs = await applyKnownVersions(opts.inputs ? [...opts.inputs] : []);
 
     for (let attempt = 0; ; attempt++) {
-      const builder = TransactionBuilder.new(this.network).withInstructions(instructions).feeTransactionPayFromComponent(account, maxFee);
+      const builder = TransactionBuilder.new(this.network, maxEpoch)
+        .withInstructions(instructions)
+        .feeTransactionPayFromComponent(account, maxFee);
       if (inputs.length) builder.withInputs(inputs);
       const unsignedTx = builder.buildUnsignedTransaction();
 
@@ -396,8 +405,18 @@ export class OotleAccount implements WalletAccountApi {
    * envelope to the correct path via the indexer client's transport directly. Dry-run responses
    * come back synchronously with the full result already attached (no `transactions/{id}/result`
    * polling needed, unlike a real submission).
+   *
+   * The response shape (`{transaction_id, result: ExecuteResult}`) is the indexer's own
+   * `SubmitTransactionDryRunResponse` (`applications/tari_indexer/src/rest_api/handlers/
+   * transactions.rs`'s `submit_transaction_dry_run` handler) — confirmed directly against that
+   * Rust source since `@tari-project/ootle-ts-bindings` doesn't export a matching type for it
+   * (only the real-submission response, which no longer carries a `result` field at all as of
+   * the 0.39.0 protocol upgrade).
    */
-  private async submitDryRun(provider: IndexerProvider, unsignedTx: UnsignedTransactionWithBlobs): Promise<IndexerSubmitTransactionResponse> {
+  private async submitDryRun(
+    provider: IndexerProvider,
+    unsignedTx: UnsignedTransactionWithBlobs
+  ): Promise<{ transaction_id: TransactionId; result: ExecuteResult }> {
     const resolved = await resolveTransaction(provider, { ...unsignedTx, dry_run: true });
     const signed = await signTransaction([this.signer], resolved);
     const envelope = sealTransaction(signed);
@@ -417,7 +436,7 @@ export class OotleAccount implements WalletAccountApi {
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${body?.error?.message ?? text ?? res.statusText}`);
     if (body?.error) throw new Error(`${body.error.code}: ${body.error.message}`);
-    const response = body as IndexerSubmitTransactionResponse;
+    const response = body as { transaction_id: TransactionId; result: ExecuteResult };
 
     // A rejected dry-run comes back as a normal HTTP 200 with the rejection embedded in the
     // result (there's nothing to poll — dry runs never reach consensus). Throwing here, in the
@@ -513,6 +532,7 @@ export class OotleAccount implements WalletAccountApi {
     const provider = await this.getProvider();
     const publicKeyHex = bytesToHex(await this.getPublicKey());
     const account = await this.getComponentAddress();
+    const maxEpoch = await resolveMaxEpoch(provider);
 
     for (let attempt = 0; ; attempt++) {
       const inputs = await withTimeout(
@@ -525,7 +545,7 @@ export class OotleAccount implements WalletAccountApi {
         "resolving the faucet's current state"
       );
 
-      const unsignedTx = TransactionBuilder.new(this.network)
+      const unsignedTx = TransactionBuilder.new(this.network, maxEpoch)
         .withFeeInstructionsBuilder((b) =>
           b
             .createAccount(publicKeyHex)

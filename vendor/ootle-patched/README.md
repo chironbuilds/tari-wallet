@@ -1,74 +1,67 @@
 # Patched `@tari-project/ootle` (temporary, remove once upstream releases a fix)
 
-The published `@tari-project/ootle@0.1.0` (frozen since 2026-06-01 — see
-[tari-project/ootle.ts#117](https://github.com/tari-project/ootle.ts/issues/117)) sends a
-`StealthTransferStatement` missing the `covenant_claims` field, which the current protocol's
-wire struct requires. Omitting it makes the whole transaction fail server-side deserialization
-with a generic `"data did not match any variant of untagged enum TransactionInput"` — the
-missing-field error on the deeply-nested statement isn't surfaced directly.
+Rebased 2026-08-20 onto `tari-project/ootle.ts`'s `main` branch at commit `1f2e8b2`
+("feat(deps)!: upgrade the tari package set to the 0.39 protocol (#123)") — the same commit the
+officially published `@tari-project/ootle@0.3.0` npm release was built from (confirmed: identical
+`version` field, identical `covenant_claims` hardcoding when diffed against the published tarball).
+This is a source rebase, not a re-derivation from scratch — the previous vendor copy (built
+2026-08-06 from a since-unknown `ootle.ts` `main` commit `2bc5e93e`) carried one patch that no
+longer applies and one that still does:
 
-This is a locally-built `dist/` from `tari-project/ootle.ts`'s `main` branch (commit
-`2bc5e93e`) with two changes on top of upstream:
+1. ~~One line changed in `packages/ootle/src/stealth/statements.ts` to always include
+   `"covenant_claims":[]`~~ — **no longer needed**. Confirmed by grepping the real, published
+   `@tari-project/ootle@0.3.0` dist: it already includes `"covenant_claims":[]` unconditionally.
+   Upstream picked this up independently at some point after the original 2026-08-06 patch. This
+   remains correct for every transfer this wallet builds today, including the HTLC claim/refund
+   this rebase was done to unblock — `covenant_claims` is only ever read by
+   `SpendScriptExecution::covenant_balanced`, reached only from a `Covenant::BalancePreserved`
+   leaf or a `TemplateFunction` calling `SpendContext::covenant_balanced`; a revealed
+   `HashLock`/`AfterEpoch`/`AccessRule` leaf (what every HTLC leaf in `src/lib/htlc.ts` is) never
+   touches it (confirmed against `tari-project/tari-ootle#2431`'s own review discussion, where a
+   maintainer caught an earlier PR description overclaiming this field was "required whenever a
+   script-path input is spent").
 
-1. One line changed in `packages/ootle/src/stealth/statements.ts`:
-   `StealthTransferStatement.toCompactJson()` now always includes `"covenant_claims":[]` (correct
-   for every transfer this wallet builds, since none of them spend an input gated by a `Script`
-   spend condition). Built against `@tari-project/ootle-wasm@0.37.0` (via a local
-   `pnpm-workspace.yaml` catalog override), not the `^0.32.0` the published package pins
-   internally — see the same issue thread for why that version gap mattered too (a JSON wrapper
-   key inside stealth output witnesses renamed `spend_condition` -> `auth` between those
-   versions).
-2. `packages/ootle/src/stealth/transfer.ts`'s `StealthTransfer` builder gained two new public
-   methods, `toRevealedOutputAsBucket(amount, workspaceVarName)` and `andThen(instructions)`.
-   Upstream's `toRevealedOutput()` always auto-deposits the revealed change back into the
-   source account — there's no way to get it as a bucket a caller can route elsewhere. The new
-   methods leave it on the workspace instead and let extra instructions run in the *same* signed
-   transaction, consuming that bucket. This exists because a third-party dApp calling
-   `tari_signAndSubmitTransaction` cannot move Stealth-typed funds (e.g. XTR) into its own
-   contract call at all otherwise — a plain `CallMethod withdraw` on a Stealth vault is not a
-   standalone-valid instruction (confirmed: fails identically, client-side, with the exact same
-   `TransactionInput` error below, even with zero custom-contract involvement); moving Stealth
-   funds anywhere always requires the native `StealthTransfer` instruction, paired with
-   `WalletStealthAuthorizer` to sign it — which `account.execute()` never invokes. See
-   `withdrawStealthAndExecute` in `src/lib/wallet.ts` for the wallet-side method that uses this.
-   **`toRevealedOutputAsBucket` callers must still include ≥1 real `toStealthOutput`** (a small
-   dust self-output is enough, exactly what `withdrawStealthAndExecute` does) — a statement with
-   *zero* stealth outputs at all is not a shape the bundled `ootle-wasm@0.37.0` signer can parse,
-   confirmed live: it throws the same generic `TransactionInput` error inside `signTransaction`'s
-   own WASM call regardless of how `balance_proof` is represented (present, `null`, or omitted —
-   all three tried and ruled out before finding the real cause).
+2. `packages/ootle/src/stealth/transfer.ts`'s `StealthTransfer` builder still needs its two
+   wallet-specific public methods, `toRevealedOutputAsBucket(amount, workspaceVarName)` and
+   `andThen(instructions)` — **re-applied on top of the current source**, still absent upstream
+   (confirmed: `grep -c toRevealedOutputAsBucket` on the fresh `ootle.ts` checkout before
+   patching was 0). Upstream's `toRevealedOutput()` always auto-deposits the revealed change back
+   into the source account — there's no way to get it as a bucket a caller can route elsewhere.
+   The patched methods leave it on the workspace instead and let extra instructions run in the
+   *same* signed transaction, consuming that bucket. This exists because a third-party dApp (or
+   this wallet's own `withdrawStealthAndExecute`) cannot move Stealth-typed funds (e.g. XTR) into
+   its own contract call at all otherwise — a plain `CallMethod withdraw` on a Stealth vault is
+   not a standalone-valid instruction; moving Stealth funds anywhere always requires the native
+   `StealthTransfer` instruction, paired with `WalletStealthAuthorizer` to sign it — which
+   `account.execute()`/plain `TransactionBuilder` never invokes. See `withdrawStealthAndExecute`
+   in `src/lib/wallet.ts` for the wallet-side method that uses this. Full method docs are inline
+   in `transfer.ts` itself now (copied into this package's own `dist/index.d.ts`).
 
-**CONFIRMED WORKING END-TO-END LIVE** (2026-08-06): a real sealed bid placed through
-`tari-dex/dao-ui` via a connected Sapient wallet on esmeralda succeeded — `withdrawStealthAndExecute`
-revealed XTR into a bucket and fed it straight into a custom DAO contract's `get_bid_credits` →
-`place_bid` chain, all in one wallet-signed transaction. Getting there past this patch required
-two *more* fixes that live outside this package (not part of `@tari-project/ootle` at all):
+**Why this rebase happened now**: `@tari-project/ootle-wasm@0.39.0`/`0.39.1` are real, officially
+published releases (not a moving branch HEAD) that finally include
+`buildScriptPathWitness`/`buildStealthInputsStatementFromInputs`/`buildStealthTransferStatement`
+(`tari-project/tari-ootle#2426`, `#2431`) — the primitives `OotleAccount.htlcClaim`/`htlcRefund`
+need. Picking those up meant moving off the old `^0.37.0` pin, which meant rebuilding this vendor
+copy against a source tree consistent with the new wasm version rather than continuing to build
+against the stale 2026-08-06 base.
 
-- **`WorkspaceOffsetId`/`WorkspaceId` wire format**: a dApp building raw instructions by hand
-  (bypassing this SDK's own `TransactionBuilder`, which auto-resolves *name*-based
-  `{Workspace:"name"}` args to real ids via `saveVar`/`resolveArgs`) must emit the real wire shape
-  directly — `WorkspaceId` is a plain `u16` (`PutLastInstructionOutputOnWorkspace.key`), and
-  `WorkspaceOffsetId` is `{id: u16, offset: Option<usize>}` (any `Workspace` arg) — confirmed
-  against `tari_ootle_transaction`'s `args.rs`. `dao-ui/src/tari.ts` previously invented a
-  name-based `{offset:[name]}` shape that happened to typecheck but was never real — it worked by
-  accident as long as a dApp's instructions never mixed with this SDK's own internally-numbered
-  ones, which `withdrawStealthAndExecute`'s spliced-in `andThen` instructions do. Also: ids are a
-  single flat counter across the *whole* transaction, so a dApp splicing instructions in after
-  `withdrawStealthAndExecute`'s internal StealthTransfer (which always claims ids 0 and 1) must
-  number its own workspace vars starting from 2.
-- **Missing transaction inputs**: `withdrawStealthAndExecute`'s `relatedComponents` param
-  auto-registers a component + its own vaults, but not a *resource*'s own substate — a dApp
-  instruction like `withdraw_confidential(someResource, ...)` needs that resource's address
-  listed explicitly too (`SubstateNotFound` otherwise), same requirement `unshield()`'s own doc
-  comment already calls out for the transferred resource itself.
+**Verified before landing**: `packages/ootle`'s own `tsc -b` and `vite build` both clean against
+this patch; its non-wasm-dependent test files (240 tests across 17 files) pass unchanged. Its
+wasm-dependent test files fail to even load in this build environment with
+`TypeError: filename must be a file URL... Received 'file:///__vite-plugin-wasm-helper'` —
+confirmed via `git stash` that this happens identically on the *unpatched* upstream source, so
+it's a pre-existing `vite-plugin-wasm`/Node version environment issue, not something this patch
+introduced or something this patch's correctness can be judged by. `tari-wallet`'s own test suite
+(a different vitest config) is the real correctness check for this vendor copy — see this repo's
+top-level `README.md` / commit history for that result.
 
-Wired in via `pnpm-workspace.yaml`'s `overrides: '@tari-project/ootle': 'file:./vendor/ootle-patched'`
-in the main project. The source clone lives at `tari-wallet-extension/vendor/ootle-src/` (gitignored
-build input, not part of the published patch) — to rebuild after further edits:
-`cd vendor/ootle-src/packages/ootle && npx tsc -b && npx vite build`, then copy `dist/index.js` +
+To rebuild after further edits: clone `tari-project/ootle.ts` fresh, re-apply the
+`toRevealedOutputAsBucket`/`andThen` patch to `packages/ootle/src/stealth/transfer.ts` (diff
+against this vendored `dist/index.d.ts` if the patch itself is lost), then
+`cd packages/ootle && pnpm install && npx tsc -b && npx vite build`, and copy `dist/index.js` +
 `dist/index.d.ts` into this directory's `dist/`.
 
-Delete `vendor/ootle-patched/` and `vendor/ootle-src/` and the override once `@tari-project/ootle`
-publishes a release past 2026-06-01 that includes fix 1 (or once a PR upstreaming it merges) —
-re-verify shield/unshield *and* the bucket-output/`andThen` capability against whatever version
-ships, since fix 2 has no upstream equivalent at all yet and would need to be re-proposed.
+Delete `vendor/ootle-patched/` and the `pnpm-workspace.yaml` override once `@tari-project/ootle`
+publishes a release that includes fix 2 (fix 1 is already moot) — re-verify shield/unshield *and*
+the bucket-output/`andThen` capability (and, once built, HTLC claim/refund) against whatever
+version ships, since fix 2 still has no upstream equivalent and would need to be proposed there.

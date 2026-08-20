@@ -11,6 +11,15 @@ allowBuilds:
   '@swc/core': true
   esbuild: true
 
+minimumReleaseAgeExclude:
+  - '@tari-project/indexer-client@1.6.0'
+  - '@tari-project/ootle-indexer@0.3.0'
+  - '@tari-project/ootle-secret-key-wallet@0.3.0'
+  - '@tari-project/ootle-ts-bindings@1.49.1'
+  - '@tari-project/ootle-wallet-daemon-signer@0.3.0'
+  - '@tari-project/ootle-wasm@0.39.1'
+  - '@tari-project/wallet_jrpc_client@1.22.0'
+
 # Forces the transitive `uuid` dependency (pulled in by vite-plugin-top-level-await, build-time
 # only, never shipped in the extension itself) up to a patched version -- GHSA-w5hq-g745-h8pq,
 # a missing bounds check when a caller supplies its own output buffer. Scoped to this one
@@ -18,39 +27,23 @@ allowBuilds:
 # this project's wasm build pipeline is deliberately pinned to (see README "Building").
 overrides:
   uuid: ^11.1.1
-  # @tari-project/ootle (0.1.0, frozen since 2026-06-01) pins its own internal ootle-wasm
-  # dependency to ^0.32.0 -- pnpm resolves that strictly to its own nested copy, separate from
-  # the version this project requires directly. Confirmed (diffing the two installed .d.ts files)
-  # that createStealthOutputWitness's internal JSON wrapper key renamed spend_condition -> auth
-  # between those versions, with the same JS function signature either way -- so StealthTransfer/
-  # WalletStealthAuthorizer (which call this via WasmStealthCrypto) were silently building stealth
-  # outputs in the stale pre-rename shape. This forces a single, current copy everywhere.
+  # @tari-project/ootle-wasm@0.39.1 is a real, officially published, pinned release (not a
+  # moving branch HEAD like the vendor build this used to point at) -- confirmed it exports
+  # buildScriptPathWitness/buildStealthInputsStatementFromInputs/buildStealthTransferStatement
+  # (tari-project/tari-ootle#2426, #2431) and that a plain, non-stealth transaction still signs
+  # correctly against it (see the regression check this override's removal shipped with). No
+  # override needed -- package.json's own `^0.39.1` requirement resolves this directly; listed
+  # here only as a historical marker of what used to need forcing. Remove once confirmed stable.
   #
-  # TEMPORARILY REVERTED to the last known-good published version (2026-08-15) -- the
-  # vendor/ootle-wasm-patched build (see that dir's README) was built from tari-ootle's bleeding-
-  # edge `development` branch to pick up tari-project/tari-ootle#2426's HTLC exports, but that
-  # branch had accumulated many *unrelated* commits since 0.37.0/0.38.0 was cut. Confirmed live
-  # (via tari-dex/swap-ui, both the old tari_signAndSubmitTransaction path and the new create/
-  # submit path) that plain, non-stealth transaction submission started failing server-side with
-  # "Invalid transaction signature" after that swap -- something in the newer wasm build's
-  # signing/hashing changed in a way the (older, stable) validator/indexer doesn't accept. Do not
-  # re-vendor from a bleeding-edge branch commit again without a real live round-trip test of a
-  # plain CallMethod transaction, not just the new stealth exports.
-  '@tari-project/ootle-wasm': ^0.37.0
-  # @tari-project/ootle@0.1.0 also omits `covenant_claims` from the stealth-transfer statement
-  # it signs -- a field the current protocol's wire struct requires, causing shield/unshield to
-  # fail server-side with "did not match any variant of untagged enum TransactionInput" (see
-  # vendor/ootle-patched/README.md and tari-project/ootle.ts#117 for the full story). Points at
-  # a locally-built, one-line-patched copy until upstream ships a real fix -- remove this
-  # override and the vendor/ directory once that lands.
+  # @tari-project/ootle@0.3.0 still hardcodes `"covenant_claims":[]` in its bundled
+  # `StealthTransferStatement.toCompactJson()` (confirmed by grepping the published dist) --
+  # correct for every transfer this wallet builds today (none spend a `Covenant`-gated input;
+  # the HTLC leaves this wallet uses are HashLock/AfterEpoch/AccessRule, never read by
+  # `covenant_balanced` -- see tari-project/tari-ootle#2431's review), but still not upstream-
+  # fixed. Points at a locally-built, patched copy rebased on current `ootle.ts` -- remove this
+  # override and the vendor/ directory once upstream ships a real fix.
   '@tari-project/ootle': 'file:./vendor/ootle-patched'
-  # @tari-project/ootle-secret-key-wallet@0.1.0's OWN build config (vite.config.js) forgot to
-  # externalize @tari-project/ootle-wasm (unlike @tari-project/ootle's config, which correctly
-  # does) -- so its published bundle inlines the entire wasm module directly (confirmed: ~1.5MB
-  # bundle containing its own WebAssembly.instantiate calls), producing a SECOND, fully separate
-  # WebAssembly.Instance from the SAME wasm binary whenever this package is used alongside
-  # @tari-project/ootle (i.e. always, in any real wallet). Each instance has isolated linear
-  # memory -- this was the actual root cause of the intermittent "did not match any variant of
-  # untagged enum TransactionInput" failure signing stealth transfers specifically. See
-  # vendor/ootle-secret-key-wallet-patched/README.md and tari-project/ootle.ts#117.
-  '@tari-project/ootle-secret-key-wallet': 'file:./vendor/ootle-secret-key-wallet-patched'
+  # @tari-project/ootle-secret-key-wallet@0.3.0 now correctly externalizes @tari-project/ootle-wasm
+  # (confirmed: its dist/index.js dropped from ~1.5MB with inlined WebAssembly.instantiate calls to
+  # ~4KB) -- the dual-WASM-instance bug this override worked around is fixed upstream. No override
+  # needed -- package.json's own `^0.3.0` requirement resolves this directly.
