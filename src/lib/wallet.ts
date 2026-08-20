@@ -562,26 +562,8 @@ export class OotleAccount implements WalletAccountApi {
         .withInputs(inputs)
         .buildUnsignedTransaction();
 
-      // eslint-disable-next-line no-console -- TEMP diagnostic, remove once the decode-error report is resolved
-      console.log(
-        "[htlc-debug] claimTestnetXtr unsignedTx",
-        JSON.stringify(unsignedTx, (_k, v) => (typeof v === "bigint" ? `${v}n` : v), 2)
-      );
-
       try {
-        // eslint-disable-next-line no-console -- TEMP diagnostic
-        const resolvedTx = await resolveTransaction(provider, unsignedTx);
-        // eslint-disable-next-line no-console -- TEMP diagnostic
-        console.log(
-          "[htlc-debug] resolvedTx",
-          JSON.stringify(resolvedTx, (_k, v) => (typeof v === "bigint" ? `${v}n` : v), 2)
-        );
-        const signedTx = await signTransaction([this.signer], resolvedTx);
-        const envelope = sealTransaction(signedTx);
-        // eslint-disable-next-line no-console -- TEMP diagnostic
-        console.log("[htlc-debug] envelope base64", envelope);
-        const txId = await submitTransaction(provider, envelope);
-        const result = await withTimeout(pollTransactionResult(provider, txId), 30_000, "submitting the claim");
+        const result = await withTimeout(sendTransaction(provider, this.signer, unsignedTx), 30_000, "submitting the claim");
         // This is typically the first transaction for a brand-new account — recording its
         // resulting versions (the newly-created fee vault included) closes the exact gap that
         // otherwise bites the *next* transaction (see `applyKnownVersions`'s doc comment).
