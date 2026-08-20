@@ -57,42 +57,57 @@ separately, by the condition tree. The funder never sees or needs the actual sec
 
 ### What's built, and what isn't
 
-**Funding works today.** It only needed `createStealthOutputWitness`'s existing `payTo` parameter —
-a capability that was already present in the published SDK, just undocumented.
-
-**Claiming and refunding — spending an HTLC-locked output — don't exist in this wallet yet.**
-Spending a script-conditioned output needs two things neither the published SDK nor (until
-recently) the wasm crypto module it wraps could do:
+**Funding, claiming, and refunding all work today** at the `OotleAccount` level
+(`htlcFund`/`htlcClaim`/`htlcRefund` in `src/lib/wallet.ts`). Spending a script-conditioned output
+needed two things neither the published SDK nor (until recently) the wasm crypto module it wraps
+could do — both now shipped in a real, officially published `@tari-project/ootle-wasm` release:
 
 1. Building the actual **script-path witness** — revealing one leaf of the condition tree plus its
    Merkle inclusion proof and any required witness data (the preimage, for a claim). Exposed
-   upstream in [tari-project/tari-ootle#2426](https://github.com/tari-project/tari-ootle/pull/2426).
-2. Generating a **covenant balance claim** — a proof that value in equals value out across the
-   partition of inputs/outputs sharing a spent script-locked input's condition root. Required
-   whenever a script-path input is spent; omitting it isn't a cosmetic gap, it's a real
-   balance-integrity hole. Exposed upstream in
-   [tari-project/tari-ootle#2431](https://github.com/tari-project/tari-ootle/pull/2431).
+   upstream in [tari-project/tari-ootle#2426](https://github.com/tari-project/tari-ootle/pull/2426)
+   as `buildScriptPathWitness`.
+2. Assembling a **complete, internally-consistent transfer statement** — inputs statement, outputs
+   statement, balance proof, and a covenant balance claim per condition-root partition among the
+   spent script-path inputs — from unblinded input/output witnesses, in one call. Exposed upstream
+   in [tari-project/tari-ootle#2431](https://github.com/tari-project/tari-ootle/pull/2431) as
+   `buildStealthTransferStatement`. (Confirmed live, via `htlc.test.ts`'s real-wasm round-trip
+   test: a covenant claim gets generated *unconditionally* per partition, regardless of what the
+   revealed leaf actually gates on — separate from whether the engine's `covenant_balanced` ever
+   reads it back at spend time, which for every leaf this wallet's HTLCs use — `HashLock`,
+   `AfterEpoch`/`BeforeEpoch`, `AccessRule` — it never does.)
 
-Both were deliberately *not* hand-rolled in TypeScript without a tested primitive backing them —
-covenant-claim generation in particular is exactly the kind of thing that fails silently and
-expensively if it's subtly wrong, not the kind of gap worth guessing at. The vendored SDK's own
-`StealthTransfer`/`WalletStealthAuthorizer` input pipeline is also currently hard-wired to
-key-path-only spends (it always derives a one-time DH signature per input), so claim/refund will
-need a real patch there too, once the wasm side is safely available.
+`htlcClaim`/`htlcRefund` deliberately **bypass** the vendored SDK's own
+`StealthTransfer`/`WalletStealthAuthorizer` builder pipeline rather than patching it to understand
+script-path inputs: that pipeline is hard-wired to always derive a one-time DH signature per spent
+input, which doesn't apply to a script-path spend at all (its authorization is the revealed leaf's
+own `AccessRule`, satisfied by this account's *normal* transaction signature). Both build a
+complete statement directly via `buildStealthTransferStatement`, then submit through the same
+plain `TransactionBuilder` → `resolveTransaction` → `signTransaction` → `sealTransaction` pipeline
+any ordinary `CallMethod`-only transaction uses — see `buildHtlcSpendStatement`/`submitHtlcSpend`'s
+own doc comments in `wallet.ts` for the exact assembly.
 
-**A note on how that wasm dependency is currently pinned**: an earlier attempt to vendor a
-newer `@tari-project/ootle-wasm` build (to pick up #2426's exports ahead of a real release) broke
-ordinary, non-stealth transaction signing wallet-wide, because it was built from a moving branch
-HEAD carrying a lot of unrelated changes. It was reverted at the time. Both #2426 and #2431 have
-since shipped in a real, officially published release (`@tari-project/ootle-wasm@0.39.0`+) — this
-project now depends on that directly (`^0.39.1`, no override, no vendor copy), confirmed to export
-`buildScriptPathWitness`/`buildStealthInputsStatementFromInputs`/`buildStealthTransferStatement`
-and to still sign an ordinary, non-stealth transaction correctly.
+**The refund side has one design wrinkle worth knowing**: `htlcFund` addresses the output to the
+*claimant's* wallet address (so the claimant can independently decrypt/verify it, same as any
+normal incoming payment) — which means the *funder* cannot decrypt that same output later to
+recover its mask the normal way if a refund becomes necessary. `htlcFund` closes this by also
+returning `outputMask` — the one point at which the funder legitimately has it, since it's the
+aggregated output mask `StealthTransfer.prepare()` already computes for the single output it just
+created. A caller that discards this return value has no recovery path for a future refund.
+
+**Not yet wired**: `htlcClaim`/`htlcRefund` exist at the account level, verified by a real-wasm
+test that the statements they build pass the engine's own `validateStealthTransfer`, and by the
+full extension build/typecheck/test suite — but have **no live validator/indexer round trip**
+behind them yet (no funded HTLC has actually been claimed or refunded end-to-end on a running
+network from this environment), and are **not yet exposed** through the extension's dApp-facing
+RPC surface (`tari_htlcClaim`/`tari_htlcRefund`, `tari_getCapabilities` flags, approval-popup
+summaries) the way `htlcFund` is — that's a distinct, scoped follow-up mirroring `htlcFund`'s own
+existing wiring in `messages.ts`/`background/index.ts`.
 
 ### `tari_getCapabilities` reflects this honestly
 
 `scriptPathSpend` in the capabilities response is `false` today, and will stay `false` until
-claim/refund actually exist and are tested — not flipped to `true` the moment the upstream pieces
-land. `htlcFund` is `true` for a local (`OotleAccount`) connection, `false` for a daemon-relayed
-one, matching the same key-material split described in
+claim/refund are wired into the RPC surface *and* verified against a real running network — not
+flipped to `true` the moment the account-level methods exist. `htlcFund` is `true` for a local
+(`OotleAccount`) connection, `false` for a daemon-relayed one, matching the same key-material split
+described in
 [Accounts and Signing](accounts-and-signing.md).

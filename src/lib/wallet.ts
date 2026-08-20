@@ -35,7 +35,13 @@ import type {
 } from "@tari-project/ootle-ts-bindings";
 import { IndexerProvider } from "@tari-project/ootle-indexer";
 import { SecretKeyWallet } from "@tari-project/ootle-secret-key-wallet";
-import { parseOotleAddress } from "@tari-project/ootle-wasm";
+import {
+  buildScriptPathWitness,
+  buildStealthTransferStatement,
+  createStealthOutputWitness,
+  parseOotleAddress,
+  validateStealthTransfer,
+} from "@tari-project/ootle-wasm";
 import type { WalletAccountApi } from "./accountApi";
 import { deriveAccountComponentAddress } from "./componentAddress";
 import { scanTransactionsForOwnedOutputs, sumConfidentialCommitments } from "./confidential";
@@ -816,12 +822,15 @@ export class OotleAccount implements WalletAccountApi {
    * Returns the full `conditions` tree alongside the transaction id and this output's own
    * commitment: only the tree's **root** is committed on-chain, so the claimant needs the exact
    * leaves — out of band, via whatever swap protocol coordinates the two sides — to later reveal
-   * the claim leaf. **There is currently no way for this wallet to spend such an output (claim or
-   * refund).** Doing that safely needs covenant-claim generation (required whenever a script-path
-   * input is spent, to prove balance integrity across the spent/created outputs sharing that
-   * input's condition root) — that has no wasm export yet, unlike the witness-construction half
-   * (`buildScriptPathWitness`, from tari-project/tari-ootle#2426). Fund-only until a follow-up
-   * upstream change exposes it; see the `tari-ootle-scriptpath-htlc` memory for the full story.
+   * the claim leaf.
+   *
+   * Also returns `outputMask` (hex): this account funded the output, so it's the one place the
+   * blinding mask is ever available to it without decryption — `encrypted_data` is encrypted for
+   * `claimantWalletAddress`'s view key, not this account's, so if the claim path is never taken
+   * and this account later calls `htlcRefund`, it cannot decrypt the output the normal way (the
+   * way `htlcClaim`'s claimant can, since the output is addressed to *them*). Retaining this mask
+   * now — alongside the known `amount` — is what makes an undecryptable refund possible at all.
+   * `htlcRefund`'s own doc comment covers the rest.
    *
    * `destination` is set to the claimant's own wallet address (not this account's) so the
    * claimant can independently decrypt and verify the funded amount themselves, the same as any
@@ -835,7 +844,7 @@ export class OotleAccount implements WalletAccountApi {
     hashLockHex: string,
     refundEpoch: bigint,
     maxFee = 50000n
-  ): Promise<{ transactionId: string; conditions: object[]; ownCommitment: string }> {
+  ): Promise<{ transactionId: string; conditions: object[]; ownCommitment: string; outputMask: string }> {
     const provider = await this.getProvider();
     const account = await this.getComponentAddress();
     const walletAddress = await this.getWalletAddress();
@@ -860,6 +869,7 @@ export class OotleAccount implements WalletAccountApi {
       .payFeeFromRevealed(maxFee)
       .prepare();
     const ownCommitment = extractOutputCommitment(spec, 0);
+    const outputMask = spec.outputMask.toHex();
 
     const wallet = new OotleWallet().registerKeyProvider(account, this.signer).setDefaultSigner(account);
     // No stealth inputs to unblind (revealed-only source), so no viewSecret needed -- same as shield().
@@ -875,7 +885,145 @@ export class OotleAccount implements WalletAccountApi {
       "submitting the HTLC funding transaction"
     );
     await recordKnownVersions(response);
-    return { transactionId, conditions, ownCommitment };
+    return { transactionId, conditions, ownCommitment, outputMask };
+  }
+
+  /**
+   * Claims a funded HTLC (the counterpart to `htlcFund`): reveals the claim leaf's SHA-256
+   * preimage to spend the script-path-locked output, moving `amount` into a brand-new, normal
+   * (freely key-spendable) stealth output owned by this account.
+   *
+   * This account must be the intended claimant — `htlcFund` addressed the output to this
+   * account's own wallet address, so it can unblind it the normal way: fetch the `utxo_...`
+   * substate and decrypt with this account's own view secret, exactly like `claimPrivatePayment`
+   * does for any other incoming stealth payment. `conditions` must be the *exact* two-leaf tree
+   * `htlcFund` returned (or was handed out of band) — the wrong tree produces a script-path
+   * witness whose condition root won't match the output's committed `SpendAuthorization::Script`
+   * root, and `buildStealthTransferStatement`/the network both reject the spend.
+   *
+   * Fees are paid from this account's own existing revealed balance via `pay_fee` (same as any
+   * other transaction this wallet submits), not from the claimed HTLC funds — a transaction's fee
+   * instructions execute in a separate phase *before* its main instructions, so the claim's own
+   * `StealthTransfer` instruction (a main instruction) can't fund its own fee even in principle.
+   *
+   * Bypasses `StealthTransfer`/`WalletStealthAuthorizer` entirely — that builder pipeline only
+   * ever produces key-path stealth inputs (a one-time DH signature per input), which doesn't
+   * apply here: this spend's authorization is the revealed script-path leaf itself (its
+   * `AccessRule` atom, satisfied by this account's normal transaction signature), not a stealth
+   * spend key. `buildStealthTransferStatement` (tari-project/tari-ootle#2431) produces the
+   * complete statement — inputs/outputs/balance proof/covenant claims — in one call from the
+   * unblinded mask+value and the two witnesses below, so there is nothing left for the builder
+   * pipeline to add.
+   */
+  async htlcClaim(
+    resourceAddress: string,
+    commitmentHex: string,
+    conditions: object[],
+    preimageHex: string,
+    maxFee = 50000n
+  ): Promise<{ transactionId: string }> {
+    if (!/^[0-9a-f]{64}$/i.test(preimageHex)) {
+      throw new Error(`htlcClaim: preimageHex must be exactly 64 hex characters (32 bytes), got ${JSON.stringify(preimageHex)}`);
+    }
+    const provider = await this.getProvider();
+    const account = await this.getComponentAddress();
+    const walletAddress = await this.getWalletAddress();
+    const commitment = fromHex(commitmentHex);
+    const substateId = stealthUtxoSubstateId(resourceAddress, commitment);
+
+    const substate = await provider.getSubstate(substateId);
+    const viewSecret = await this.signer.getViewSecret();
+    const decrypted = await decryptOwnedUtxo(new WasmStealthCrypto(this.network), viewSecret, substate, substateId);
+    if (!decrypted) {
+      throw new Error(
+        "This HTLC output doesn't belong to your account, or wasn't found on-chain — it may already be claimed or refunded."
+      );
+    }
+
+    const claimLeaf = conditions[0];
+    if (!claimLeaf) throw new Error("htlcClaim: conditions must be the two-leaf [claim, refund] tree htlcFund returned");
+    const statementJson = buildHtlcSpendStatement({
+      network: this.network,
+      conditions,
+      leaf: claimLeaf,
+      data: fromHex(preimageHex),
+      mask: decrypted.mask.toHex(),
+      value: decrypted.value,
+      destinationWalletAddress: walletAddress,
+      resourceAddress,
+    });
+
+    const transactionId = await submitHtlcSpend({
+      provider,
+      signer: this.signer,
+      network: this.network,
+      account,
+      resourceAddress,
+      substateId,
+      statementJson,
+      maxFee,
+      timeoutLabel: "submitting the HTLC claim transaction",
+    });
+    return { transactionId };
+  }
+
+  /**
+   * Refunds an HTLC this account itself funded (via `htlcFund`), once `refundEpoch` has passed:
+   * reveals the refund leaf to spend the output back into a brand-new, normal (freely
+   * key-spendable) stealth output owned by this account.
+   *
+   * Unlike `htlcClaim`, this account **cannot** decrypt the output on-chain — `htlcFund` addressed
+   * it to the claimant's wallet, so `encrypted_data` is encrypted for the claimant's view key, not
+   * this account's. `amount` and `outputMaskHex` must be exactly what `htlcFund` returned (or
+   * otherwise already known — this account chose `amount` itself when funding, and `outputMaskHex`
+   * is `htlcFund`'s own return value for exactly this purpose): reconstructing the commitment from
+   * a wrong mask or amount fails cleanly (the resulting input just doesn't match the on-chain
+   * commitment, so the network rejects the spend) rather than silently, but there is no recovery
+   * path if this account discarded the mask — see `htlcFund`'s doc comment.
+   *
+   * Otherwise identical to `htlcClaim`: same fee-from-own-balance reasoning, same
+   * `buildStealthTransferStatement`-in-one-call approach, same bypass of
+   * `StealthTransfer`/`WalletStealthAuthorizer`.
+   */
+  async htlcRefund(
+    resourceAddress: string,
+    commitmentHex: string,
+    conditions: object[],
+    amount: bigint,
+    outputMaskHex: string,
+    maxFee = 50000n
+  ): Promise<{ transactionId: string }> {
+    const provider = await this.getProvider();
+    const account = await this.getComponentAddress();
+    const walletAddress = await this.getWalletAddress();
+    const commitment = fromHex(commitmentHex);
+    const substateId = stealthUtxoSubstateId(resourceAddress, commitment);
+
+    const refundLeaf = conditions[1];
+    if (!refundLeaf) throw new Error("htlcRefund: conditions must be the two-leaf [claim, refund] tree htlcFund returned");
+    const statementJson = buildHtlcSpendStatement({
+      network: this.network,
+      conditions,
+      leaf: refundLeaf,
+      data: new Uint8Array(0), // The refund leaf has no HashLock atom -- no witness data needed.
+      mask: outputMaskHex,
+      value: amount,
+      destinationWalletAddress: walletAddress,
+      resourceAddress,
+    });
+
+    const transactionId = await submitHtlcSpend({
+      provider,
+      signer: this.signer,
+      network: this.network,
+      account,
+      resourceAddress,
+      substateId,
+      statementJson,
+      maxFee,
+      timeoutLabel: "submitting the HTLC refund transaction",
+    });
+    return { transactionId };
   }
 
   /**
@@ -1080,6 +1228,114 @@ export class OotleAccount implements WalletAccountApi {
  * in the same transaction (a private send's recipient output) — grabbing "the first new stealth
  * output" from `up_substates` would then risk attributing someone else's payment to us.
  */
+/**
+ * Builds a complete `StealthTransferStatement` (as its final compact JSON string) that spends one
+ * script-path-locked HTLC UTXO into one brand-new, normal (key-spendable) stealth output — the
+ * shared core of `htlcClaim`/`htlcRefund`, which differ only in which leaf they reveal and how
+ * they come by the input's `mask`/`value` (on-chain decryption for a claim; retained from funding
+ * time for a refund, since the funder can't decrypt an output addressed to the claimant).
+ *
+ * Every JSON fragment here is spliced from the raw strings `buildScriptPathWitness`/
+ * `createStealthOutputWitness` themselves return, never `JSON.parse`d and rebuilt — both carry
+ * u64 fields (amounts, epochs) that can exceed `Number.MAX_SAFE_INTEGER`, and a parse/restringify
+ * round-trip through a JS number would silently corrupt them. `value` is spliced in from `params`
+ * via template-literal interpolation of a `bigint`, which stringifies to its exact decimal digits
+ * with no such risk.
+ */
+// Exported (unlike this file's other module-level helpers) specifically so its wasm-assembly
+// logic can be exercised directly in tests without needing a full account + fake provider --
+// see htlc.test.ts's real-crypto round-trip test.
+export function buildHtlcSpendStatement(params: {
+  network: Network;
+  conditions: object[];
+  leaf: object;
+  /** The revealed leaf's witness data -- the preimage for a claim, empty for a refund (the
+   * refund leaf has no data-consuming `HashLock` atom). */
+  data: Uint8Array;
+  mask: string;
+  value: bigint;
+  destinationWalletAddress: string;
+  resourceAddress: string;
+}): string {
+  const witnessResultJson = buildScriptPathWitness(JSON.stringify(params.conditions), JSON.stringify(params.leaf), params.data);
+  // `witnessResultJson` is exactly `{"witness":...,"condition_root":"..."}` -- strip the outer
+  // braces and splice the inner `"witness":...,"condition_root":...` content directly into the
+  // input entry below, rather than parsing and re-serializing the object.
+  const witnessInner = witnessResultJson.slice(1, -1);
+  const inputEntry = `{"mask_and_value":{"value":${params.value},"mask":"${params.mask}"},${witnessInner}}`;
+
+  const destination = parseOotleAddress(params.destinationWalletAddress);
+  const outputWitnessJson = createStealthOutputWitness(
+    params.network,
+    destination.owner_key,
+    destination.view_key,
+    params.value,
+    params.resourceAddress,
+    null,
+    null,
+    null, // pay_to_json: null -- default StealthPublicKey, a normal one-time key-spendable output.
+    0n
+  );
+
+  const statementJson = buildStealthTransferStatement(`[${inputEntry}]`, 0n, `[${outputWitnessJson}]`, 0n);
+  // Fail fast locally rather than spend a network round trip on a malformed statement -- the same
+  // check tari-ootle's own `build_stealth_transfer_statement` unit tests run before trusting its
+  // output (crates/ootle_wasm/core/src/stealth/transfer.rs).
+  validateStealthTransfer(statementJson, null);
+  return statementJson;
+}
+
+/**
+ * Submits a hand-built HTLC claim/refund transaction: one `StealthTransfer` instruction carrying
+ * `statementJson` verbatim, spending `substateId`, fee paid from `account`'s own revealed balance.
+ *
+ * Deliberately bypasses `TransactionBuilder`'s usual `WalletStealthAuthorizer` companion — that
+ * pipeline only ever produces key-path stealth-input signatures, which don't apply to a
+ * script-path spend (whose authorization is the revealed leaf's own `AccessRule`, satisfied by
+ * this account's ordinary transaction signature) — `signTransaction`/`sealTransaction` alone are
+ * both necessary and sufficient here, the same pipeline any plain `CallMethod`-only transaction
+ * uses.
+ */
+async function submitHtlcSpend(params: {
+  provider: IndexerProvider;
+  signer: SecretKeyWallet;
+  network: Network;
+  account: string;
+  resourceAddress: string;
+  substateId: string;
+  statementJson: string;
+  maxFee: bigint;
+  timeoutLabel: string;
+}): Promise<string> {
+  const maxEpoch = await resolveMaxEpoch(params.provider);
+  const builder = TransactionBuilder.new(params.network, maxEpoch)
+    .addInput({ substate_id: params.substateId, version: null })
+    .addInput({ substate_id: params.account, version: null })
+    .feeTransactionPayFromComponent(params.account, params.maxFee)
+    .addInstruction(
+      // `statement` is spliced as a raw JSON fragment (see buildHtlcSpendStatement), the same
+      // technique `@tari-project/ootle`'s own `statementAsWire` uses internally for the piecemeal
+      // StealthTransfer builder path -- this cast mirrors that one exactly.
+      {
+        StealthTransfer: {
+          resource_address_ref: { Address: params.resourceAddress },
+          statement: { __ootleRawJson: params.statementJson },
+          revealed_input_bucket: null,
+        },
+      } as unknown as Instruction
+    );
+  for (const vaultId of await getVaultIdsForAccount(params.provider, params.account)) {
+    builder.addInput({ substate_id: vaultId, version: null });
+  }
+  const unsignedTx = await resolveTransaction(params.provider, builder.buildUnsignedTransaction());
+  const signed = await signTransaction([params.signer], unsignedTx);
+  const envelope = await sealTransaction(signed);
+  const transactionId = await submitTransaction(params.provider, envelope);
+  const response = await withTimeout(pollTransactionResult(params.provider, transactionId), 60_000, params.timeoutLabel);
+  await recordKnownVersions(response);
+  return transactionId;
+}
+
 function extractOutputCommitment(spec: StealthTransferSpec, outputIndex: number): string {
   const parsed = spec.statement.outputsStatement.parsed() as { outputs?: { output?: { commitment?: string } }[] };
   const commitment = parsed.outputs?.[outputIndex]?.output?.commitment;
