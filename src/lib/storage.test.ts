@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addAddressBookEntry,
   addTransactionRequest,
+  beginTransactionRequestSubmit,
   daemonAccountId,
   getState,
   getTransactionRequest,
   localAccountId,
   parseAccountId,
+  recordTransactionRequestDecision,
   removeAddressBookEntry,
   setTransactionRequestStatus,
   type TransactionRequestRecord,
@@ -139,7 +141,7 @@ describe("transaction requests", () => {
 
   it("transitions pending -> approved -> submitted, carrying the result", async () => {
     await addTransactionRequest(pendingRecord());
-    expect(await setTransactionRequestStatus("req-1", { status: "approved" })).toBe(true);
+    expect(await recordTransactionRequestDecision("req-1", true)).toBe(true);
     expect((await getTransactionRequest("req-1"))?.status).toBe("approved");
 
     await setTransactionRequestStatus("req-1", { status: "submitted", result: { transactionId: "tx-123" } });
@@ -157,7 +159,7 @@ describe("transaction requests", () => {
   });
 
   it("setTransactionRequestStatus returns false for an unknown id, without throwing", async () => {
-    expect(await setTransactionRequestStatus("does-not-exist", { status: "approved" })).toBe(false);
+    expect(await setTransactionRequestStatus("does-not-exist", { status: "submitted", result: null })).toBe(false);
   });
 
   it("a stale pending request reads back as rejected/expired instead of staying approvable forever", async () => {
@@ -182,15 +184,140 @@ describe("transaction requests", () => {
   it("expiry is derived on read, never written back to storage", async () => {
     await addTransactionRequest(pendingRecord({ expiresAt: Date.now() - 1000 }));
     await getTransactionRequest("req-1"); // trigger the lazy-expiry read path
-    // A fresh read still sees the original "pending" status in storage -- setTransactionRequestStatus
+    // A fresh read still sees the original "pending" status in storage -- the decision write
     // would still succeed against it (an approval that arrives just as a request goes stale should
-    // still be honored, not silently dropped because a read happened to observe it as expired first).
-    expect(await setTransactionRequestStatus("req-1", { status: "approved" })).toBe(true);
+    // still be honored, not silently dropped because a read happened to observe it as expired
+    // first; the submit-time claim re-checks expiry).
+    expect(await recordTransactionRequestDecision("req-1", true)).toBe(true);
   });
 
   it("many concurrent addTransactionRequest calls all survive", async () => {
     await Promise.all(Array.from({ length: 20 }, (_, i) => addTransactionRequest(pendingRecord({ id: `req-${i}` }))));
     const results = await Promise.all(Array.from({ length: 20 }, (_, i) => getTransactionRequest(`req-${i}`)));
     expect(results.every((r) => r !== undefined)).toBe(true);
+  });
+});
+
+describe("transaction request submit claiming", () => {
+  beforeEach(() => installChromeStorageStub());
+  afterEach(() => vi.unstubAllGlobals());
+
+  function pendingRecord(overrides: Partial<TransactionRequestRecord> = {}): TransactionRequestRecord {
+    const now = Date.now();
+    return {
+      id: "req-1",
+      origin: "https://dapp.example",
+      accountId: "local:0",
+      operation: { kind: "instructions", instructions: [] },
+      note: "",
+      status: "pending",
+      createdAt: now,
+      expiresAt: now + 60_000,
+      ...overrides,
+    };
+  }
+
+  it("claims an approved request atomically, moving it to submitting", async () => {
+    await addTransactionRequest(pendingRecord({ status: "approved" }));
+    const outcome = await beginTransactionRequestSubmit("req-1");
+    expect(outcome.claimed).toBe(true);
+    if (outcome.claimed) {
+      expect(outcome.record.status).toBe("submitting");
+      expect(outcome.record.operation).toEqual(pendingRecord().operation);
+    }
+    expect((await getTransactionRequest("req-1"))?.status).toBe("submitting");
+  });
+
+  it("a second claim over an already-claimed request fails with wrong-status (no double execution)", async () => {
+    await addTransactionRequest(pendingRecord({ status: "approved" }));
+    expect((await beginTransactionRequestSubmit("req-1")).claimed).toBe(true);
+    const second = await beginTransactionRequestSubmit("req-1");
+    expect(second.claimed).toBe(false);
+    if (!second.claimed) {
+      expect(second.reason).toBe("wrong-status");
+      expect(second.record?.status).toBe("submitting");
+    }
+  });
+
+  it("two concurrent claims over one approved request let exactly one win", async () => {
+    await addTransactionRequest(pendingRecord({ status: "approved" }));
+    const [a, b] = await Promise.all([beginTransactionRequestSubmit("req-1"), beginTransactionRequestSubmit("req-1")]);
+    expect([a.claimed, b.claimed].filter(Boolean)).toHaveLength(1);
+    expect((await getTransactionRequest("req-1"))?.status).toBe("submitting");
+  });
+
+  it("refuses to claim a pending (never-approved) request", async () => {
+    await addTransactionRequest(pendingRecord());
+    const outcome = await beginTransactionRequestSubmit("req-1");
+    expect(outcome.claimed).toBe(false);
+    if (!outcome.claimed) expect(outcome.reason).toBe("wrong-status");
+    // The refused claim must not have mutated anything -- the request is still approvable.
+    expect(await recordTransactionRequestDecision("req-1", true)).toBe(true);
+  });
+
+  it("refuses to claim an expired approved request, and reports expired", async () => {
+    await addTransactionRequest(pendingRecord({ status: "approved", expiresAt: Date.now() - 1000 }));
+    const outcome = await beginTransactionRequestSubmit("req-1");
+    expect(outcome.claimed).toBe(false);
+    if (!outcome.claimed) expect(outcome.reason).toBe("expired");
+    // The failed claim must not have moved it out of the expirable states.
+    expect((await getTransactionRequest("req-1"))?.status).toBe("rejected"); // lazy-expired view
+  });
+
+  it("reports not-found for an unknown id", async () => {
+    const outcome = await beginTransactionRequestSubmit("does-not-exist");
+    expect(outcome.claimed).toBe(false);
+    if (!outcome.claimed) expect(outcome.reason).toBe("not-found");
+  });
+
+  it("a stuck submitting record never reads back as expired, however old", async () => {
+    await addTransactionRequest(pendingRecord({ status: "submitting", expiresAt: Date.now() - 1000 }));
+    const record = await getTransactionRequest("req-1");
+    expect(record?.status).toBe("submitting");
+  });
+});
+
+describe("recordTransactionRequestDecision guard", () => {
+  beforeEach(() => installChromeStorageStub());
+  afterEach(() => vi.unstubAllGlobals());
+
+  function pendingRecord(overrides: Partial<TransactionRequestRecord> = {}): TransactionRequestRecord {
+    const now = Date.now();
+    return {
+      id: "req-1",
+      origin: "https://dapp.example",
+      accountId: "local:0",
+      operation: { kind: "instructions", instructions: [] },
+      note: "",
+      status: "pending",
+      createdAt: now,
+      expiresAt: now + 60_000,
+      ...overrides,
+    };
+  }
+
+  it("decides a pending request exactly once; a duplicate click is a no-op", async () => {
+    await addTransactionRequest(pendingRecord());
+    expect(await recordTransactionRequestDecision("req-1", true)).toBe(true);
+    expect(await recordTransactionRequestDecision("req-1", true)).toBe(false);
+    expect(await recordTransactionRequestDecision("req-1", false)).toBe(false);
+    expect((await getTransactionRequest("req-1"))?.status).toBe("approved");
+  });
+
+  it("never overwrites a claimed/submitted/failed record with a late decision write", async () => {
+    // The race this guards: a submission claims ("submitting") moments after the user's click
+    // resolved; resolveApproval's persisted write must not flip it back to "approved" and reopen
+    // the double-submit window.
+    for (const status of ["submitting", "submitted", "failed"] as const) {
+      const id = `req-${status}`;
+      await addTransactionRequest(pendingRecord({ id, status, result: status === "submitted" ? { ok: true } : undefined, error: status === "failed" ? "boom" : undefined }));
+      expect(await recordTransactionRequestDecision(id, true)).toBe(false);
+      expect(await recordTransactionRequestDecision(id, false)).toBe(false);
+      expect((await getTransactionRequest(id))?.status).toBe(status);
+    }
+  });
+
+  it("returns false for an unknown id", async () => {
+    expect(await recordTransactionRequestDecision("does-not-exist", true)).toBe(false);
   });
 });

@@ -62,7 +62,7 @@ export type TransactionRequestOperation =
  * `operation` the dApp already has its own copy of) stripped. */
 export interface TransactionRequestSummary {
   requestId: string;
-  status: "pending" | "approved" | "rejected" | "submitted" | "failed";
+  status: "pending" | "approved" | "submitting" | "submitted" | "rejected" | "failed";
   /** Human-readable summary of what this request does, the same text shown on the popup approval
    * screen -- useful for a dApp's own UI while waiting on approval. */
   note: string;
@@ -70,7 +70,7 @@ export interface TransactionRequestSummary {
   expiresAt: number;
   /** Set once `status` is "submitted". */
   result?: unknown;
-  /** Set once `status` is "failed". */
+  /** Set once `status` is "rejected"/"failed". */
   error?: string;
 }
 
@@ -131,7 +131,9 @@ export interface ProviderRequestParams {
    * reload/service-worker restart -- the record is persisted, not held only in memory. */
   tari_getTransactionRequest: { requestId: string };
   /** Executes an `"approved"` transaction request and returns its result -- throws if the request
-   * isn't approved yet (still `"pending"`), was rejected, already submitted, or has expired. */
+   * isn't approved yet (still `"pending"`), was rejected, already submitted, or has expired.
+   * Submission is claimed atomically at submit time, so racing/duplicate submits over one request
+   * are safe: exactly one executes, the rest throw. */
   tari_submitTransactionRequest: { requestId: string };
   tari_disconnect: undefined;
 }

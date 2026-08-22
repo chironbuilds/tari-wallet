@@ -168,14 +168,20 @@ export interface TransactionRequestRecord {
   /** Human-readable summary shown on the popup approval screen and returned to the dApp --
    * computed once at creation from `operation` (see background/index.ts). */
   note: string;
-  status: "pending" | "approved" | "rejected" | "submitted" | "failed";
+  status: "pending" | "approved" | "submitting" | "submitted" | "rejected" | "failed";
   createdAt: number;
   /** A stale "pending"/"approved" request reads back as expired (checked lazily on read, never
    * written -- mirrors walletd's own "Expired = derived on read" design) rather than being
    * submittable indefinitely against possibly-stale substate versions/fee estimates. */
   expiresAt: number;
-  /** Set once `status` is "submitted" -- the sanitized (BigInt-free) result of executing
-   * `operation`. */
+  /** "submitting" is the in-between state claimed atomically BEFORE execution starts (see
+   * beginTransactionRequestSubmit) -- it pins the request against a concurrent second submit and,
+   * if the service worker dies mid-execution, permanently blocks a retry that could double-submit
+   * an already-landed transaction (a stuck "submitting" record never expires; the dApp learns the
+   * outcome via its own re-derivation of the operation or `tari_getTransactionResult` once it
+   * knows the id). */
+  /** Set once the operation has actually executed -- the sanitized (BigInt-free) result, present
+   * only when `status` is "submitted". */
   result?: unknown;
   /** Set once `status` is "failed". */
   error?: string;
@@ -404,7 +410,8 @@ export async function addTransactionRequest(record: TransactionRequestRecord): P
 
 /** Reports a lazily-computed "expired" status (never written back) for a stale pending/approved
  * request, mirroring walletd's own "Expired = derived on read" design -- see
- * TransactionRequestRecord's doc comment. */
+ * TransactionRequestRecord's doc comment. "submitting"/"submitted"/"rejected"/"failed" are past
+ * the expiry gate and always report as-is. */
 export async function getTransactionRequest(id: string): Promise<TransactionRequestRecord | undefined> {
   const { transactionRequests } = await getState();
   const record = transactionRequests.find((r) => r.id === id);
@@ -415,11 +422,14 @@ export async function getTransactionRequest(id: string): Promise<TransactionRequ
   return record;
 }
 
-/** Transitions a request to "approved"/"rejected" (from the popup's click) or "submitted"/"failed"
- * (from actually executing it). Returns whether a matching record was found. */
+/** Transitions a request to "submitted"/"failed" once its operation has actually executed.
+ * The approved/rejected decision write lives in recordTransactionRequestDecision instead -- it is
+ * the only transition allowed to move a request out of "pending", and it must be guarded against
+ * clobbering later states (a click racing a submit must never resurrect "approved" over
+ * "submitting", which would let a second concurrent claim through). */
 export async function setTransactionRequestStatus(
   id: string,
-  update: { status: "approved" | "rejected" } | { status: "submitted"; result: unknown } | { status: "failed"; error: string }
+  update: { status: "submitted"; result: unknown } | { status: "failed"; error: string }
 ): Promise<boolean> {
   return serialized(async () => {
     const state = await getState();
@@ -429,6 +439,64 @@ export async function setTransactionRequestStatus(
     transactionRequests[index] = { ...transactionRequests[index]!, ...update };
     await setState({ transactionRequests });
     return true;
+  });
+}
+
+/** Records the user's approve/reject click, but ONLY while the request is still "pending" --
+ * returns false for an unknown id or any request already past the decision point. Deliberately
+ * refuses to overwrite "submitting"/"submitted"/"failed": resolveApproval's persisted write can
+ * race a submission that started moments earlier, and an unconditional write would flip a
+ * mid-flight request back to "approved", reopening the exact double-submit window
+ * beginTransactionRequestSubmit exists to close. */
+export async function recordTransactionRequestDecision(id: string, approved: boolean): Promise<boolean> {
+  return serialized(async () => {
+    const state = await getState();
+    const index = state.transactionRequests.findIndex((r) => r.id === id);
+    if (index === -1) return false;
+    if (state.transactionRequests[index]!.status !== "pending") return false;
+    const transactionRequests = [...state.transactionRequests];
+    transactionRequests[index] = { ...transactionRequests[index]!, status: approved ? "approved" : "rejected" };
+    await setState({ transactionRequests });
+    return true;
+  });
+}
+
+/** How beginTransactionRequestSubmit failed -- `record` carries the request's current (unmodified)
+ * state whenever one was found, so callers can build a precise error message without a second
+ * read. */
+export type BeginSubmitOutcome =
+  | { claimed: true; record: TransactionRequestRecord }
+  | { claimed: false; reason: "not-found" | "expired" | "wrong-status"; record?: TransactionRequestRecord };
+
+/**
+ * Atomically claims an "approved" request for submission, moving it to "submitting" in the same
+ * serialized read-modify-write that validates it -- the storage-level gate every submit path
+ * (tari_submitTransactionRequest and the deprecated blocking wrappers alike) must pass before
+ * executing anything. Because validation and transition happen as ONE queued write, two concurrent
+ * submits cannot both observe "approved" and both execute: exactly one claim wins, the loser sees
+ * "wrong-status". Also enforces the TTL here (an expired "approved" request fails with "expired"
+ * rather than executing stale), which closes the deprecated blocking path's old gap where an
+ * approval granted after sitting past `expiresAt` still submitted. A successful claim is final:
+ * execution then either records "submitted"+result or "failed"+error, and a service worker killed
+ * mid-execution leaves "submitting" stuck -- deliberately unresubmittable, see
+ * TransactionRequestRecord.status's doc comment.
+ */
+export async function beginTransactionRequestSubmit(id: string): Promise<BeginSubmitOutcome> {
+  return serialized(async () => {
+    const state = await getState();
+    const index = state.transactionRequests.findIndex((r) => r.id === id);
+    if (index === -1) return { claimed: false as const, reason: "not-found" as const };
+    const record = state.transactionRequests[index]!;
+    if ((record.status === "pending" || record.status === "approved") && Date.now() > record.expiresAt) {
+      return { claimed: false as const, reason: "expired" as const, record };
+    }
+    if (record.status !== "approved") {
+      return { claimed: false as const, reason: "wrong-status" as const, record };
+    }
+    const transactionRequests = [...state.transactionRequests];
+    transactionRequests[index] = { ...record, status: "submitting" };
+    await setState({ transactionRequests });
+    return { claimed: true as const, record: { ...record, status: "submitting" } };
   });
 }
 

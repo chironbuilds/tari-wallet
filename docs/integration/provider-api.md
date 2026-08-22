@@ -55,7 +55,7 @@ worth adopting over the single-call methods below.
 |---|---|---|---|
 | `tari_createTransactionRequest` | `TransactionRequestOperation` | `{ requestId }` | **Approval** (opens the popup, doesn't block on it). |
 | `tari_getTransactionRequest` | `{ requestId }` | `TransactionRequestSummary` | Poll this until `status !== "pending"`. Works after a reload. |
-| `tari_submitTransactionRequest` | `{ requestId }` | the operation's result | Throws unless `status === "approved"`. |
+| `tari_submitTransactionRequest` | `{ requestId }` | the operation's result | Throws unless `status === "approved"`. Submission is claimed atomically — racing/duplicate submits over one request are safe: exactly one executes, the rest throw. |
 
 ```ts
 type TransactionRequestOperation =
@@ -81,7 +81,7 @@ type TransactionRequestOperation =
 
 interface TransactionRequestSummary {
   requestId: string;
-  status: "pending" | "approved" | "rejected" | "submitted" | "failed";
+  status: "pending" | "approved" | "submitting" | "submitted" | "rejected" | "failed";
   note: string;       // human-readable summary, the same text shown on the popup
   createdAt: number;
   expiresAt: number;
@@ -89,6 +89,11 @@ interface TransactionRequestSummary {
   error?: string;     // set once status === "rejected" | "failed"
 }
 ```
+
+`"submitting"` is a transient state the wallet claims atomically at submit time (before the
+operation executes). Treat it like `"submitted"`-in-progress: keep polling until it resolves to
+`"submitted"` or `"failed"`. It only sticks if the wallet's service worker died mid-submission, in
+which case the request is permanently unresubmittable — re-create it instead.
 
 ### Deprecated single-call methods
 

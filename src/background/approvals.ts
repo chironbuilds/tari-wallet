@@ -4,7 +4,7 @@
 // through the normal message channel (it can't receive them directly since chrome.windows.create
 // only takes a URL, not a message payload).
 import type { PendingApproval, PendingApprovalInput } from "../lib/messages";
-import { setTransactionRequestStatus } from "../lib/storage";
+import { recordTransactionRequestDecision } from "../lib/storage";
 
 interface PendingEntry {
   approval: PendingApproval;
@@ -60,7 +60,7 @@ export function getPendingApproval(id: string): PendingApproval | undefined {
  * workers down after ~30s idle), which used to always mean "the click did nothing, silently" for
  * *every* approval. It still means exactly that for a deprecated blocking call, whose own
  * `sendResponse` closure died in the same restart — there is no way to recover that specific
- * promise. But it's no longer true for a create/submit-based request: `setTransactionRequestStatus`
+ * promise. But it's no longer true for a create/submit-based request: `recordTransactionRequestDecision`
  * writes through `chrome.storage`, which survives the restart, so the click still lands and the
  * dApp can pick it up via `tari_getTransactionRequest`/`tari_submitTransactionRequest` after the
  * fact. The caller uses this return value to tell the user whether the click was lost outright.
@@ -73,7 +73,10 @@ export async function resolveApproval(id: string, approved: boolean): Promise<bo
       chrome.windows.remove(entry.windowId).catch(() => {});
     }
   }
-  const persisted = await setTransactionRequestStatus(id, { status: approved ? "approved" : "rejected" });
+  // Guarded (pending-only) transition: if a submission already claimed this record moments after
+  // the click resolved, writing "approved" here unconditionally would flip it back open and let a
+  // second submit through -- see recordTransactionRequestDecision's doc comment.
+  const persisted = await recordTransactionRequestDecision(id, approved);
   return entry !== undefined || persisted;
 }
 
@@ -83,7 +86,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
     if (entry.windowId === windowId) {
       entry.resolve(false);
       pending.delete(id);
-      void setTransactionRequestStatus(id, { status: "rejected" });
+      void recordTransactionRequestDecision(id, false);
     }
   }
 });

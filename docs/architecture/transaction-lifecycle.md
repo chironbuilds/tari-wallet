@@ -79,9 +79,14 @@ after a page reload or a service-worker restart and pick the flow back up from w
 
 A request's `operation` is one of three shapes — the same three the deprecated single-call methods
 below cover — and status moves through `pending → approved|rejected`, then (once submitted)
-`→ submitted|failed`. Expiry is derived lazily on read (a stale pending/approved request reads back
-as rejected with an explanatory error), never written back — the same "expired, derived on read"
-design walletd itself uses, rather than a background sweep.
+`→ submitting → submitted|failed`. The `submitting` hop is claimed atomically in the same
+serialized storage write that validates the request is still approved and unexpired, immediately
+before execution: two racing submits cannot both pass the gate (exactly one wins; the loser sees a
+`wrong-status` rejection instead of double-executing), and a service worker killed mid-execution
+leaves a permanently-unresubmittable record rather than one that could re-submit an
+already-landed transaction. Expiry is derived lazily on read (a stale pending/approved request
+reads back as rejected with an explanatory error), never written back — the same "expired,
+derived on read" design walletd itself uses, rather than a background sweep.
 
 **The older single-call methods are still fully supported**, implemented as thin wrappers over
 exactly these same primitives (create, wait for the approval promise directly instead of polling,

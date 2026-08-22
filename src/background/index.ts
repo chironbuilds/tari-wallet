@@ -7,6 +7,7 @@ import {
   addDaemonConnection,
   addTransactionHistoryEntry,
   addTransactionRequest,
+  beginTransactionRequestSubmit,
   daemonAccountId,
   getConnectedSite,
   getState,
@@ -298,8 +299,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       if (record.accountId !== site.accountId) {
         throw new Error("This transaction request belongs to a different account — switch back to that account or create a new request.");
       }
-      if (record.status !== "approved") throw new Error(`Cannot submit: this request's status is "${record.status}".`);
-      return submitTransactionRequestOperation(record);
+      return submitApprovedTransactionRequest(p.requestId);
     }
 
     default:
@@ -415,12 +415,31 @@ async function createTransactionRequest(
 }
 
 /**
- * Executes an `"approved"` request's operation via the matching account method, updates its
- * persisted status to `"submitted"`/`"failed"`, and returns the result (or rethrows) -- shared by
+ * Submits a transaction request through the storage-level claim gate: atomically moves the record
+ * from "approved" to "submitting" BEFORE anything executes (beginTransactionRequestSubmit), runs
+ * the operation via the matching account method, and settles the persisted status to
+ * "submitted"+result or "failed"+error afterwards. The pre-execution claim is what makes
+ * submission safe against concurrency: two simultaneous submits (or a submit racing the
+ * deprecated blocking wrapper over the same record) cannot both pass the gate -- exactly one wins,
+ * the other fails with "wrong-status" instead of double-executing. Shared by
  * `tari_submitTransactionRequest` and every deprecated wrapper's final step.
  */
-async function submitTransactionRequestOperation(record: TransactionRequestRecord): Promise<unknown> {
+async function submitApprovedTransactionRequest(requestId: string): Promise<unknown> {
+  // Checked before claiming so a locked wallet can't strand the record in "submitting" with no
+  // execution ever following.
   if (!(await isUnlocked())) throw new Error("Wallet is locked.");
+  const outcome = await beginTransactionRequestSubmit(requestId);
+  if (!outcome.claimed) {
+    switch (outcome.reason) {
+      case "not-found":
+        throw new Error("Unknown transaction request.");
+      case "expired":
+        throw new Error("This transaction request expired before it was submitted.");
+      case "wrong-status":
+        throw new Error(`Cannot submit: this request's status is "${outcome.record!.status}".`);
+    }
+  }
+  const record = outcome.record;
   const account = await getAccountById(record.accountId);
   if (!account) throw new Error("Could not resolve account.");
   const operation = record.operation;
@@ -474,13 +493,13 @@ async function submitTransactionRequestOperation(record: TransactionRequestRecor
 }
 
 /** The deprecated-RPC path: create, block until the user responds (exactly like these methods
- * always blocked), then submit. */
+ * always blocked), then submit through the same atomic claim gate as
+ * `tari_submitTransactionRequest` -- which also closes the old gap where an approval granted after
+ * the request sat past its TTL still submitted (the gate rejects an expired "approved" record). */
 async function createAndWaitToSubmit(origin: string, accountId: string, operation: TransactionRequestOperation): Promise<unknown> {
   const { requestId, approved } = await createTransactionRequest(origin, accountId, operation);
   if (!(await approved)) throw new Error("Transaction rejected.");
-  const record = await getTransactionRequest(requestId);
-  if (!record) throw new Error("Transaction request expired.");
-  return submitTransactionRequestOperation(record);
+  return submitApprovedTransactionRequest(requestId);
 }
 
 /**
