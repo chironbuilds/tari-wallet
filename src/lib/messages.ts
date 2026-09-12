@@ -380,9 +380,11 @@ export interface ProviderRequestParams {
    * More expensive per page than `tari_scanForPrivatePayments` (it fetches each candidate
    * transaction's full result, not just the pruned listing), so `maxPages`/`pageSize` default to a
    * small lookback meant for an interactive "do I have one of these" check on a resource whose
-   * mint is known to be recent -- not a background sweep of the whole chain.
+   * mint is known to be recent -- not a background sweep of the whole chain. Pass `limit` when the
+   * resource is known to mint at most that many outputs per account (a voting ballot: exactly one)
+   * to stop the walk the instant it's satisfied instead of exhausting the rest of the page budget.
    */
-  tari_scanForResourceUtxos: { resourceAddress: string; maxPages?: number; pageSize?: number };
+  tari_scanForResourceUtxos: { resourceAddress: string; maxPages?: number; pageSize?: number; limit?: number };
   /**
    * Claims a specific stealth payment this account was told about out of band, by commitment --
    * the recipient-side counterpart to a `sendPrivately` result's `recipientCommitment`. Fetches the

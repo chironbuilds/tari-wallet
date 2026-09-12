@@ -98,7 +98,7 @@ export interface TariProvider {
   getPrivateBalances(): Promise<unknown>;
   getShieldedOutputs(resourceAddress?: string): Promise<unknown>;
   scanForPrivatePayments(maxPages?: number): Promise<unknown>;
-  scanForResourceUtxos(resourceAddress: string, maxPages?: number, pageSize?: number): Promise<unknown>;
+  scanForResourceUtxos(resourceAddress: string, maxPages?: number, pageSize?: number, limit?: number): Promise<unknown>;
   claimPrivatePayment(resourceAddress: string, commitment: string): Promise<unknown>;
   signOwnershipChallenge(resourceAddress: string, substateId: string, challenge: string): Promise<unknown>;
   signWalletOwnershipChallenge(challenge: string): Promise<unknown>;
@@ -138,7 +138,7 @@ const provider: TariProvider = {
   getPrivateBalances: () => request("tari_getPrivateBalances"),
   getShieldedOutputs: (resourceAddress) => request("tari_getShieldedOutputs", resourceAddress ? { resourceAddress } : {}),
   scanForPrivatePayments: (maxPages) => request("tari_scanForPrivatePayments", maxPages == null ? {} : { maxPages }),
-  scanForResourceUtxos: (resourceAddress, maxPages, pageSize) => request("tari_scanForResourceUtxos", { resourceAddress, maxPages, pageSize }),
+  scanForResourceUtxos: (resourceAddress, maxPages, pageSize, limit) => request("tari_scanForResourceUtxos", { resourceAddress, maxPages, pageSize, limit }),
   claimPrivatePayment: (resourceAddress, commitment) => request("tari_claimPrivatePayment", { resourceAddress, commitment }),
   signOwnershipChallenge: (resourceAddress, substateId, challenge) =>
     request("tari_signOwnershipChallenge", { resourceAddress, substateId, challenge }),
