@@ -14,7 +14,7 @@
     "test:watch": "vitest",
     "test:crypto": "tsx scripts/test-crypto.ts"
   },
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT",
   "packageManager": "pnpm@11.9.0",
   "dependencies": {
     "@chironbuilder/ootle-sdk": "^0.1.2",

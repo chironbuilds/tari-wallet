@@ -28,10 +28,9 @@ what to expect) as a [GitBook](https://www.gitbook.com)-structured book under `d
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE) — free to use, modify, and share for any noncommercial
-purpose; not licensed for commercial use. This is a source-available license, not an
-OSI-approved open-source one (the Open Source Definition requires allowing commercial use,
-which this deliberately does not) — worth naming precisely rather than calling it "open source."
+[MIT](LICENSE) — OSI-approved, no noncommercial restriction. (Previously PolyForm Noncommercial
+1.0.0; relicensed to qualify for the Tari Ootle launch contest, which requires an OSI-approved
+license for entries.)
 
 ## Status: tested end-to-end in a live browser
 
