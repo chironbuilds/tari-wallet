@@ -276,9 +276,14 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
 
     case "tari_scanForResourceUtxos": {
       const account = await requireViewAccess(origin);
-      const p = params as { resourceAddress: string; maxPages?: number; pageSize?: number; limit?: number };
+      const p = params as { resourceAddress: string; maxPages?: number; pageSize?: number; limit?: number; transactionIds?: string[] };
       if (!p?.resourceAddress) throw new Error("resourceAddress is required.");
-      const found = await account.scanForResourceUtxos(p.resourceAddress, { maxPages: p.maxPages, pageSize: p.pageSize, limit: p.limit });
+      const found = await account.scanForResourceUtxos(p.resourceAddress, {
+        maxPages: p.maxPages,
+        pageSize: p.pageSize,
+        limit: p.limit,
+        transactionIds: p.transactionIds,
+      });
       const site = await getConnectedSite(origin);
       if (site) await recordPrivatePaymentHistory(site.accountId, found);
       const result: ResourceUtxoScanResult = {

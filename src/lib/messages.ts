@@ -383,8 +383,11 @@ export interface ProviderRequestParams {
    * mint is known to be recent -- not a background sweep of the whole chain. Pass `limit` when the
    * resource is known to mint at most that many outputs per account (a voting ballot: exactly one)
    * to stop the walk the instant it's satisfied instead of exhausting the rest of the page budget.
+   * Pass `transactionIds` when the caller already knows exactly which transaction(s) created this
+   * resource's outputs (e.g. a voting app's own election-creation transaction) to check those
+   * directly instead of ever walking recent transactions at all.
    */
-  tari_scanForResourceUtxos: { resourceAddress: string; maxPages?: number; pageSize?: number; limit?: number };
+  tari_scanForResourceUtxos: { resourceAddress: string; maxPages?: number; pageSize?: number; limit?: number; transactionIds?: string[] };
   /**
    * Claims a specific stealth payment this account was told about out of band, by commitment --
    * the recipient-side counterpart to a `sendPrivately` result's `recipientCommitment`. Fetches the
