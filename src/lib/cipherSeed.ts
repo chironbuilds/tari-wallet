@@ -12,8 +12,8 @@
 import { argon2d } from "hash-wasm";
 import { chacha20 } from "@noble/ciphers/chacha.js";
 import { concatBytes, utf8ToBytes } from "@noble/hashes/utils.js";
+import { keyManagerDomainHasher } from "@chironbuilder/ootle-sdk";
 import { crc32 } from "./crc32";
-import { keyManagerDomainHasher } from "./domainHash";
 import { bytesToWords, wordsToBytes } from "./mnemonic";
 
 const VERSION = 2;

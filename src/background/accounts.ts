@@ -7,9 +7,8 @@
 // all. The cold-start race this was working around is instead absorbed by the retry-with-backoff
 // in content-script.ts / popup/main.ts's `send()` helpers.
 import { WalletDaemonClient } from "@tari-project/ootle-wallet-daemon-signer";
-import type { WalletAccountApi } from "../lib/accountApi";
+import { OotleAccount, type WalletAccountApi } from "@chironbuilder/ootle-sdk";
 import { DaemonAccount } from "../lib/daemonAccount";
-import { OotleAccount } from "../lib/wallet";
 import { type AccountId, getState, parseAccountId } from "../lib/storage";
 import { decryptSecret } from "../lib/secretAtRest";
 import { getUnlockedSeed } from "./session";

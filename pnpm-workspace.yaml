@@ -19,6 +19,7 @@ minimumReleaseAgeExclude:
   - '@tari-project/ootle-wallet-daemon-signer@0.3.0'
   - '@tari-project/ootle-wasm@0.39.1'
   - '@tari-project/wallet_jrpc_client@1.22.0'
+  - '@chironbuilder/ootle-sdk@0.1.0 || 0.1.1 || 0.1.2'
 
 # Forces the transitive `uuid` dependency (pulled in by vite-plugin-top-level-await, build-time
 # only, never shipped in the extension itself) up to a patched version -- GHSA-w5hq-g745-h8pq,

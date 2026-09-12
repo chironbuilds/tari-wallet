@@ -18,13 +18,17 @@ import type {
   TransactionResult,
   TransactionWaitResultResponse,
 } from "@tari-project/ootle-ts-bindings";
-import type { TransactionExecuteOpts, WalletAccountApi } from "./accountApi";
-import { deriveAccountComponentAddress } from "./componentAddress";
-import { type NetworkName, toOotleNetwork } from "./ootleNetwork";
-import { withTimeout } from "./timeout";
+import {
+  type NetworkName,
+  type TokenBalance,
+  type TransactionExecuteOpts,
+  type WalletAccountApi,
+  deriveAccountComponentAddress,
+  substateExists,
+  toOotleNetwork,
+  withTimeout,
+} from "@chironbuilder/ootle-sdk";
 import { toHex } from "./vault";
-import { substateExists } from "./wallet";
-import type { TokenBalance } from "./wallet";
 
 const DAEMON_TIMEOUT_MS = 15_000;
 

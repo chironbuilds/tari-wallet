@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { localAccountId } from "@chironbuilder/ootle-sdk";
 import {
   addAddressBookEntry,
   addTransactionRequest,
@@ -8,7 +9,6 @@ import {
   getConnectedSite,
   getTransactionRequest,
   hasViewAccess,
-  localAccountId,
   parseAccountId,
   recordTransactionRequestDecision,
   addConnectedSite,

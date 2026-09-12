@@ -10,12 +10,10 @@ import {
   beginTransactionRequestSubmit,
   daemonAccountId,
   getConnectedSite,
-  getPrivatePaymentScanCursor,
   getState,
   getTransactionRequest,
   hasViewAccess,
   listTransactionHistory,
-  localAccountId,
   removeAddressBookEntry,
   removeAllConnectedSites,
   removeConnectedSite,
@@ -48,16 +46,35 @@ import type {
   WalletCapabilities,
   WalletStatus,
 } from "../lib/messages";
-import type { WalletAccountApi } from "../lib/accountApi";
 import type { Instruction, SubstateRequirement } from "@tari-project/ootle-ts-bindings";
 import { isStealthTransferInstruction } from "@tari-project/ootle";
+import {
+  OotleAccount,
+  chromeStorageAdapter,
+  configureOotleStorage,
+  getPrivatePaymentScanCursor,
+  localAccountId,
+  recoverPendingShields,
+  resetKnownVersions,
+  wipeOotleState,
+  type WalletAccountApi,
+} from "@chironbuilder/ootle-sdk";
 import { DaemonAccount } from "../lib/daemonAccount";
-import { OotleAccount, recoverPendingShields, resetKnownVersions } from "../lib/wallet";
 import { clearAccountCache, getAccountById, getActiveAccount, getDaemonClient } from "./accounts";
 import { clearUnlockedSeed, getLastActivity, getUnlockedSeed, isUnlocked, setUnlockedSeed, touchActivity } from "./session";
 import { getPendingApproval, requestApproval, resolveApproval } from "./approvals";
 import { shouldAutoLock } from "../lib/autoLock";
 import { encryptSecret } from "../lib/secretAtRest";
+import { migrateOotleStorageOnce } from "../lib/migrateOotleStorage";
+
+// Must happen before anything below touches OotleAccount/shielded-output/known-versions storage.
+// Synchronous (just sets a module-level variable), so there's no ordering risk with the message
+// listener registered right after it. The one-time data migration is fire-and-forget: it only
+// backfills data an existing install already had lying around under the old (pre-SDK) storage
+// keys, so a message handled before it finishes just sees an empty SDK-side cache momentarily,
+// never wrong data.
+configureOotleStorage(chromeStorageAdapter());
+void migrateOotleStorageOnce();
 
 // chrome.runtime.sendMessage serializes its payload as JSON, not a full structured clone — a
 // BigInt anywhere in a response (transaction results, token amounts) makes the whole send fail
@@ -1286,6 +1303,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       clearAccountCache();
       resetKnownVersions();
       await wipeWallet();
+      await wipeOotleState();
       return {};
     }
 
