@@ -701,6 +701,30 @@ async function renderHome(status: WalletStatus) {
     }
   });
 
+  // Fired here rather than awaited before this point (or blocking buildStatus() the way it used
+  // to) so the home screen it's shown alongside is already interactive -- see the removed call in
+  // background/index.ts's buildStatus() for why that mattered, and
+  // popup-auto-scan-private-payments's own doc comment for the freshly-created-wallet fast path.
+  // Silent when it finds nothing (the common case, every single open) -- only surfaced when there's
+  // something to actually tell the user about.
+  if (rescanControl) {
+    void (async () => {
+      try {
+        const { claimed } = await send<{ claimed: number }>({ kind: "popup-auto-scan-private-payments" });
+        if (claimed > 0) {
+          rescanControl.statusEl.style.display = "block";
+          rescanControl.statusEl.textContent = `Found ${claimed} new private ${claimed === 1 ? "payment" : "payments"}!`;
+          const balances = await send<Balance[]>({ kind: "popup-get-balances" });
+          renderBalances(balancesCard, balances, status);
+          updateHeroBalance(balances);
+        }
+      } catch {
+        // Best-effort background check -- an indexer hiccup here shouldn't interrupt anything the
+        // user is already doing on the home screen.
+      }
+    })();
+  }
+
   try {
     const balances = await send<Balance[]>({ kind: "popup-get-balances" });
     renderBalances(balancesCard, balances, status);
@@ -1153,10 +1177,14 @@ function buildAddressPicker(
 }
 
 function buildPublicSendForm(container: HTMLElement, balances: Balance[], addressBook: { id: string; label: string; address: string }[]) {
+  // NonFungible resources are excluded: this form sends a decimal amount of a divisible resource,
+  // and an NFT holding's `amount` is a token count with no divisibility to parse a decimal against
+  // -- sending a specific token id is a different flow, out of scope here.
+  const balances_ = balances.filter((b) => b.kind !== "NonFungible");
   const tokenSelect = h(
     "select",
     {},
-    balances.map((b) => h("option", { value: b.resourceAddress }, [resourceLabel(b.resourceAddress, b.symbol)]))
+    balances_.map((b) => h("option", { value: b.resourceAddress }, [resourceLabel(b.resourceAddress, b.symbol)]))
   );
   const balanceHint = h("div", { class: "muted", style: "margin-top:6px" }, [""]);
 
@@ -1183,7 +1211,7 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
     sendBtn
   );
 
-  const selected = () => balances.find((b) => b.resourceAddress === (tokenSelect as HTMLSelectElement).value)!;
+  const selected = () => balances_.find((b) => b.resourceAddress === (tokenSelect as HTMLSelectElement).value)!;
   const updateHint = () => {
     const b = selected();
     balanceHint.textContent = `Available: ${formatBalanceAmountGrouped(b.amount, b.divisibility)} ${resourceLabel(b.resourceAddress, b.symbol)}`;
@@ -1581,12 +1609,16 @@ function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: 
     balancesCard.replaceChildren(
       ...balances.map((b) => {
         const label = resourceLabel(b.resourceAddress, b.symbol);
-        const row = h("button", { class: "balance-row clickable", "aria-label": `${label}, ${formatBalanceAmountGrouped(b.amount, b.divisibility)} — view details` }, [
+        // Indivisible by definition -- the raw token count, never run through
+        // formatBalanceAmountGrouped()'s divisibility math (that produced "0" here before this
+        // vault kind was handled: NonFungible has no `.amount`/`.revealed_amount` field at all).
+        const amountText = b.kind === "NonFungible" ? `${b.amount} ${BigInt(b.amount) === 1n ? "NFT" : "NFTs"}` : formatBalanceAmountGrouped(b.amount, b.divisibility);
+        const row = h("button", { class: "balance-row clickable", "aria-label": `${label}, ${amountText} — view details` }, [
           h("div", { class: "balance-left" }, [
             h("span", { class: "token-avatar", "aria-hidden": "true" }, [tokenInitial(b.resourceAddress, b.symbol)]),
             h("span", { class: "token-symbol" }, [label]),
           ]),
-          h("span", { class: "token-amount" }, [formatBalanceAmountGrouped(b.amount, b.divisibility)]),
+          h("span", { class: "token-amount" }, [amountText]),
         ]);
         row.addEventListener("click", () => renderTokenDetail(status, b));
         return row;
@@ -1670,7 +1702,19 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
       h("div", { class: "muted" }, ["Symbol"]),
       h("div", { class: "detail-value" }, [displaySymbol]),
       h("div", { class: "muted" }, [isConfidential ? "Revealed balance" : "Balance"]),
-      h("div", { class: "detail-value" }, [formatBalanceAmountGrouped(balance.amount, balance.divisibility)]),
+      h("div", { class: "detail-value" }, [
+        balance.kind === "NonFungible"
+          ? `${balance.amount} ${BigInt(balance.amount) === 1n ? "NFT" : "NFTs"}`
+          : formatBalanceAmountGrouped(balance.amount, balance.divisibility),
+      ]),
+      ...(balance.kind === "NonFungible" && balance.nonFungibleTokenIds && balance.nonFungibleTokenIds.length > 0
+        ? [
+            h("div", { class: "muted" }, ["Token IDs"]),
+            h("div", { class: "detail-value", style: "font-size:12px;word-break:break-all" }, [
+              balance.nonFungibleTokenIds.join(", "),
+            ]),
+          ]
+        : []),
       ...(isConfidential
         ? [
             h("div", { class: "muted private-label" }, [icon(ICON_LOCK), "Private balance"]),
@@ -2093,24 +2137,47 @@ async function renderConnectedSites() {
     await renderHome(status);
   });
 
-  const sites = await send<{ origin: string }[]>({ kind: "popup-get-connected-sites" });
+  const sites = await send<{ origin: string; viewAccessGrantedAt?: number }[]>({ kind: "popup-get-connected-sites" });
   const list =
     sites.length === 0
       ? emptyState("No connected sites.", ICON_GLOBE)
       : h(
           "div",
           {},
-          sites.map((s) => {
+          sites.flatMap((s) => {
             // Wrapped in list-row-info (not a bare string) for the same reason as the address
             // book/daemon connections rows -- an unusually long origin shouldn't be able to
             // blow out the row width and squeeze the Disconnect button off-screen.
-            const info = h("div", { class: "list-row-info" }, [h("div", { class: "list-row-title", title: s.origin }, [s.origin])]);
+            const hasView = s.viewAccessGrantedAt !== undefined;
+            const info = h("div", { class: "list-row-info" }, [
+              h("div", { class: "list-row-title", title: s.origin }, [s.origin]),
+              // Only shown when granted. A site with no private view access is the normal case and
+              // needs no label; a site that can read the user's confidential balance is exactly the
+              // thing this screen exists to make visible, so it says so in the row itself rather
+              // than hiding behind a detail view.
+              hasView ? h("div", { class: "list-row-subtitle view-access-note" }, ["Can see your private balance"]) : "",
+            ]);
             const removeBtn = h("button", { class: "secondary btn-compact" }, ["Disconnect"]) as HTMLButtonElement;
             confirmThenRun(removeBtn, `Disconnect ${s.origin}? It will need to request access again to reconnect.`, "Disconnect", async () => {
               await send({ kind: "popup-disconnect-site", origin: s.origin });
               await renderConnectedSites();
             });
-            return h("div", { class: "balance-row" }, [info, removeBtn]);
+            const row = h("div", { class: "balance-row" }, [info, removeBtn]);
+            if (!hasView) return [row];
+            // Revoking view access is offered as its own action, on its own row, rather than only
+            // via Disconnect: a user who wants a dApp to keep working but stop reading their
+            // private position shouldn't have to tear down the connection to get it.
+            const revokeBtn = h("button", { class: "secondary btn-compact" }, ["Revoke view access"]) as HTMLButtonElement;
+            confirmThenRun(
+              revokeBtn,
+              `Stop ${s.origin} from seeing your private balance? It stays connected and can still ask again.`,
+              "Revoke",
+              async () => {
+                await send({ kind: "popup-revoke-site-view-access", origin: s.origin });
+                await renderConnectedSites();
+              }
+            );
+            return [row, h("div", { class: "balance-row view-access-row" }, [h("div", { class: "list-row-info" }, []), revokeBtn])];
           })
         );
   const back = h("button", { class: "secondary", id: "back" }, ["Back"]);
@@ -2189,6 +2256,75 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
       approvalAccountChip(status, undefined),
       h("button", { class: "primary", id: "approve" }, ["Connect"]),
       h("button", { class: "secondary", id: "reject" }, ["Cancel"])
+    );
+  } else if (approval.kind === "viewAccess") {
+    // Spelled out in both directions -- what it does grant and what it doesn't -- because "view
+    // access" on its own reads as harmless, and the thing being handed over (the account's entire
+    // confidential position, which is the whole reason for holding funds privately) is precisely
+    // what nothing else on-chain can see. The "can't spend" half matters just as much: a user who
+    // assumes it does authorize spending would refuse grants they'd have been fine with.
+    render(
+      h("h1", {}, ["Private view request"]),
+      h("p", { class: "muted" }, [
+        h("b", {}, [approval.origin]),
+        " wants to see your ",
+        h("b", {}, ["private balance"]),
+        " — the amounts you hold in shielded outputs, which are hidden from everyone else on-chain.",
+      ]),
+      approvalAccountChip(status, approval.accountId),
+      h("div", { class: "view-access-grants" }, [
+        h("div", { class: "view-access-grant" }, ["It will be able to read your shielded balances and the individual outputs behind them."]),
+        h("div", { class: "view-access-grant" }, ["It will be able to scan for private payments sent to you."]),
+        h("div", { class: "view-access-grant deny" }, ["It will NOT be able to spend anything — every transaction still needs your approval."]),
+        h("div", { class: "view-access-grant deny" }, ["It will NOT receive your keys, and cannot read payments sent to anyone else."]),
+      ]),
+      h("p", { class: "muted" }, ["You can revoke this any time from Connected sites, without disconnecting the site."]),
+      h("button", { class: "primary", id: "approve" }, ["Grant view access"]),
+      h("button", { class: "secondary", id: "reject" }, ["Deny"])
+    );
+  } else if (approval.kind === "signOwnershipProof") {
+    // The challenge is shown verbatim and is the one thing the user is actually vouching for --
+    // the wallet builds the domain-tagged bytes it actually signs itself (see ownershipProof.ts),
+    // never from anything the site supplies, but that's not what a human is evaluating here.
+    render(
+      h("h1", {}, ["Prove ownership"]),
+      h("p", { class: "muted" }, [
+        h("b", {}, [approval.origin]),
+        " wants you to prove you control this output — ",
+        h("b", {}, ["this does not spend or move anything"]),
+        ".",
+      ]),
+      approvalAccountChip(status, approval.accountId),
+      h("p", { class: "muted" }, ["It's asking you to sign exactly this text:"]),
+      h("div", { class: "raw-details", style: "padding:10px;white-space:pre-wrap;word-break:break-word" }, [approval.challenge]),
+      h("p", { class: "muted" }, [`Resource: ${approval.resourceAddress}`]),
+      h("p", { class: "muted" }, [`Output: ${approval.substateId}`]),
+      h("div", { class: "view-access-grants" }, [
+        h("div", { class: "view-access-grant deny" }, ["It will NOT be able to spend this output or any other funds."]),
+        h("div", { class: "view-access-grant deny" }, ["It will NOT receive your keys."]),
+      ]),
+      h("button", { class: "primary", id: "approve" }, ["Sign"]),
+      h("button", { class: "secondary", id: "reject" }, ["Reject"])
+    );
+  } else if (approval.kind === "signWalletOwnershipProof") {
+    render(
+      h("h1", {}, ["Prove wallet ownership"]),
+      h("p", { class: "muted" }, [
+        h("b", {}, [approval.origin]),
+        " wants you to prove you hold this wallet address — ",
+        h("b", {}, ["this does not spend or move anything"]),
+        ".",
+      ]),
+      approvalAccountChip(status, approval.accountId),
+      h("p", { class: "muted" }, ["It's asking you to sign exactly this text:"]),
+      h("div", { class: "raw-details", style: "padding:10px;white-space:pre-wrap;word-break:break-word" }, [approval.challenge]),
+      h("p", { class: "muted" }, [`Wallet address: ${approval.walletAddress}`]),
+      h("div", { class: "view-access-grants" }, [
+        h("div", { class: "view-access-grant deny" }, ["It will NOT be able to spend anything."]),
+        h("div", { class: "view-access-grant deny" }, ["It will NOT receive your keys."]),
+      ]),
+      h("button", { class: "primary", id: "approve" }, ["Sign"]),
+      h("button", { class: "secondary", id: "reject" }, ["Reject"])
     );
   } else {
     const instructionCards = approval.instructions.map((instr, i) => {

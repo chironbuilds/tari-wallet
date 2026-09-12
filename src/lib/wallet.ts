@@ -38,8 +38,12 @@ import { SecretKeyWallet } from "@tari-project/ootle-secret-key-wallet";
 import {
   buildScriptPathWitness,
   buildStealthTransferStatement,
+  createConfidentialWithdrawProofLiteral,
   createStealthOutputWitness,
   parseOotleAddress,
+  publicKeyFromSecretKey,
+  schnorrSign,
+  stealthDhSecret,
   validateStealthTransfer,
 } from "@tari-project/ootle-wasm";
 import type { WalletAccountApi } from "./accountApi";
@@ -48,6 +52,7 @@ import { scanTransactionsForOwnedOutputs, sumConfidentialCommitments } from "./c
 import type { ScannedStealthOutput } from "./confidential";
 import { deriveAccountKeys } from "./derivation";
 import { htlcConditions } from "./htlc";
+import { buildOwnershipProofMessage, buildWalletOwnershipMessage } from "./ownershipProof";
 import { type NetworkName, toOotleNetwork } from "./ootleNetwork";
 import {
   addPendingShield,
@@ -88,6 +93,97 @@ export interface TokenBalance {
   /** The resource's `metadata.name` (a longer display name, distinct from the ticker-style
    * `symbol`), if it set one — null otherwise. */
   name: string | null;
+  /** Token IDs held in this vault, for a `NonFungible` resource only — null for every other kind.
+   * A NonFungible vault's container has no `.amount`/`.revealed_amount` field at all (only
+   * `token_ids`/`locked_token_ids`), so `amount` above is synthesized as this array's length. */
+  nonFungibleTokenIds: string[] | null;
+}
+
+/** One resource's total unspent *stealth* holding -- `OotleAccount.getPrivateBalances()`'s element
+ * type. Deliberately separate from `TokenBalance`: that describes a vault (public amount plus any
+ * decrypted commitments), this describes a set of freestanding stealth UTXOs, and a resource can
+ * have either, both, or only the latter. */
+export interface PrivateBalance {
+  resourceAddress: string;
+  /** Sum of the unspent outputs' amounts, raw resource-native units (same convention as
+   * `TokenBalance.amount`). */
+  amount: bigint;
+  /** How many unspent outputs make up `amount`. Each is spent whole, so this bounds what a single
+   * spend can be covered by -- see `resolveUnshieldPlan`'s coin selection. */
+  outputCount: number;
+  divisibility: number;
+  symbol: string | null;
+  name: string | null;
+}
+
+/**
+ * Batch-reads each resource's on-chain `divisibility` and `metadata.SYMBOL`/`metadata.name`.
+ * Decimal precision and display name are real chain data, never a client-side convention: XTR is 6
+ * and a typical DemoToken defaults to 8, and assuming one for the other misprices amounts by two
+ * orders of magnitude. A resource whose substate is missing or isn't a `Resource` degrades to
+ * `divisibility: 0` and null names rather than throwing -- one unreadable resource must not take
+ * down a whole balance listing.
+ */
+async function fetchResourceMetadata(
+  provider: IndexerProvider,
+  resourceIds: string[]
+): Promise<{
+  divisibilityByResource: Map<string, number>;
+  symbolByResource: Map<string, string | null>;
+  nameByResource: Map<string, string | null>;
+}> {
+  const divisibilityByResource = new Map<string, number>();
+  const symbolByResource = new Map<string, string | null>();
+  const nameByResource = new Map<string, string | null>();
+  if (resourceIds.length === 0) return { divisibilityByResource, symbolByResource, nameByResource };
+
+  const { substates } = await withTimeout(provider.fetchSubstates(resourceIds), 15_000, "reading token decimal precision");
+  for (const id of resourceIds) {
+    const value = substates[id]?.substate;
+    const resource = value && "Resource" in value ? (value.Resource as { divisibility?: number; metadata?: Record<string, unknown> }) : undefined;
+    divisibilityByResource.set(id, typeof resource?.divisibility === "number" ? resource.divisibility : 0);
+    const metadata = resource?.metadata;
+    symbolByResource.set(id, typeof metadata?.SYMBOL === "string" ? metadata.SYMBOL : null);
+    nameByResource.set(id, typeof metadata?.name === "string" ? metadata.name : null);
+  }
+  return { divisibilityByResource, symbolByResource, nameByResource };
+}
+
+/**
+ * A stealth output's **minimum value promise**: a public claim, committed into the output's own
+ * range proof, that it is worth at least this much.
+ *
+ * A confidential output normally carries a range proof for `0 <= v < 2^64`, hiding `v` completely.
+ * Set a promise `m` and the proof instead attests `m <= v < 2^64`, with `m` stored in the clear on
+ * the output (`UnspentOutput.minimum_value_promise`). Anyone reading the output on-chain learns
+ * "worth at least `m`" and nothing more precise -- which is exactly a proof of funds: a permanent,
+ * non-interactive, publicly verifiable artifact that needs no cooperation from this wallet to check
+ * (fetch the `utxo_{resource}_{commitment}` substate, read the field, confirm it is still unspent).
+ *
+ * Two things follow that callers must get right, which is why this is validated rather than passed
+ * straight through:
+ *
+ * 1. **A promise above the real value is unprovable.** The bulletproof asserting `m <= v` cannot be
+ *    generated when `m > v`, so this fails here with a message that says so, rather than deeper in
+ *    the wasm with something opaque -- or, worse, producing a proof the network then rejects after
+ *    the fee half of the transaction has already been committed.
+ * 2. **It is a permanent, irreversible privacy disclosure.** Shielding is how value stops being
+ *    publicly visible; a promise puts a floor back on public view, for the life of the output, for
+ *    everyone -- not just whoever the proof was made for. That is the deliberate trade being made,
+ *    and it is why every path reaching this asks the user first.
+ */
+// Exported (unlike this file's other module-level guards) so the rule can be exercised directly --
+// it is the one place standing between a caller and an unprovable range proof, and a regression here
+// would surface as an opaque wasm failure after the fee half of a transaction had already committed.
+export function assertValidMinimumValuePromise(promise: bigint, amount: bigint): void {
+  if (promise < 0n) {
+    throw new Error(`minimumValuePromise cannot be negative (got ${promise}).`);
+  }
+  if (promise > amount) {
+    throw new Error(
+      `minimumValuePromise (${promise}) cannot exceed the output's own amount (${amount}) -- the range proof asserting "at least ${promise}" is impossible for an output actually worth ${amount}.`,
+    );
+  }
 }
 
 /**
@@ -133,11 +229,17 @@ export class OotleAccount implements WalletAccountApi {
   readonly network: Network;
   readonly signer: SecretKeyWallet;
   private provider: IndexerProvider | null = null;
+  // Held only for signOwnershipProof(), which needs stealthDhSecret() directly -- SecretKeyWallet
+  // keeps its own copy of this exact value in a private field already (for addStealthSignature's
+  // transaction-signing path), so this adds no new exposure, just a second reference to the same
+  // in-memory secret for a second, narrowly-scoped purpose.
+  private readonly ownerSecret: Uint8Array;
 
-  private constructor(index: number, network: Network, signer: SecretKeyWallet) {
+  private constructor(index: number, network: Network, signer: SecretKeyWallet, ownerSecret: Uint8Array) {
     this.index = index;
     this.network = network;
     this.signer = signer;
+    this.ownerSecret = ownerSecret;
   }
 
   /** `entropy` is the 16-byte CipherSeed entropy (see cipherSeed.ts), not a raw 32-byte seed. */
@@ -145,7 +247,7 @@ export class OotleAccount implements WalletAccountApi {
     const network = toOotleNetwork(networkName);
     const { ownerSecret, viewSecret } = deriveAccountKeys(entropy, index);
     const signer = SecretKeyWallet.fromSecretKey(ownerSecret, network, viewSecret);
-    return new OotleAccount(index, network, signer);
+    return new OotleAccount(index, network, signer, ownerSecret);
   }
 
   async getProvider(): Promise<IndexerProvider> {
@@ -228,7 +330,13 @@ export class OotleAccount implements WalletAccountApi {
     }
     if (vaultIds.length === 0 && shieldedByResource.size === 0) return [];
 
-    const parsed: { resourceAddress: string; kind: string; amount: bigint; commitments?: Record<string, OutputBody> }[] = [];
+    const parsed: {
+      resourceAddress: string;
+      kind: string;
+      amount: bigint;
+      commitments?: Record<string, OutputBody>;
+      nonFungibleTokenIds?: string[];
+    }[] = [];
     if (vaultIds.length > 0) {
       const { substates } = await withTimeout(provider.fetchSubstates(vaultIds), 15_000, "fetching vault balances");
       for (const id of vaultIds) {
@@ -237,6 +345,11 @@ export class OotleAccount implements WalletAccountApi {
         if (!value || !("Vault" in value)) continue;
         const container = value.Vault.resource_container;
         const [kind, data] = Object.entries(container)[0] as [string, Record<string, unknown>];
+        if (kind === "NonFungible") {
+          const tokenIds = ((data.token_ids as unknown[]) ?? []).map(stringifyNonFungibleId);
+          parsed.push({ resourceAddress: data.address as string, kind, amount: BigInt(tokenIds.length), nonFungibleTokenIds: tokenIds });
+          continue;
+        }
         const rawAmount = (data.amount ?? data.revealed_amount ?? 0) as string | number | bigint;
         const commitments = kind === "Confidential" ? (data.commitments as Record<string, OutputBody> | undefined) : undefined;
         parsed.push({ resourceAddress: data.address as string, kind, amount: BigInt(rawAmount), commitments });
@@ -267,18 +380,7 @@ export class OotleAccount implements WalletAccountApi {
     // Union with shielded-only resources (computed up front, before the vault check above) so a
     // resource with no vault at all still gets its real divisibility/symbol/name looked up.
     const resourceIds = [...new Set([...parsed.map((p) => p.resourceAddress), ...shieldedByResource.keys()])];
-    const { substates: resourceSubstates } = await withTimeout(provider.fetchSubstates(resourceIds), 15_000, "reading token decimal precision");
-    const divisibilityByResource = new Map<string, number>();
-    const symbolByResource = new Map<string, string | null>();
-    const nameByResource = new Map<string, string | null>();
-    for (const id of resourceIds) {
-      const value = resourceSubstates[id]?.substate;
-      const resource = value && "Resource" in value ? (value.Resource as { divisibility?: number; metadata?: Record<string, unknown> }) : undefined;
-      divisibilityByResource.set(id, typeof resource?.divisibility === "number" ? resource.divisibility : 0);
-      const metadata = resource?.metadata;
-      symbolByResource.set(id, typeof metadata?.SYMBOL === "string" ? metadata.SYMBOL : null);
-      nameByResource.set(id, typeof metadata?.name === "string" ? metadata.name : null);
-    }
+    const { divisibilityByResource, symbolByResource, nameByResource } = await fetchResourceMetadata(provider, resourceIds);
 
     const balances: TokenBalance[] = parsed.map((p, i) => ({
       resourceAddress: p.resourceAddress,
@@ -289,6 +391,7 @@ export class OotleAccount implements WalletAccountApi {
       divisibility: divisibilityByResource.get(p.resourceAddress) ?? 0,
       symbol: symbolByResource.get(p.resourceAddress) ?? null,
       name: nameByResource.get(p.resourceAddress) ?? null,
+      nonFungibleTokenIds: p.nonFungibleTokenIds ?? null,
     }));
 
     // Resources whose only balance is a shielded output with no on-chain vault at all (e.g.
@@ -383,19 +486,24 @@ export class OotleAccount implements WalletAccountApi {
             );
             continue;
           }
-          const resolved = await withTimeout(
-            provider.resolveInputs(inputs.map(({ substate_id }) => ({ substate_id, version: null }))),
-            15_000,
-            "refreshing input versions"
+          const resolved = await resolveInputsWithRetry(
+            provider,
+            inputs.map(({ substate_id }) => ({ substate_id, version: null })),
           );
-          inputs = await applyKnownVersions(resolved);
+          // Deliberately NOT `applyKnownVersions(resolved)`: the remembered version is exactly
+          // what just failed, and it is `>` whatever the indexer reports, so re-applying it
+          // overwrites the freshly resolved (correct) version with the stale one and the next
+          // attempt fails identically. Persisted, so one bad write wedges every later transaction
+          // across reloads. Forget those entries and trust the chain.
+          await forgetKnownVersions(inputs.map((i) => i.substate_id));
+          inputs = resolved;
           continue;
         }
 
         const missing = extractMissingSubstateAddress(e.message);
         if (!missing || seenAddresses.has(missing)) throw e;
         seenAddresses.add(missing);
-        const [resolved] = await withTimeout(provider.resolveInputs([{ substate_id: missing, version: null }]), 15_000, "resolving a missing input");
+        const [resolved] = await resolveInputsWithRetry(provider, [{ substate_id: missing, version: null }]);
         inputs = await applyKnownVersions([...inputs, resolved!]);
       }
     }
@@ -488,18 +596,123 @@ export class OotleAccount implements WalletAccountApi {
 
   /**
    * Transfers `amount` (raw, resource-native units) of `resourceAddress` from this account to
-   * `recipientAddress` — a plain `withdraw` off this account's own vault, handed straight to
+   * `recipientWalletAddress` — a plain `withdraw` off this account's own vault, handed straight to
    * `deposit` on the recipient's account component via a workspace bucket, in one transaction.
    * Works for any resource this account holds, including XTR; `execute()`'s auto-resolve retry
-   * (see its own doc comment) discovers and pins whichever vaults/components aren't already
-   * known, exactly as it does for every other instruction this class builds by hand.
+   * (see its own doc comment) discovers and pins whichever vaults/components aren't already known,
+   * exactly as it does for every other instruction this class builds by hand.
+   *
+   * `deposit` is a method call on an *existing* component — unlike a substate that merely isn't
+   * pinned as an input yet (what `execute()`'s auto-resolve retry fixes), a recipient who has never
+   * received or sent anything has no on-chain account component at all, and no amount of retrying
+   * makes one appear (confirmed empirically: same "component_... not found" indexer 404 on every
+   * attempt, unlike the transient version of that message a not-yet-finalized producer gives).
+   * `sendPrivately()` never hits this because a stealth output only needs the recipient's public
+   * key, not an existing component. `substateExists()` probes for the recipient's component up
+   * front and, if it's missing, folds its creation into this same transaction — addressed via
+   * `Workspace`, not `Address`, since unlike the sender's own already-existing account, this
+   * component doesn't have a queryable address to resolve until the transaction that creates it
+   * actually commits.
    */
-  async send(recipientAddress: string, resourceAddress: string, amount: bigint, maxFee = 5000n) {
+  async send(recipientWalletAddress: string, resourceAddress: string, amount: bigint, maxFee = 5000n) {
     const account = await this.getComponentAddress();
-    const instructions: Instruction[] = [
+    const provider = await this.getProvider();
+    const { owner_key: recipientPublicKey } = parseOotleAddress(recipientWalletAddress);
+    const recipientAddress = deriveAccountComponentAddress(recipientPublicKey);
+    const recipientExists = await substateExists(provider, recipientAddress);
+
+    const instructions: Instruction[] = [];
+    if (!recipientExists) {
+      instructions.push(
+        { CreateAccount: { owner_public_key: toHex(recipientPublicKey), owner_rule: null, access_rules: null, bucket_workspace_id: null } },
+        { PutLastInstructionOutputOnWorkspace: { key: 0 } },
+      );
+    }
+    instructions.push(
       { CallMethod: { call: { Address: account }, method: "withdraw", args: [resourceAddressLiteral(resourceAddress), amountLiteral(amount)] } },
+      { PutLastInstructionOutputOnWorkspace: { key: 1 } },
+      {
+        CallMethod: {
+          call: recipientExists ? { Address: recipientAddress } : { Workspace: 0 },
+          method: "deposit",
+          args: [{ Workspace: { id: 1, offset: null } }],
+        },
+      },
+    );
+    return this.execute(instructions, { maxFee });
+  }
+
+  /**
+   * Moves `amount` of this account's own REVEALED balance into a Confidential-type vault for the
+   * same resource -- the "Confidential" `ResourceType`'s equivalent of `shield()`, a different
+   * privacy mechanism from Stealth (vault-based, ElGamal-encrypted to a resource view key, rather
+   * than freestanding one-time-key UTXOs -- see the resource-types write-up in the integration
+   * docs). Only meaningful for a resource actually created as `ResourceType::Confidential`; calling
+   * this against a Fungible or Stealth resource's vault fails on-chain ("resource type mismatch" or
+   * similar), not client-side -- this class has no way to know a resource's type up front without
+   * an extra substate fetch, so the failure is left to the engine.
+   *
+   * Builds a `ConfidentialWithdrawProof` client-side (no wallet-daemon round trip) via the vendored
+   * `createConfidentialWithdrawProofLiteral` -- see that WASM export's own doc comment for why the
+   * `tari_bor` encoding happens in Rust rather than being hand-rolled here: the official
+   * `@tari-project/ootle` SDK's own `feeTransactionPayFromComponentConfidential` is unimplemented
+   * for exactly this reason ("a ConfidentialWithdrawProof Literal must be tari_bor-CBOR-encoded,
+   * which the TS SDK does not yet support").
+   *
+   * The new confidential output is addressed to this account's own owner/view keys -- the same
+   * one-time-output-witness construction `createStealthOutputWitness` already builds for Stealth
+   * outputs, reused here since `ConfidentialOutputStatement.output` and a `StealthOutputWitness`'s
+   * `witness` share the exact same shape (mask, sender_public_nonce, encrypted_data). Only the
+   * `witness` half of that result is used -- the `auth`/`tag` halves are Stealth-specific
+   * (`SpendAuthorization`/`UtxoTag`); a Confidential output has neither, ownership being purely
+   * "which vault holds it," not a spend-authorization key.
+   *
+   * Two instructions, mirroring `send()`'s withdraw-then-deposit shape: `withdraw_confidential`
+   * (drawing `amount` from the vault's revealed side, per the proof's `input_revealed_amount`)
+   * produces a bucket holding the one new confidential output, which `deposit` puts back in the
+   * same vault.
+   */
+  async depositConfidential(resourceAddress: string, amount: bigint, maxFee = 50000n) {
+    if (amount <= 0n) throw new Error(`depositConfidential: amount must be greater than zero, got ${amount}`);
+    const account = await this.getComponentAddress();
+    const ownerPublicKey = await this.getPublicKey();
+    const viewSecret = await this.signer.getViewSecret();
+    const viewPublicKey = publicKeyFromSecretKey(viewSecret);
+
+    const witnessJson = createStealthOutputWitness(
+      this.network,
+      ownerPublicKey,
+      viewPublicKey,
+      amount,
+      resourceAddress,
+      undefined, // resource_view_key -- irrelevant here; that grants a THIRD PARTY decrypt access, not needed to address an output to ourselves
+      undefined, // memo_json
+      undefined, // pay_to_json -- irrelevant: only `witness` below is used, never this call's `auth`/`tag`
+      0n, // minimum_value_promise -- a Stealth/bulletproof-auth concept; not meaningful for a Confidential output
+    );
+    const { witness } = JSON.parse(witnessJson) as { witness: unknown };
+    const outputJson = JSON.stringify(witness);
+
+    const proofBytes = createConfidentialWithdrawProofLiteral(
+      "[]", // no confidential inputs spent -- drawing purely from the vault's revealed side
+      amount,
+      outputJson,
+      0n,
+      undefined,
+      0n,
+    );
+    const proofLiteral = { Literal: toHex(proofBytes) };
+
+    const instructions: Instruction[] = [
+      {
+        CallMethod: {
+          call: { Address: account },
+          method: "withdraw_confidential",
+          args: [resourceAddressLiteral(resourceAddress), proofLiteral],
+        },
+      },
       { PutLastInstructionOutputOnWorkspace: { key: 0 } },
-      { CallMethod: { call: { Address: recipientAddress }, method: "deposit", args: [{ Workspace: { id: 0, offset: null } }] } },
+      { CallMethod: { call: { Address: account }, method: "deposit", args: [{ Workspace: { id: 0, offset: null } }] } },
     ];
     return this.execute(instructions, { maxFee });
   }
@@ -564,12 +777,43 @@ export class OotleAccount implements WalletAccountApi {
 
       try {
         const result = await withTimeout(sendTransaction(provider, this.signer, unsignedTx), 30_000, "submitting the claim");
+
         // This is typically the first transaction for a brand-new account — recording its
         // resulting versions (the newly-created fee vault included) closes the exact gap that
         // otherwise bites the *next* transaction (see `applyKnownVersions`'s doc comment).
         await recordKnownVersions(result);
         return result;
       } catch (e) {
+        // "Failed to decode transaction: unexpected type null at position N: expected u64" is a
+        // serde failure at the indexer, and the byte offset alone names nothing. The transaction
+        // is the only evidence and it is gone once this throws, so attach the field shapes — the
+        // u64-typed fields first, since one of them arriving null is what the message describes.
+        if (e instanceof Error && /Failed to decode transaction/i.test(e.message)) {
+          const t = unsignedTx as unknown as Record<string, unknown>;
+          const shape = [
+            `network=${typeof t.network}:${JSON.stringify(t.network)}`,
+            `min_epoch=${JSON.stringify(t.min_epoch)}`,
+            `max_epoch=${typeof t.max_epoch}:${JSON.stringify(t.max_epoch)}`,
+            `nonce=${typeof t.nonce}:${JSON.stringify(t.nonce)}`,
+            `dry_run=${JSON.stringify(t.dry_run)}`,
+            `is_seal_signer_authorized=${JSON.stringify(t.is_seal_signer_authorized)}`,
+            `blobs=${Array.isArray(t.blobs) ? `array[${(t.blobs as unknown[]).length}]` : typeof t.blobs}`,
+            `inputs=${JSON.stringify(t.inputs)}`,
+            `fee_instructions=${JSON.stringify(t.fee_instructions)?.slice(0, 400)}`,
+          ].join(" ");
+          throw new Error(`${e.message} — tx: ${shape}`);
+        }
+        // The claim's fee phase calls `createAccount` for *this* account, and `CreateAccount` is
+        // create-or-conflict: once the account exists the instruction rejects with "is already UP
+        // and conflicts with an existing output". Tari's own walletd reads that exact string as
+        // "faucet already claimed" (`applications/tari_walletd/src/handlers/accounts.rs`), so it
+        // is reported that way here rather than as a raw consensus rejection — retrying cannot
+        // help, and the account is fine.
+        if (e instanceof Error && e.message.includes("is already UP and conflicts with an existing output")) {
+          throw new Error(
+            "This account has already claimed from the faucet — the faucet only pays out once per account.",
+          );
+        }
         const isStaleVersionRace = e instanceof Error && e.message.includes("Lock failure");
         if (!isStaleVersionRace || attempt >= retries) throw e;
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (attempt + 1)));
@@ -600,7 +844,14 @@ export class OotleAccount implements WalletAccountApi {
    * erring high just wastes nothing; erring low burns the small fee-intent cost with nothing to
    * show for it, since only the fee half of the transaction gets committed.
    */
-  async shield(resourceAddress: string, amount: bigint, maxFee = 50000n, memo?: string): Promise<{ transactionId: string }> {
+  async shield(
+    resourceAddress: string,
+    amount: bigint,
+    maxFee = 50000n,
+    memo?: string,
+    minimumValuePromise = 0n,
+  ): Promise<{ transactionId: string; commitment: string; substateId: string; minimumValuePromise: string }> {
+    assertValidMinimumValuePromise(minimumValuePromise, amount);
     const accountId = localAccountId(this.index);
     const provider = await this.getProvider();
     const account = await this.getComponentAddress();
@@ -618,7 +869,7 @@ export class OotleAccount implements WalletAccountApi {
       // source (node_modules/@tari-project/ootle/dist/index.js) -- not assumed from the docs.
       .withBuilder((b) => b.addInput({ substate_id: resourceAddress, version: null }))
       .spendRevealedInput(account, amount)
-      .toStealthOutput(createOutput({ destination: walletAddress, amount, resourceAddress, memo: toMemo(memo) }))
+      .toStealthOutput(createOutput({ destination: walletAddress, amount, resourceAddress, memo: toMemo(memo), minimumValuePromise }))
       .payFeeFromRevealed(maxFee)
       .prepare();
     const ownCommitment = extractOutputCommitment(spec, 0);
@@ -643,7 +894,81 @@ export class OotleAccount implements WalletAccountApi {
     } finally {
       await removePendingShield(transactionId);
     }
-    return { transactionId };
+    // The commitment and its substate id are returned, not just the transaction id, because they are
+    // the only durable handle on the output this created -- and with a non-zero
+    // `minimumValuePromise` that substate *is* the proof-of-funds artifact, which a caller cannot
+    // reconstruct from a transaction id alone. Returned unconditionally (a zero promise included)
+    // rather than only for the proof case, so callers get one shape to handle.
+    return { transactionId, commitment: ownCommitment, substateId: stealthUtxoSubstateId(resourceAddress, fromHex(ownCommitment)), minimumValuePromise: minimumValuePromise.toString() };
+  }
+
+  /**
+   * Proves this account currently controls the stealth output at `substateId` -- e.g. a
+   * `minimumValuePromise` proof-of-funds output this account created earlier -- by Schnorr-signing
+   * `challenge` with the output's one-time spend key. Spends nothing and reveals nothing about the
+   * output beyond what `tari_getSubstate` already shows anyone.
+   *
+   * `challenge` is signed under a domain tag (`ownershipProof.ts`) disjoint from real transaction
+   * signing, so the resulting signature can never be replayed as spend authorization for this or
+   * any other output -- this is the entire reason a caller cannot just ask for a raw signature over
+   * an arbitrary message.
+   *
+   * Throws if the substate isn't a live, key-authorized stealth output, or if it isn't actually
+   * addressed to this account (checked by re-deriving the expected one-time public key and
+   * comparing it to the substate's own `auth.Key` -- the same check `scan_stealth_output` does
+   * receiver-side, just run here against a specific caller-supplied id instead of a scan).
+   */
+  async signOwnershipProof(
+    resourceAddress: string,
+    substateId: string,
+    challenge: string,
+  ): Promise<{ publicKey: string; publicNonce: string; signature: string }> {
+    const provider = await this.getProvider();
+    const response = await provider.getSubstate(substateId);
+    const substate = response.substate as unknown as { Utxo?: { output: { output: OutputBody; auth: { Key?: string } } | null } };
+    const utxo = substate.Utxo;
+    if (!utxo?.output) {
+      throw new Error("This output doesn't exist, isn't a stealth output, or has already been spent.");
+    }
+    const expectedAuthKeyHex = utxo.output.auth.Key;
+    if (!expectedAuthKeyHex) {
+      throw new Error("This output isn't key-authorized (it's spent by a script condition, not a signature) -- there's no key to prove ownership of.");
+    }
+
+    const senderPublicNonce = fromHex(utxo.output.output.public_nonce);
+    const oneTimeSecret = stealthDhSecret(this.network, this.ownerSecret, senderPublicNonce);
+    try {
+      const oneTimePublicKey = publicKeyFromSecretKey(oneTimeSecret);
+      if (toHex(oneTimePublicKey) !== expectedAuthKeyHex) {
+        throw new Error("This account doesn't control that output.");
+      }
+      const message = buildOwnershipProofMessage(this.network, resourceAddress, substateId, challenge);
+      const sig = schnorrSign(oneTimeSecret, message);
+      return { publicKey: toHex(oneTimePublicKey), publicNonce: toHex(sig.public_nonce), signature: toHex(sig.signature) };
+    } finally {
+      oneTimeSecret.fill(0); // a derived per-output secret, not the account's own key -- zeroed anyway, on principle
+    }
+  }
+
+  /**
+   * Proves this account holds a specific `otl_…` wallet address by Schnorr-signing `challenge`
+   * with the account's own persistent owner key -- not a per-output derived one, so unlike
+   * `signOwnershipProof` this needs no substate lookup and isn't tied to any particular output.
+   *
+   * Signs under a domain tag (`ownershipProof.ts`) disjoint from real transaction signing, for the
+   * same reason `signOwnershipProof` does: this exact key also signs real transactions
+   * (`SecretKeyWallet.signTransaction`), so a raw signature over caller-supplied bytes would risk
+   * being replayable as spend authorization.
+   *
+   * A verifier checks the result against the owner key decoded from the wallet address *they*
+   * already have in mind (`parseOotleAddress`) -- never against a value this call's caller reports
+   * about themselves.
+   */
+  async signWalletOwnership(challenge: string): Promise<{ walletAddress: string; publicNonce: string; signature: string }> {
+    const walletAddress = await this.getWalletAddress();
+    const message = buildWalletOwnershipMessage(this.network, walletAddress, challenge);
+    const sig = schnorrSign(this.ownerSecret, message);
+    return { walletAddress, publicNonce: toHex(sig.public_nonce), signature: toHex(sig.signature) };
   }
 
   /**
@@ -1058,8 +1383,10 @@ export class OotleAccount implements WalletAccountApi {
     recipientWalletAddress: string,
     amount: bigint,
     maxFee = 100000n,
-    memo?: string
-  ): Promise<{ transactionId: string; recipientCommitment: string }> {
+    memo?: string,
+    minimumValuePromise = 0n,
+  ): Promise<{ transactionId: string; recipientCommitment: string; recipientSubstateId: string; minimumValuePromise: string }> {
+    assertValidMinimumValuePromise(minimumValuePromise, amount);
     const accountId = localAccountId(this.index);
     const records = await listShieldedOutputs(accountId);
     const { commitments, changeAmount } = resolveSendPrivatelyPlan(records, resourceAddress, amount);
@@ -1077,7 +1404,12 @@ export class OotleAccount implements WalletAccountApi {
     for (const commitment of commitments) {
       builder = builder.spendStealthInput(account, fromHex(commitment));
     }
-    builder = builder.toStealthOutput(createOutput({ destination: recipientWalletAddress, amount, resourceAddress, memo: toMemo(memo) }));
+    // The promise rides on the recipient's output only. Putting one on the change output would
+    // publish a floor on this account's own remaining private balance -- an unrelated disclosure the
+    // caller never asked for, and one the recipient has no interest in.
+    builder = builder.toStealthOutput(
+      createOutput({ destination: recipientWalletAddress, amount, resourceAddress, memo: toMemo(memo), minimumValuePromise }),
+    );
     if (changeAmount > 0n) {
       builder = builder.toStealthOutput(createOutput({ destination: ownWalletAddress, amount: changeAmount, resourceAddress }));
     }
@@ -1115,7 +1447,12 @@ export class OotleAccount implements WalletAccountApi {
     } finally {
       await removePendingShield(transactionId);
     }
-    return { transactionId, recipientCommitment };
+    return {
+      transactionId,
+      recipientCommitment,
+      recipientSubstateId: stealthUtxoSubstateId(resourceAddress, fromHex(recipientCommitment)),
+      minimumValuePromise: minimumValuePromise.toString(),
+    };
   }
 
   /**
@@ -1150,6 +1487,52 @@ export class OotleAccount implements WalletAccountApi {
   }
 
   /**
+   * This account's unspent stealth outputs, newest first, optionally filtered to one resource.
+   *
+   * This local ledger *is* the account's private position -- see `ShieldedOutputRecord`'s doc
+   * comment for why it has to be: a stealth output is a freestanding
+   * `utxo_{resource}_{commitment}` substate, not an entry in any vault, and there is no
+   * scan-by-view-key API that could rediscover one from the chain alone given only its commitment.
+   * Anything not in here is, as far as this wallet is concerned, not spendable.
+   */
+  async listUnspentShieldedOutputs(resourceAddress?: string): Promise<ShieldedOutputRecord[]> {
+    return selectUnspentShieldedOutputs(await listShieldedOutputs(localAccountId(this.index)), resourceAddress);
+  }
+
+  /**
+   * Per-resource totals over `listUnspentShieldedOutputs()`, with each resource's real on-chain
+   * `divisibility`/symbol/name folded in (the same lookup `getBalances()` does, via the shared
+   * `fetchResourceMetadata` helper -- a private balance has to be renderable on its own, without a
+   * caller cross-referencing `getBalances()` for the decimals).
+   *
+   * Distinct from `getBalances()`'s `confidentialAmount` in two ways worth being precise about:
+   * it counts only these freestanding stealth outputs (not a Confidential *vault*'s own
+   * commitments map, which `getBalances()` also decrypts and adds in), and it reports a resource
+   * whose only holding is private, which `getBalances()` only surfaces via its
+   * `synthesizeShieldedOnlyBalances` path. For "what can I spend privately right now", this is the
+   * authoritative number, because it is exactly what `resolveUnshieldPlan`/
+   * `resolveSendPrivatelyPlan` select from.
+   *
+   * One network round trip (the resource metadata batch); the amounts themselves are local.
+   */
+  async getPrivateBalances(): Promise<PrivateBalance[]> {
+    const holdings = summarizePrivateHoldings(await this.listUnspentShieldedOutputs());
+    if (holdings.length === 0) return [];
+
+    const provider = await this.getProvider();
+    const { divisibilityByResource, symbolByResource, nameByResource } = await fetchResourceMetadata(
+      provider,
+      holdings.map((h) => h.resourceAddress)
+    );
+    return holdings.map((h) => ({
+      ...h,
+      divisibility: divisibilityByResource.get(h.resourceAddress) ?? 0,
+      symbol: symbolByResource.get(h.resourceAddress) ?? null,
+      name: nameByResource.get(h.resourceAddress) ?? null,
+    }));
+  }
+
+  /**
    * Automatic counterpart to `claimPrivatePayment()`: instead of requiring the recipient be told a
    * commitment out of band, walks the indexer's recent-transaction history looking for
    * `StealthTransfer` outputs this account can decrypt with its own view key (see
@@ -1164,7 +1547,7 @@ export class OotleAccount implements WalletAccountApi {
    * active chain producing more than `maxPages * pageSize` new transactions between scans will
    * only be caught up partway; the next scan resumes from the same cursor and continues.
    */
-  async scanForPrivatePayments(maxPages = 3, pageSize = 50): Promise<{ claimed: number; found: ScannedStealthOutput[] }> {
+  async scanForPrivatePayments(maxPages?: number, pageSize = 50): Promise<{ claimed: number; found: ScannedStealthOutput[] }> {
     const accountId = localAccountId(this.index);
     const provider = await this.getProvider();
     const viewSecret = await this.signer.getViewSecret();
@@ -1183,9 +1566,16 @@ export class OotleAccount implements WalletAccountApi {
     // (already-advanced) cursor and never revisit it. Leaving the cursor where it was instead means
     // the next opportunistic scan just re-tries the same catch-up (redundant work, not data loss);
     // see this method's own doc comment ("the next scan resumes from the same cursor").
-    let reachedCursor = previousCursor === null;
+    // "No cursor" does not mean "we have the whole history" — after a restore it means the
+    // opposite, that nothing is known yet. Starting `true` let the cursor be advanced to the
+    // newest transaction after only a few pages, writing off every stealth output older than that
+    // window: the next scan starts from the new cursor and never looks back, so those outputs
+    // become unrecoverable. Only reaching the old cursor, or running out of history, counts.
+    const isFirstScan = previousCursor === null;
+    const pageBudget = maxPages ?? (isFirstScan ? 400 : 3);
+    let reachedCursor = false;
 
-    pages: for (let page = 0; page < maxPages; page++) {
+    pages: for (let page = 0; page < pageBudget; page++) {
       const { transactions } = await provider.listRecentTransactions({ limit: pageSize, last_id: lastId });
       if (transactions.length === 0) {
         reachedCursor = true; // the indexer's whole history fit before ever finding previousCursor
@@ -1372,9 +1762,21 @@ export function synthesizeShieldedOnlyBalances(
       divisibility: divisibilityByResource.get(resourceAddress) ?? 0,
       symbol: symbolByResource.get(resourceAddress) ?? null,
       name: nameByResource.get(resourceAddress) ?? null,
+      nonFungibleTokenIds: null,
     });
   }
   return balances;
+}
+
+/** Renders one NonFungible vault's token id (a `{U256}|{String}|{Uint32}|{Uint64}` tagged union)
+ * as a plain display string. */
+function stringifyNonFungibleId(id: unknown): string {
+  if (typeof id === "string" || typeof id === "number" || typeof id === "bigint") return String(id);
+  if (id && typeof id === "object") {
+    const [, value] = Object.entries(id as Record<string, unknown>)[0] ?? [];
+    if (value !== undefined) return String(value);
+  }
+  return JSON.stringify(id);
 }
 
 /**
@@ -1389,6 +1791,44 @@ export function synthesizeShieldedOnlyBalances(
  * least one more unit available" (see `resolveUnshieldPlan`) can pull in exactly one more output
  * without re-deriving the candidate list.
  */
+/**
+ * The unspent subset of a shielded-output ledger, newest first, optionally narrowed to one
+ * resource. Newest-first is a display order, deliberately *not* the spend order: coin selection is
+ * `selectShieldedUtxosForAmount`'s largest-first job, and the two must not be conflated.
+ *
+ * Split out of `OotleAccount.listUnspentShieldedOutputs` (which is just this over the account's own
+ * stored records) so the filtering rule -- what counts as spendable, and what a dApp with view
+ * access is allowed to see -- is testable on its own.
+ */
+export function selectUnspentShieldedOutputs(records: ShieldedOutputRecord[], resourceAddress?: string): ShieldedOutputRecord[] {
+  return records
+    .filter((r) => !r.spent && (resourceAddress === undefined || r.resourceAddress === resourceAddress))
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/**
+ * Totals a set of already-unspent shielded outputs per resource. `outputCount` is carried
+ * alongside the sum rather than left to be recomputed, because it is not cosmetic: each output is
+ * spent whole, so the count is what bounds whether a given amount can actually be covered (see
+ * `resolveUnshieldPlan`) -- a balance of 100 across one output and across fifty are very different
+ * things to a caller planning a spend.
+ *
+ * Insertion-ordered by first appearance (Map iteration order), so a caller's rendering doesn't
+ * reshuffle between calls for no reason.
+ */
+export function summarizePrivateHoldings(
+  records: ShieldedOutputRecord[]
+): { resourceAddress: string; amount: bigint; outputCount: number }[] {
+  const totals = new Map<string, { amount: bigint; outputCount: number }>();
+  for (const record of records) {
+    const entry = totals.get(record.resourceAddress) ?? { amount: 0n, outputCount: 0 };
+    entry.amount += BigInt(record.amount);
+    entry.outputCount += 1;
+    totals.set(record.resourceAddress, entry);
+  }
+  return [...totals].map(([resourceAddress, entry]) => ({ resourceAddress, ...entry }));
+}
+
 export function selectShieldedUtxosForAmount(
   records: ShieldedOutputRecord[],
   resourceAddress: string,
@@ -1604,6 +2044,19 @@ async function recordKnownVersions(response: IndexerGetTransactionResultResponse
   });
 }
 
+/**
+ * Forgets what we thought we knew about these substates' versions, after the chain has told us a
+ * remembered one is unusable. Keeping it would make `applyKnownVersions` reassert it over every
+ * future resolve, turning one bad write into a permanently stuck wallet.
+ */
+export async function forgetKnownVersions(substateIds: string[]): Promise<void> {
+  if (substateIds.length === 0) return;
+  const known = await loadKnownVersions();
+  let changed = false;
+  for (const id of substateIds) if (known.delete(id)) changed = true;
+  if (changed) await chrome.storage.local.set({ [KNOWN_VERSIONS_STORAGE_KEY]: Object.fromEntries(known) });
+}
+
 /** Drops the in-memory known-versions cache. Called on wallet reset (see background/index.ts's
  * `popup-reset-wallet`) so a freshly-created wallet can't inherit the previous wallet's cached
  * version numbers — the storage side of that wipe is already handled by `wipeWallet()`'s
@@ -1655,6 +2108,54 @@ function bytesToHex(bytes: Uint8Array): string {
   return out;
 }
 
+// `resolveInputs()` throws "Failed to find input \"<id>\": ... Verify the substate id is correct
+// (typo? wrong network?) or wait for the producing transaction to finalize." — the indexer client's
+// own wording for a plain 404 on `substatesGet`. Confirmed empirically this fires on a substate that
+// exists moments later: the indexer's committed view lags the version this account's *own* prior
+// transaction (or a template it just called into, e.g. a newly-created pool) produced by more than
+// one round trip, the same race `claimTestnetXtr()`'s "Lock failure" backoff exists for. Unlike
+// "wrong network"/"typo'd address", a genuinely-missing substate never starts existing no matter how
+// long this waits — but there is no way to distinguish the two from the message alone, so this
+// retries a bounded number of times and lets a persistent 404 surface as a real error afterward.
+const RESOLVE_INPUTS_NOT_YET_FINALIZED_PATTERN = /Failed to find input/i;
+
+export async function resolveInputsWithRetry(
+  provider: IndexerProvider,
+  requirements: SubstateRequirement[],
+  retries = 5,
+  retryDelayMs = 500,
+): Promise<SubstateRequirement[]> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await withTimeout(provider.resolveInputs(requirements), 15_000, "resolving inputs");
+    } catch (e) {
+      const isNotYetFinalized = e instanceof Error && RESOLVE_INPUTS_NOT_YET_FINALIZED_PATTERN.test(e.message);
+      if (!isNotYetFinalized || attempt >= retries) throw e;
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (attempt + 1)));
+    }
+  }
+}
+
+/**
+ * Checks whether `substateId` already exists on-chain, tolerating a couple of retries in case it
+ * just hasn't finalized on the indexer yet (a much smaller budget than `resolveInputsWithRetry`'s
+ * default — this is used to *decide* whether to create something, not to wait out a known producer,
+ * so a persistent 404 should read as "doesn't exist" quickly rather than stall the caller). Only
+ * `resolveInputsWithRetry`'s specific "not yet finalized" 404 is treated as "missing" — any other
+ * failure (network error, indexer down) propagates rather than being silently read as nonexistence,
+ * since that misread would make `send()` prepend a `CreateAccount` for an account that actually
+ * exists, which the engine rejects outright ("is already UP and conflicts with an existing output").
+ */
+export async function substateExists(provider: IndexerProvider, substateId: string): Promise<boolean> {
+  try {
+    await resolveInputsWithRetry(provider, [{ substate_id: substateId, version: null }], 2, 300);
+    return true;
+  } catch (e) {
+    if (e instanceof Error && RESOLVE_INPUTS_NOT_YET_FINALIZED_PATTERN.test(e.message)) return false;
+    throw e;
+  }
+}
+
 // Matches the address this engine names in a "not found" rejection. Confirmed two distinct
 // phrasings for what is structurally the same SubstateNotFound rejection, depending on *how* the
 // missing reference was hit: a plain call-target miss reads "At instruction #1: component_...
@@ -1683,7 +2184,7 @@ export function extractMissingSubstateAddress(message: string): string | null {
 // Matches "Lock failure: Substate <id>:<version> is DOWN" — the exact substate and version that
 // was just consumed, letting the caller compute the next version (version + 1) deterministically
 // instead of re-querying a possibly-still-lagging indexer.
-const STALE_LOCK_PATTERN = /Substate ([a-z_]+_[0-9a-f]{16,}):(\d+) is DOWN/i;
+const STALE_LOCK_PATTERN = /Substate ([a-z_]+_[0-9a-f]{16,}):(\d+) is (?:not found or )?DOWN/i;
 
 export function extractStaleLockVersion(message: string): { substateId: string; version: number } | null {
   const match = STALE_LOCK_PATTERN.exec(message);

@@ -53,13 +53,16 @@ window.addEventListener("message", (event) => {
   sendToBackground(message)
     .then((response) => {
       if (!response) {
-        window.postMessage({ target: PAGE_TARGET, type: "tari-response", id: data.id, error: "No response from wallet extension" }, "*");
+        window.postMessage(
+          { target: PAGE_TARGET, type: "tari-response", id: data.id, error: { code: -32603, message: "No response from wallet extension" } },
+          "*"
+        );
         return;
       }
       window.postMessage({ target: PAGE_TARGET, type: "tari-response", id: response.id, result: response.result, error: response.error }, "*");
     })
     .catch((e: Error) => {
-      window.postMessage({ target: PAGE_TARGET, type: "tari-response", id: data.id, error: e.message }, "*");
+      window.postMessage({ target: PAGE_TARGET, type: "tari-response", id: data.id, error: { code: -32603, message: e.message } }, "*");
     });
 });
 

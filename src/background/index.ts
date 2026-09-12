@@ -10,8 +10,10 @@ import {
   beginTransactionRequestSubmit,
   daemonAccountId,
   getConnectedSite,
+  getPrivatePaymentScanCursor,
   getState,
   getTransactionRequest,
+  hasViewAccess,
   listTransactionHistory,
   localAccountId,
   removeAddressBookEntry,
@@ -21,28 +23,34 @@ import {
   removeDaemonConnection,
   setState,
   setTransactionRequestStatus,
+  setViewAccess,
   TRANSACTION_REQUEST_TTL_MS,
   type TransactionHistoryEntry,
   type TransactionRequestRecord,
   wipeWallet,
 } from "../lib/storage";
 import { summarizeInstruction } from "../lib/instructionSummary";
+import { classifyProviderError } from "../lib/messages";
 import type {
   AccountSummary,
   AccountsChangedBroadcast,
   DaemonAccountOption,
+  DappTokenBalance,
   PageRequestMessage,
   PageResponseMessage,
   PendingApprovalInput,
   PopupRequest,
+  PrivateBalance,
+  PrivatePaymentScanResult,
+  ShieldedOutputSummary,
   TransactionRequestOperation,
   TransactionRequestSummary,
   WalletCapabilities,
   WalletStatus,
 } from "../lib/messages";
+import type { WalletAccountApi } from "../lib/accountApi";
 import type { Instruction, SubstateRequirement } from "@tari-project/ootle-ts-bindings";
 import { isStealthTransferInstruction } from "@tari-project/ootle";
-import { componentAddressFromWalletAddress } from "../lib/componentAddress";
 import { DaemonAccount } from "../lib/daemonAccount";
 import { OotleAccount, recoverPendingShields, resetKnownVersions } from "../lib/wallet";
 import { clearAccountCache, getAccountById, getActiveAccount, getDaemonClient } from "./accounts";
@@ -72,7 +80,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ kind: "tari-page-response", id: message.id, result: sanitizeForMessage(result) } satisfies PageResponseMessage)
       )
       .catch((err) =>
-        sendResponse({ kind: "tari-page-response", id: message.id, error: String(err?.message ?? err) } satisfies PageResponseMessage)
+        sendResponse({
+          kind: "tari-page-response",
+          id: message.id,
+          error: classifyProviderError(String(err?.message ?? err)),
+        } satisfies PageResponseMessage)
       );
     return true;
   }
@@ -145,13 +157,197 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       return null;
     }
 
+    // ---- Private view access -----------------------------------------------------------------
+    // A read grant over the connected account's confidential position, asked for separately from
+    // the connection itself: connecting reveals one public component address, this reveals the
+    // whole position the rest of the chain cannot see. See ConnectedSite.viewAccessGrantedAt.
+
+    case "tari_requestViewAccess": {
+      const site = await getConnectedSite(origin);
+      if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      await touchActivity();
+      if (site.viewAccessGrantedAt !== undefined) return { granted: true };
+      const account = await getAccountById(site.accountId);
+      if (!account) throw new Error("Wallet is locked.");
+      // Refused early, before opening a prompt the user could only answer with a lie: a
+      // daemon-relayed account never exposes its view secret, so nothing behind this grant could
+      // ever be served for it (capabilities.privateBalanceView says the same thing up front).
+      if (!(account instanceof OotleAccount)) {
+        throw new Error("Private view access isn't available for daemon-connected accounts — switch to a local account first.");
+      }
+      const approved = await requestApproval({ kind: "viewAccess", origin, accountId: site.accountId });
+      if (!approved) return { granted: false };
+      // Re-read rather than trusting the `site` captured before the (arbitrarily long) prompt: the
+      // user may have disconnected this origin, or switched accounts and dropped every connection,
+      // while the window sat open. setViewAccess is a no-op for a now-missing site, but a stale
+      // `{ granted: true }` back to the dApp would be a lie either way.
+      const granted = await setViewAccess(origin, true);
+      if (!granted) throw new Error("This site was disconnected before view access could be granted.");
+      return { granted: true };
+    }
+
+    case "tari_getViewAccess": {
+      const site = await getConnectedSite(origin);
+      if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      return { granted: site.viewAccessGrantedAt !== undefined };
+    }
+
+    case "tari_revokeViewAccess": {
+      // No connected-site check and no error for an origin that never had it: giving up a
+      // permission you may not hold is idempotent by nature, and a dApp cleaning up after itself
+      // shouldn't have to guard the call.
+      await setViewAccess(origin, false);
+      return null;
+    }
+
+    // ---- Confidential reads ------------------------------------------------------------------
+
+    case "tari_getPrivateBalances": {
+      const account = await requireViewAccess(origin);
+      return (await account.getPrivateBalances()).map(
+        (b): PrivateBalance => ({
+          resourceAddress: b.resourceAddress,
+          amount: b.amount.toString(),
+          outputCount: b.outputCount,
+          divisibility: b.divisibility,
+          symbol: b.symbol,
+          name: b.name,
+        })
+      );
+    }
+
+    case "tari_getShieldedOutputs": {
+      const account = await requireViewAccess(origin);
+      const p = (params ?? {}) as { resourceAddress?: string };
+      const records = await account.listUnspentShieldedOutputs(p.resourceAddress);
+      // Mapped field by field rather than spread: a ShieldedOutputRecord also carries `accountId`
+      // and `spent`, neither of which is any of a dApp's business, and a spread would hand both
+      // over the moment a new internal field is added to that record.
+      return records.map(
+        (r): ShieldedOutputSummary => ({
+          resourceAddress: r.resourceAddress,
+          commitment: r.commitment,
+          amount: r.amount,
+          transactionId: r.transactionId,
+          createdAt: r.createdAt,
+          memo: r.memo,
+        })
+      );
+    }
+
+    case "tari_scanForPrivatePayments": {
+      const account = await requireViewAccess(origin);
+      const p = (params ?? {}) as { maxPages?: number };
+      const { claimed, found } = await account.scanForPrivatePayments(p.maxPages);
+      // Same reason the popup's own rescan does this: a scan that discovers real incoming payments
+      // must leave a trace in the wallet's own history, not only in the dApp's response.
+      const site = await getConnectedSite(origin);
+      if (site) await recordPrivatePaymentHistory(site.accountId, found);
+      const result: PrivatePaymentScanResult = {
+        claimed,
+        found: found.map((f) => ({
+          resourceAddress: f.resourceAddress,
+          commitment: f.commitment,
+          amount: f.amount.toString(),
+          transactionId: f.transactionId,
+          memo: f.memo,
+        })),
+      };
+      return result;
+    }
+
+    case "tari_claimPrivatePayment": {
+      const account = await requireViewAccess(origin);
+      const p = params as { resourceAddress: string; commitment: string };
+      const { amount, memo } = await account.claimPrivatePayment(p.resourceAddress, p.commitment);
+      const site = await getConnectedSite(origin);
+      if (site) {
+        await recordPrivatePaymentHistory(site.accountId, [
+          { resourceAddress: p.resourceAddress, amount, transactionId: p.commitment, memo },
+        ]);
+      }
+      return { amount: amount.toString(), memo };
+    }
+
+    case "tari_signOwnershipChallenge": {
+      const site = await getConnectedSite(origin);
+      if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      const rawAccount = await getAccountById(site.accountId);
+      if (!rawAccount) throw new Error("Wallet is locked.");
+      const account = requireLocalAccount(rawAccount, "Proving ownership");
+      const p = params as { resourceAddress: string; substateId: string; challenge: string };
+      if (typeof p.challenge !== "string" || p.challenge.length === 0) {
+        throw new Error("challenge must be a non-empty string.");
+      }
+      await touchActivity();
+      const approved = await requestApproval({
+        kind: "signOwnershipProof",
+        origin,
+        accountId: site.accountId,
+        resourceAddress: p.resourceAddress,
+        substateId: p.substateId,
+        challenge: p.challenge,
+      });
+      if (!approved) throw new Error("Rejected by the user.");
+      return account.signOwnershipProof(p.resourceAddress, p.substateId, p.challenge);
+    }
+
+    case "tari_signWalletOwnershipChallenge": {
+      const site = await getConnectedSite(origin);
+      if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      const rawAccount = await getAccountById(site.accountId);
+      if (!rawAccount) throw new Error("Wallet is locked.");
+      const account = requireLocalAccount(rawAccount, "Proving wallet ownership");
+      const p = params as { challenge: string };
+      if (typeof p.challenge !== "string" || p.challenge.length === 0) {
+        throw new Error("challenge must be a non-empty string.");
+      }
+      await touchActivity();
+      const walletAddress = await account.getWalletAddress();
+      const approved = await requestApproval({
+        kind: "signWalletOwnershipProof",
+        origin,
+        accountId: site.accountId,
+        walletAddress,
+        challenge: p.challenge,
+      });
+      if (!approved) throw new Error("Rejected by the user.");
+      return account.signWalletOwnership(p.challenge);
+    }
+
+    case "tari_getWalletAddress": {
+      const site = await getConnectedSite(origin);
+      if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+      const account = await getAccountById(site.accountId);
+      if (!account) throw new Error("Wallet is locked.");
+      await touchActivity();
+      return account.getWalletAddress();
+    }
+
     case "tari_getBalances": {
       const site = await getConnectedSite(origin);
       if (!site || !(await isUnlocked())) return [];
       const account = await getAccountById(site.accountId);
       if (!account) return [];
       await touchActivity();
-      return account.getBalances();
+      // The confidential half is withheld unless this site holds the separate view grant -- see
+      // ConnectedSite.viewAccessGrantedAt. `privateVisible` is what makes the withheld case
+      // distinguishable from a genuine zero; a dApp that reads `confidentialAmount` alone and sees
+      // "0" must not be able to conclude the account holds nothing privately.
+      const privateVisible = site.viewAccessGrantedAt !== undefined;
+      const balances = await account.getBalances();
+      return balances.map(
+        (b): DappTokenBalance => ({
+          resourceAddress: b.resourceAddress,
+          kind: b.kind,
+          amount: b.amount.toString(),
+          confidentialAmount: privateVisible ? b.confidentialAmount.toString() : "0",
+          privateVisible,
+          divisibility: b.divisibility,
+          symbol: b.symbol,
+          name: b.name,
+        })
+      );
     }
 
     case "tari_getSubstate": {
@@ -171,15 +367,26 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Wallet is locked.");
       await touchActivity();
+      // Every stealth-touching feature -- spend or read -- needs this account's own view secret
+      // and one-time stealth signing, which only a seed-derived local account has (see
+      // WalletDaemonSigner's doc comment). One check, reused, rather than a per-field instanceof
+      // that could drift apart from the checks submitApprovedTransactionRequest actually enforces.
+      const isLocal = account instanceof OotleAccount;
       const capabilities: WalletCapabilities = {
         exactInputSelection: true,
-        // Matches the instanceof checks tari_withdrawStealthAndExecute/tari_htlcFund themselves
-        // enforce below -- keep these in sync if a third account kind is ever added.
-        stealthWithdraw: account instanceof OotleAccount,
-        htlcFund: account instanceof OotleAccount,
-        scriptPathSpend: false,
+        stealthWithdraw: isLocal,
+        htlcFund: isLocal,
+        scriptPathSpend: isLocal,
+        privateSpend: isLocal,
+        privateBalanceView: isLocal,
+        privateViewGranted: site.viewAccessGrantedAt !== undefined,
         transactionResultLookup: true,
         transactionRequests: true,
+        walletAddress: true,
+        minimumValuePromise: isLocal,
+        ownershipProof: isLocal,
+        walletOwnershipProof: isLocal,
+        confidentialDeposit: isLocal,
         dryRunIsLocal: false,
       };
       return capabilities;
@@ -324,8 +531,36 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
 // path.
 function assertNoStealthTransferInstruction(instructions: Instruction[]): void {
   if (instructions.some(isStealthTransferInstruction)) {
-    throw new Error("Stealth transfers aren't supported via a connected app yet — use the wallet's own Shield/Unshield screens.");
+    throw new Error(
+      "A raw StealthTransfer instruction can't be submitted through a connected app — the wallet has to build it. " +
+        'Use tari_createTransactionRequest with one of the private-spend kinds instead ("shield", "unshield", "sendPrivately", "htlcFund", "htlcClaim", "htlcRefund").'
+    );
   }
+}
+
+/**
+ * The single gate in front of every confidential *read* RPC: resolves the connected account,
+ * insisting on all three of a live connection, the site's explicit private view grant (see
+ * `ConnectedSite.viewAccessGrantedAt`), and a seed-derived local account -- the only kind holding
+ * the view secret these reads decrypt with.
+ *
+ * The three failures are deliberately distinct messages rather than one generic denial: a dApp
+ * handling "ask for the grant", "ask the user to unlock", and "this account can never do this"
+ * identically would be stuck in a prompt loop for the last of them.
+ */
+async function requireViewAccess(origin: string): Promise<OotleAccount> {
+  const site = await getConnectedSite(origin);
+  if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
+  if (site.viewAccessGrantedAt === undefined) {
+    throw new Error("This site doesn't have private view access. Call tari_requestViewAccess first.");
+  }
+  const account = await getAccountById(site.accountId);
+  if (!account) throw new Error("Wallet is locked.");
+  if (!(account instanceof OotleAccount)) {
+    throw new Error("Reading private balances isn't available for daemon-connected accounts — switch to a local account first.");
+  }
+  await touchActivity();
+  return account;
 }
 
 /** The (instructions to display, note to explain) pair shown on the popup approval screen for
@@ -347,7 +582,73 @@ function summarizeOperationForApproval(operation: TransactionRequestOperation): 
           operation.claimantWalletAddress
         } (with the matching secret) before epoch ${BigInt(operation.refundEpoch).toString()}, refundable back to this account after.`,
       };
+    // Every private-spend kind shows an empty instruction list on purpose: the wallet builds the
+    // StealthTransfer itself at submit time (a dApp cannot hand one over -- see
+    // assertNoStealthTransferInstruction), so there are no dApp-authored instructions to display.
+    // The note carries the whole meaning of the request instead, and each one states plainly which
+    // direction value moves and whether it becomes publicly visible -- that is the only thing
+    // distinguishing these from each other on the approval screen.
+    case "shield": {
+      const base = `Moves ${BigInt(operation.amount).toString()} of ${operation.resourceAddress} from your public balance into your private balance. Stays in this account.`;
+      // Stated outright, not left for the user to infer from a field name. Shielding is the act of
+      // making value invisible; a promise puts a permanent public floor back on it, for everyone,
+      // for as long as the output lives. Someone approving a "move to private" must not discover
+      // afterwards that they also published a number.
+      return {
+        instructions: [],
+        note: promiseNote(operation.minimumValuePromise, base, "this new private output"),
+      };
+    }
+    case "depositConfidential":
+      return {
+        instructions: [],
+        note: `Moves ${BigInt(operation.amount).toString()} of ${operation.resourceAddress} from your public balance into a Confidential vault. Stays in this account. Different privacy mechanism from "shield" -- only works if this resource was created as a Confidential-type resource.`,
+      };
+    case "unshield":
+      return {
+        instructions: [],
+        note: `Moves ${BigInt(
+          operation.revealedAmount
+        ).toString()} of ${operation.resourceAddress} from your private balance back into your public balance — this amount becomes visible on-chain.`,
+      };
+    case "sendPrivately": {
+      const base = `Sends ${BigInt(operation.amount).toString()} of ${operation.resourceAddress} privately to ${
+        operation.recipientWalletAddress
+      }. The amount and recipient stay hidden on-chain.`;
+      return {
+        instructions: [],
+        note: promiseNote(operation.minimumValuePromise, base, "the recipient's new output"),
+      };
+    }
+    case "htlcClaim":
+      return {
+        instructions: [],
+        note: `Claims an HTLC-locked private payment of ${operation.resourceAddress} into your private balance, by revealing the secret to the network.`,
+      };
+    case "htlcRefund":
+      return {
+        instructions: [],
+        note: `Refunds ${BigInt(
+          operation.amount
+        ).toString()} of ${operation.resourceAddress} from an HTLC you funded back into your private balance. Only works once its refund epoch has passed.`,
+      };
   }
+}
+
+/**
+ * Appends the minimum-value-promise disclosure to an operation's approval note, when one is set.
+ *
+ * Separate from the per-kind notes because the warning is identical wherever a promise appears and
+ * must not drift between them: the whole point is that the user reads the same unambiguous sentence
+ * about a permanent public disclosure regardless of which operation carries it. A zero or absent
+ * promise adds nothing at all -- a warning shown on every transaction is one nobody reads on the
+ * transaction that needed it.
+ */
+function promiseNote(minimumValuePromise: string | undefined, base: string, subject: string): string {
+  if (minimumValuePromise === undefined || BigInt(minimumValuePromise) === 0n) return base;
+  return `${base} It will also publicly and permanently record that ${subject} is worth at least ${BigInt(
+    minimumValuePromise,
+  ).toString()} — visible to everyone on-chain, not just this site, for as long as the output exists.`;
 }
 
 /** The transaction-history `counterparty` label for `operation` -- one case per kind, matching
@@ -364,6 +665,18 @@ function operationHistoryLabel(origin: string, operation: TransactionRequestOper
     }
     case "htlcFund":
       return `${origin}: HTLC fund -> ${operation.claimantWalletAddress}`;
+    case "shield":
+      return `${origin}: shield`;
+    case "depositConfidential":
+      return `${origin}: deposit confidential`;
+    case "unshield":
+      return `${origin}: unshield`;
+    case "sendPrivately":
+      return `${origin}: private send -> ${operation.recipientWalletAddress}`;
+    case "htlcClaim":
+      return `${origin}: HTLC claim`;
+    case "htlcRefund":
+      return `${origin}: HTLC refund`;
   }
 }
 
@@ -415,6 +728,19 @@ async function createTransactionRequest(
 }
 
 /**
+ * Narrows an account to the seed-derived kind every stealth-touching operation needs (a
+ * daemon-relayed account has no view secret and can't produce one-time stealth signatures -- see
+ * `WalletDaemonSigner`'s doc comment), or throws naming the operation that wanted it. Written once
+ * here rather than per-case so a new stealth operation can't quietly ship without the check.
+ */
+function requireLocalAccount(account: WalletAccountApi, what: string): OotleAccount {
+  if (!(account instanceof OotleAccount)) {
+    throw new Error(`${what} isn't available for daemon-connected accounts — switch to a local account first.`);
+  }
+  return account;
+}
+
+/**
  * Submits a transaction request through the storage-level claim gate: atomically moves the record
  * from "approved" to "submitting" BEFORE anything executes (beginTransactionRequestSubmit), runs
  * the operation via the matching account method, and settles the persisted status to
@@ -453,10 +779,7 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
         // Needs this account's own view secret + one-time stealth signing (SecretKeyWallet), same
         // as shield()/unshield() — a daemon-relayed account can't provide either (see
         // WalletDaemonSigner's own doc comment).
-        if (!(account instanceof OotleAccount)) {
-          throw new Error("Withdrawing stealth funds isn't available for daemon-connected accounts -- switch to a local account first.");
-        }
-        return account.withdrawStealthAndExecute(
+        return requireLocalAccount(account, "Withdrawing stealth funds").withdrawStealthAndExecute(
           operation.resourceAddress,
           BigInt(operation.amount),
           operation.workspaceVarName,
@@ -467,15 +790,63 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
       case "htlcFund":
         // See tari_withdrawStealthAndExecute's own comment: only a seed-derived local account can
         // build the PayTo::Conditions output witness this needs.
-        if (!(account instanceof OotleAccount)) {
-          throw new Error("Funding an HTLC isn't available for daemon-connected accounts -- switch to a local account first.");
-        }
-        return account.htlcFund(
+        return requireLocalAccount(account, "Funding an HTLC").htlcFund(
           operation.resourceAddress,
           BigInt(operation.amount),
           operation.claimantWalletAddress,
           operation.hashLockHex,
           BigInt(operation.refundEpoch),
+          maxFee
+        );
+      // Private spends. Each defers entirely to the OotleAccount method of the same name -- the
+      // dApp never sees a mask, a view secret, or which specific UTXOs get spent (coin selection is
+      // the wallet's own decision, from its own local ledger of stealth outputs). Same
+      // local-account requirement as everything else stealth-touching.
+      case "shield":
+        return requireLocalAccount(account, "Shielding funds").shield(
+          operation.resourceAddress,
+          BigInt(operation.amount),
+          maxFee,
+          operation.memo,
+          operation.minimumValuePromise !== undefined ? BigInt(operation.minimumValuePromise) : 0n
+        );
+      case "depositConfidential":
+        return requireLocalAccount(account, "Depositing into a Confidential vault").depositConfidential(
+          operation.resourceAddress,
+          BigInt(operation.amount),
+          maxFee
+        );
+      case "unshield":
+        return requireLocalAccount(account, "Unshielding funds").unshield(
+          operation.resourceAddress,
+          BigInt(operation.revealedAmount),
+          maxFee,
+          operation.memo
+        );
+      case "sendPrivately":
+        return requireLocalAccount(account, "Sending privately").sendPrivately(
+          operation.resourceAddress,
+          operation.recipientWalletAddress,
+          BigInt(operation.amount),
+          maxFee,
+          operation.memo,
+          operation.minimumValuePromise !== undefined ? BigInt(operation.minimumValuePromise) : 0n
+        );
+      case "htlcClaim":
+        return requireLocalAccount(account, "Claiming an HTLC").htlcClaim(
+          operation.resourceAddress,
+          operation.commitment,
+          operation.conditions,
+          operation.preimageHex,
+          maxFee
+        );
+      case "htlcRefund":
+        return requireLocalAccount(account, "Refunding an HTLC").htlcRefund(
+          operation.resourceAddress,
+          operation.commitment,
+          operation.conditions,
+          BigInt(operation.amount),
+          operation.outputMask,
           maxFee
         );
     }
@@ -562,18 +933,14 @@ async function buildStatus(): Promise<WalletStatus> {
           } catch {
             // Don't let a recovery hiccup (indexer down, etc.) break the whole status fetch.
           }
-          // Best-effort, incremental scan for incoming private payments this account can decrypt
-          // with its own view key -- see OotleAccount.scanForPrivatePayments()'s doc comment. Runs
-          // on every status fetch (i.e. every popup open) rather than needing the recipient to be
-          // told a commitment out of band first. Anything found also gets a History entry -- without
-          // this, an auto-discovered payment would silently join the private balance with no visible
-          // record it ever arrived.
-          try {
-            const { found } = await account.scanForPrivatePayments();
-            await recordPrivatePaymentHistory(state.activeAccountId, found);
-          } catch {
-            // Don't let a scan hiccup (indexer down, etc.) break the whole status fetch.
-          }
+          // Private-payment scanning does NOT happen here anymore -- it used to run synchronously
+          // on every popup open, and a wallet's very first scan (no cursor yet) defaults to a
+          // 400-page lookback (see scanForPrivatePayments()'s doc comment), which blocked the
+          // popup's first render on up to 20,000 transactions of indexer round trips. The popup now
+          // triggers `popup-auto-scan-private-payments` itself once the home screen has already
+          // rendered (see renderHome()), so this cost is never on the path to seeing a balance at
+          // all -- least of all for a freshly created wallet, which can't have any private payment
+          // history to find in the first place (see that handler's own doc comment).
         }
       }
     } catch (e) {
@@ -649,9 +1016,12 @@ async function withHistory<T>(
 
 /**
  * Records a `"private-payment-received"` history entry for each output `scanForPrivatePayments()`
- * newly discovered -- shared by `buildStatus()`'s opportunistic auto-scan and the manual
- * `popup-rescan-private-payments` handler so a payment found either way shows up in History, not
- * just in the private balance. Best-effort per entry, matching `withHistory`'s own policy: one bad
+ * newly discovered -- shared by `buildStatus()`'s opportunistic auto-scan, the manual
+ * `popup-rescan-private-payments` handler, and the dApp-facing `tari_scanForPrivatePayments`/
+ * `tari_claimPrivatePayment`, so a payment found by any of them shows up in History and not just in
+ * the private balance. That matters most for the dApp path: a payment discovered by a site the user
+ * granted view access to should leave the same visible trace in their own wallet as one they found
+ * themselves. Best-effort per entry, matching `withHistory`'s own policy: one bad
  * write must not lose the rest.
  */
 async function recordPrivatePaymentHistory(accountId: string, found: { resourceAddress: string; amount: bigint; transactionId: string; memo?: string }[]) {
@@ -683,7 +1053,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     case "popup-create-wallet": {
       const { seed, mnemonic } = await createWalletSeed();
       const vault = await encryptVault(message.password, serializeSeed(seed));
-      await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0) });
+      await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0), walletOrigin: "created" });
       // getLocalAccount() caches by "network:index" alone, not by seed identity -- unreachable in
       // the normal flow (this case only shows when no wallet exists yet, i.e. the cache was never
       // populated), but a request racing a just-completed popup-reset-wallet could read the old
@@ -698,7 +1068,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     case "popup-import-wallet": {
       const seed = await importWalletSeed(message.mnemonic);
       const vault = await encryptVault(message.password, serializeSeed(seed));
-      await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0) });
+      await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0), walletOrigin: "imported" });
       // See popup-create-wallet's comment just above -- same stale-cache race, same fix.
       clearAccountCache();
       await setUnlockedSeed(seed.entropy);
@@ -743,10 +1113,10 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       const account = await getActiveAccount();
       if (!account) throw new Error("Wallet is locked.");
       const { activeAccountId } = await getState();
-      // The recipient only ever hands out their one main "otl_..." wallet address -- their
-      // on-chain account component address is deterministically derivable from it (both identify
-      // the same account), so there's no need to separately ask them for a component_... address.
-      const toAddress = componentAddressFromWalletAddress(message.recipientWalletAddress);
+      // The recipient only ever hands out their one main "otl_..." wallet address -- `send()`
+      // derives the on-chain component address from it itself, and also needs the wallet address
+      // (not just the derived address) to create that component on the fly if the recipient has
+      // no prior on-chain activity yet (see OotleAccount.send()'s doc comment).
       return withHistory(
         {
           accountId: activeAccountId,
@@ -755,7 +1125,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
           amount: message.amount,
           counterparty: message.recipientWalletAddress,
         },
-        () => account.send(toAddress, message.resourceAddress, BigInt(message.amount))
+        () => account.send(message.recipientWalletAddress, message.resourceAddress, BigInt(message.amount))
       );
     }
 
@@ -811,6 +1181,30 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
         },
         () => account.sendPrivately(message.resourceAddress, message.recipientWalletAddress, BigInt(message.amount), maxFee, message.memo)
       );
+    }
+
+    case "popup-auto-scan-private-payments": {
+      // The popup's own opportunistic scan, triggered once the home screen is already showing
+      // (see renderHome()) instead of blocking buildStatus() -- see that removal's comment for why.
+      const account = await getActiveAccount();
+      if (!account || !(account instanceof OotleAccount)) return { claimed: 0 };
+      const { activeAccountId, walletOrigin } = await getState();
+      const hasCursor = (await getPrivatePaymentScanCursor(activeAccountId)) !== null;
+      // A wallet this extension generated cannot have received a private payment before the moment
+      // it was created -- there is no seed, therefore no view key, therefore nothing to have been
+      // encrypted to. Its first scan can use the same shallow window every later scan does. An
+      // imported (or origin-unknown, pre-this-field) wallet's seed may be years old, so its first
+      // scan alone gets the deep lookback -- scanForPrivatePayments()'s own default for exactly
+      // this case. Only applies before a cursor exists; once one is written every scan is shallow
+      // regardless of origin.
+      const maxPages = !hasCursor && walletOrigin === "created" ? 3 : undefined;
+      try {
+        const { claimed, found } = await account.scanForPrivatePayments(maxPages);
+        await recordPrivatePaymentHistory(activeAccountId, found);
+        return { claimed };
+      } catch {
+        return { claimed: 0 }; // best-effort -- an indexer hiccup here shouldn't surface as an error the user has to dismiss
+      }
     }
 
     case "popup-rescan-private-payments": {
@@ -869,6 +1263,11 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     case "popup-get-connected-sites": {
       const { connectedSites } = await getState();
       return connectedSites;
+    }
+
+    case "popup-revoke-site-view-access": {
+      await setViewAccess(message.origin, false);
+      return null;
     }
 
     case "popup-disconnect-site": {

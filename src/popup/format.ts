@@ -11,6 +11,7 @@ export type Balance = {
   divisibility: number;
   symbol: string | null;
   name: string | null;
+  nonFungibleTokenIds: string[] | null;
 };
 
 // Mirrors `TARI_RESOURCE_ADDRESS` from `@tari-project/ootle` (not imported directly here — that

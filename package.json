@@ -6,6 +6,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/sync-vendored-ootle-wasm.mjs",
     "build": "vite build",
     "dev": "vite build --watch",
     "typecheck": "tsc --noEmit",
@@ -23,12 +24,13 @@
     "@tari-project/ootle-secret-key-wallet": "^0.3.0",
     "@tari-project/ootle-ts-bindings": "^1.49.1",
     "@tari-project/ootle-wallet-daemon-signer": "^0.3.0",
-    "@tari-project/ootle-wasm": "^0.39.1",
+    "@tari-project/ootle-wasm": "file:vendor/ootle-wasm-patched",
     "hash-wasm": "^4.12.0",
     "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.7.1",
+    "@noble/curves": "^2.4.0",
     "@types/chrome": "^0.2.2",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",

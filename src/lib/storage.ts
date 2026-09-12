@@ -12,6 +12,24 @@ export interface ConnectedSite {
   /** Stable account id this site is bound to — see `localAccountId`/`daemonAccountId`. */
   accountId: string;
   connectedAt: number;
+  /**
+   * When (if ever) this site was granted **private view access** — the separate, explicitly
+   * approved permission to read this account's confidential position: shielded balances, the
+   * individual stealth UTXOs behind them, and the ability to run a view-key scan
+   * (`tari_getPrivateBalances`/`tari_getShieldedOutputs`/`tari_scanForPrivatePayments`/
+   * `tari_claimPrivatePayment`). Absent = never granted.
+   *
+   * Deliberately NOT implied by a plain connection. A connection reveals one public component
+   * address; view access reveals the whole confidential position the rest of the chain cannot
+   * see, which is the entire point of holding funds privately — the two are different asks and
+   * get different prompts. It is also never carried over into a *new* connection record (see
+   * `addConnectedSite`): re-approving a connection re-approves a connection, nothing more.
+   *
+   * This grants read access only. It never lets a site *spend* private funds — every private
+   * spend still goes through the same per-transaction approval as any other (see
+   * `TransactionRequestOperation`'s private-spend kinds in messages.ts).
+   */
+  viewAccessGrantedAt?: number;
 }
 
 /**
@@ -230,6 +248,15 @@ export interface WalletState {
   /** dApp-proposed transactions tracked through create -> approve -> submit, newest first,
    * capped at MAX_TRANSACTION_REQUESTS -- see TransactionRequestRecord's doc comment. */
   transactionRequests: TransactionRequestRecord[];
+  /** How this wallet's seed came to exist -- "created" means it was generated fresh by this
+   * extension, so no private payment could possibly have arrived before that moment; "imported"
+   * means the seed pre-dates this install and may have real history. `null` for any wallet that
+   * existed before this field did (an upgrade from an older extension version) -- treated the same
+   * as "imported" (unknown history, scan for it) rather than assumed empty, since defaulting the
+   * other way would silently skip real payments for anyone already using the extension. Read by
+   * `popup-auto-scan-private-payments` to decide whether the very first scan needs the deep,
+   * many-page lookback or can use the same shallow window every later scan uses. */
+  walletOrigin: "created" | "imported" | null;
 }
 
 const DEFAULTS: WalletState = {
@@ -248,6 +275,7 @@ const DEFAULTS: WalletState = {
   privatePaymentScanCursors: {},
   lastKnownAddress: null,
   transactionRequests: [],
+  walletOrigin: null,
 };
 
 export function localAccountId(index: number): string {
@@ -308,6 +336,9 @@ export async function getConnectedSite(origin: string): Promise<ConnectedSite | 
   return connectedSites.find((s) => s.origin === origin);
 }
 
+/** Records (or re-records) a site's connection. Any previous record for the same origin is
+ * dropped wholesale rather than merged, so a prior `viewAccessGrantedAt` does **not** survive
+ * into the new connection — see that field's doc comment. */
 export async function addConnectedSite(origin: string, accountId: string): Promise<void> {
   await serialized(async () => {
     const state = await getState();
@@ -316,6 +347,35 @@ export async function addConnectedSite(origin: string, accountId: string): Promi
       connectedSites: [...withoutExisting, { origin, accountId, connectedAt: Date.now() }],
     });
   });
+}
+
+/**
+ * Grants or revokes a connected site's private view access (see `ConnectedSite.viewAccessGrantedAt`).
+ * A no-op for an origin that isn't connected at all — there is nothing to attach the grant to, and
+ * creating a connection as a side effect of a view grant would let a site skip the connect prompt.
+ * Returns whether it actually wrote anything.
+ */
+export async function setViewAccess(origin: string, granted: boolean): Promise<boolean> {
+  return serialized(async () => {
+    const state = await getState();
+    const site = state.connectedSites.find((s) => s.origin === origin);
+    if (!site) return false;
+    const updated: ConnectedSite = granted
+      ? { ...site, viewAccessGrantedAt: Date.now() }
+      : // Rebuilt without the key rather than set to `undefined`: this object is JSON-serialized
+        // into chrome.storage, where an explicit `undefined` value is dropped on write anyway --
+        // spelling it out here keeps the in-memory shape identical to what reads back.
+        { origin: site.origin, accountId: site.accountId, connectedAt: site.connectedAt };
+    await setState({ connectedSites: state.connectedSites.map((s) => (s.origin === origin ? updated : s)) });
+    return true;
+  });
+}
+
+/** Whether `origin` is connected *and* holds a private view grant. The single gate every
+ * confidential-read RPC calls — see `ConnectedSite.viewAccessGrantedAt`. */
+export async function hasViewAccess(origin: string): Promise<boolean> {
+  const site = await getConnectedSite(origin);
+  return site?.viewAccessGrantedAt !== undefined;
 }
 
 export async function removeConnectedSite(origin: string): Promise<void> {

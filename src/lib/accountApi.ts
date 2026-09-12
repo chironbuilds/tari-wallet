@@ -23,6 +23,10 @@ export interface WalletAccountApi {
    * substate lookups (`tari_getSubstate`) that aren't tied to any one account method. */
   getProvider(): Promise<IndexerProvider>;
   execute(instructions: Instruction[], opts?: TransactionExecuteOpts): Promise<unknown>;
-  send(recipientAddress: string, resourceAddress: string, amount: bigint, maxFee?: bigint): Promise<unknown>;
+  /** `recipientWalletAddress` is the recipient's bech32m "otl_..." wallet address, not their
+   * on-chain `component_...` address — both identify the same account, but only the former is
+   * always safe to ask a recipient for, and implementations need it (not just the derived
+   * address) to create the recipient's account on the fly if it doesn't exist on-chain yet. */
+  send(recipientWalletAddress: string, resourceAddress: string, amount: bigint, maxFee?: bigint): Promise<unknown>;
   claimTestnetXtr(): Promise<unknown>;
 }

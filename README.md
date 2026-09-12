@@ -68,6 +68,29 @@ of WalletConnect) and their trade-offs.
 
 ## Recent additions (typecheck/test/build verified; not yet exercised live)
 
+- **The private surface is now available to dApps**, in two halves that are deliberately separate
+  permissions:
+  - **Reading** a connected account's confidential position (`tari_getPrivateBalances`,
+    `tari_getShieldedOutputs`, `tari_scanForPrivatePayments`, `tari_claimPrivatePayment`, and the
+    `confidentialAmount` half of `tari_getBalances`) requires its own one-time grant via
+    `tari_requestViewAccess`, with its own approval popup, revocable per-site from Connected sites
+    without disconnecting. Connecting reveals one public component address; this reveals the whole
+    position nothing else on-chain can see, so it is asked for separately and read-only — it never
+    authorizes a spend. Without the grant, `tari_getBalances` reports `confidentialAmount: "0"`
+    alongside `privateVisible: false`, so a withheld value is distinguishable from a real zero.
+  - **Spending** privately is five new `tari_createTransactionRequest` kinds — `shield`,
+    `unshield`, `sendPrivately`, `htlcClaim`, `htlcRefund` — joining the existing `htlcFund`, each
+    through the same create → approval → submit flow as any other transaction. The wallet builds
+    every stealth transfer itself (a dApp cannot hand over a raw `StealthTransfer` instruction: it
+    needs a balance proof and per-input one-time authorizations only the wallet's signer can
+    produce) and does its own coin selection, so a dApp supplies an amount and never touches a
+    blinding mask or the view secret. `htlcClaim`/`htlcRefund` flip `capabilities.scriptPathSpend`
+    to true for local accounts — the other half of `htlcFund`, which had no dApp-facing spend path
+    before.
+  - Also new: `tari_getWalletAddress`, the bech32m address a dApp needs to address a stealth output
+    *to* the user (a component address can't be used as a stealth `destination`, and the wallet
+    address isn't derivable from one).
+
 - **Backend audit — two real bugs found and fixed** (see `SECURITY_AUDIT.md` §4 and §9 for the
   full writeup): (1) any web page — connected or not, no approval needed — could keep the wallet's
   auto-lock timer reset forever by calling `tari_getNetwork` on a timer, since `touchActivity()`
@@ -332,7 +355,8 @@ const [accountAddress] = await window.tari.request({ method: "tari_requestAccoun
 // Read-only calls — no approval popup.
 await window.tari.request({ method: "tari_getAccounts" });   // -> string[] (already-connected accounts)
 await window.tari.request({ method: "tari_getNetwork" });    // -> "esmeralda" | "igor"
-await window.tari.request({ method: "tari_getBalances" });   // -> { resourceAddress, kind, amount, divisibility, symbol }[]
+await window.tari.request({ method: "tari_getBalances" });   // -> { resourceAddress, kind, amount, confidentialAmount, privateVisible, divisibility, symbol }[]
+await window.tari.request({ method: "tari_getWalletAddress" }); // -> bech32m address to pay this account *privately*
 await window.tari.request({
   method: "tari_getSubstate",
   params: { substateId: "resource_...", version: null },     // -> raw Substate (e.g. to read a resource's divisibility/metadata)
@@ -349,6 +373,36 @@ const result = await window.tari.request({
                             // auto-resolves anything else missing via its own retry loop
   },
 });
+
+// ---- Private balance -------------------------------------------------------------------------
+// Reading the user's *private* (shielded) position is a separate permission from connecting, with
+// its own approval popup — connecting reveals one public address, this reveals the whole position
+// nothing else on-chain can see. It is read-only: it never authorizes a spend.
+const { granted } = await window.tari.request({ method: "tari_requestViewAccess" }); // approval popup
+if (granted) {
+  await window.tari.request({ method: "tari_getPrivateBalances" });  // -> per-resource shielded totals
+  await window.tari.request({ method: "tari_getShieldedOutputs" });  // -> the individual UTXOs behind them
+  await window.tari.request({ method: "tari_scanForPrivatePayments" }); // view-key scan for incoming payments
+}
+await window.tari.request({ method: "tari_revokeViewAccess" });      // give it back when you're done
+
+// Without the grant, `tari_getBalances` still works but withholds the confidential half — it
+// reports `confidentialAmount: "0"` with `privateVisible: false`. Branch on `privateVisible`;
+// a withheld value is NOT a claim that the account holds nothing privately.
+
+// ---- Private spends --------------------------------------------------------------------------
+// Six transaction-request kinds move value in/out of stealth outputs: shield, unshield,
+// sendPrivately, htlcFund, htlcClaim, htlcRefund. Each goes through the same
+// create -> approval -> submit flow as any other transaction (view access is neither required for
+// them nor a substitute for their approval).
+const { requestId } = await window.tari.request({
+  method: "tari_createTransactionRequest",
+  params: { kind: "shield", resourceAddress: "resource_...", amount: "1000000" },
+});
+// ...poll tari_getTransactionRequest until status === "approved", then tari_submitTransactionRequest.
+// You can't hand the wallet a raw StealthTransfer instruction — it needs a balance proof and
+// per-input authorizations only its own signer can produce, so it builds the transfer itself.
+// Coin selection is likewise the wallet's decision: you supply an amount, not a set of UTXOs.
 
 await window.tari.request({ method: "tari_disconnect" });
 
@@ -379,6 +433,20 @@ Notes for dApp authors, learned building `tari-dex/swap-ui` against this wallet:
   connection is pinned to whichever account was active when it was made) and fires
   `tari#accountsChanged` on every open tab — listen for it rather than caching the account address
   from `tari_requestAccounts` indefinitely.
+- **Private view access is dropped by all the same things**, plus the user revoking it from
+  Connected sites while leaving the site connected. Re-approving a connection does not restore it.
+  Re-check `tari_getViewAccess` (or `capabilities.privateViewGranted`) instead of assuming a grant
+  from earlier in the session still holds.
+- **Ask for view access when a feature needs it, not at connect time.** It is a separate prompt on
+  purpose, so the user is answering about something visible in front of them. Check
+  `capabilities.privateBalanceView` first — it's false for a daemon-relayed account, which can never
+  serve these reads, so prompting there is a dead end.
+- **`sendPrivately`'s `recipientCommitment` is the recipient's only lead to their payment.** There
+  is no scan-by-view-key API for a specific counterparty; deliver it out of band, or the payment is
+  invisible to them even though it landed on-chain. They redeem it with `tari_claimPrivatePayment`.
+- **Persist `htlcFund`'s `outputMask` and `amount`.** The output is addressed to the claimant, so
+  the funder can't decrypt it — without those two values retained from funding time, `htlcRefund`
+  has no recovery path at all.
 
 ## Architecture
 

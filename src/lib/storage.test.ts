@@ -5,12 +5,17 @@ import {
   beginTransactionRequestSubmit,
   daemonAccountId,
   getState,
+  getConnectedSite,
   getTransactionRequest,
+  hasViewAccess,
   localAccountId,
   parseAccountId,
   recordTransactionRequestDecision,
+  addConnectedSite,
   removeAddressBookEntry,
+  removeConnectedSite,
   setTransactionRequestStatus,
+  setViewAccess,
   type TransactionRequestRecord,
 } from "./storage";
 
@@ -319,5 +324,72 @@ describe("recordTransactionRequestDecision guard", () => {
 
   it("returns false for an unknown id", async () => {
     expect(await recordTransactionRequestDecision("does-not-exist", true)).toBe(false);
+  });
+});
+
+describe("private view access grants", () => {
+  beforeEach(() => installChromeStorageStub());
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ORIGIN = "https://dapp.example";
+
+  it("a fresh connection has no view access", async () => {
+    await addConnectedSite(ORIGIN, localAccountId(0));
+    expect((await getConnectedSite(ORIGIN))?.viewAccessGrantedAt).toBeUndefined();
+    expect(await hasViewAccess(ORIGIN)).toBe(false);
+  });
+
+  it("grants, reports and revokes", async () => {
+    await addConnectedSite(ORIGIN, localAccountId(0));
+    expect(await setViewAccess(ORIGIN, true)).toBe(true);
+    expect(await hasViewAccess(ORIGIN)).toBe(true);
+    expect(typeof (await getConnectedSite(ORIGIN))?.viewAccessGrantedAt).toBe("number");
+
+    expect(await setViewAccess(ORIGIN, false)).toBe(true);
+    expect(await hasViewAccess(ORIGIN)).toBe(false);
+    // Revoking must remove the key outright, not leave a falsy timestamp behind that a later
+    // `!== undefined` check would read as still granted.
+    expect("viewAccessGrantedAt" in ((await getConnectedSite(ORIGIN)) ?? {})).toBe(false);
+  });
+
+  it("cannot be granted to an origin that isn't connected", async () => {
+    // Otherwise a site could get a view grant without ever passing the connect prompt.
+    expect(await setViewAccess("https://never-connected.example", true)).toBe(false);
+    expect(await hasViewAccess("https://never-connected.example")).toBe(false);
+  });
+
+  it("does not survive a disconnect + reconnect", async () => {
+    await addConnectedSite(ORIGIN, localAccountId(0));
+    await setViewAccess(ORIGIN, true);
+    await removeConnectedSite(ORIGIN);
+    await addConnectedSite(ORIGIN, localAccountId(0));
+    expect(await hasViewAccess(ORIGIN)).toBe(false);
+  });
+
+  it("does not survive re-approving a connection that was never disconnected", async () => {
+    // addConnectedSite replaces the record wholesale rather than merging into it -- re-approving a
+    // *connection* must not silently re-grant a *view* permission the user was never re-asked about.
+    await addConnectedSite(ORIGIN, localAccountId(0));
+    await setViewAccess(ORIGIN, true);
+    await addConnectedSite(ORIGIN, localAccountId(1));
+    expect(await hasViewAccess(ORIGIN)).toBe(false);
+  });
+
+  it("is scoped to one origin", async () => {
+    await addConnectedSite(ORIGIN, localAccountId(0));
+    await addConnectedSite("https://other.example", localAccountId(0));
+    await setViewAccess(ORIGIN, true);
+    expect(await hasViewAccess(ORIGIN)).toBe(true);
+    expect(await hasViewAccess("https://other.example")).toBe(false);
+  });
+
+  it("leaves the connection itself intact when revoked", async () => {
+    // The Connected sites screen offers revoke as an alternative to Disconnect -- the site has to
+    // keep working afterwards, just without the confidential reads.
+    await addConnectedSite(ORIGIN, localAccountId(2));
+    await setViewAccess(ORIGIN, true);
+    await setViewAccess(ORIGIN, false);
+    const site = await getConnectedSite(ORIGIN);
+    expect(site?.accountId).toBe(localAccountId(2));
   });
 });

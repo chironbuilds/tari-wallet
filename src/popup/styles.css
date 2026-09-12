@@ -1051,3 +1051,33 @@ input[type="checkbox"] {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Private view access (see ConnectedSite.viewAccessGrantedAt): the one permission a connected
+   site can hold that reads the user's confidential position, so it gets a colour of its own on
+   both screens that surface it -- the Connected sites list and its approval prompt -- rather than
+   blending into ordinary muted body text. */
+.view-access-note {
+  color: var(--highlight);
+}
+.view-access-row {
+  margin-top: -6px;
+}
+.view-access-grants {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+.view-access-grant {
+  background: var(--box);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--highlight);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.view-access-grant.deny {
+  border-left-color: var(--muted);
+  color: var(--muted);
+}

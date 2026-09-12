@@ -9,6 +9,7 @@ import {
 } from "@tari-project/ootle";
 import { IndexerProvider } from "@tari-project/ootle-indexer";
 import { WalletDaemonClient } from "@tari-project/ootle-wallet-daemon-signer";
+import { parseOotleAddress } from "@tari-project/ootle-wasm";
 import type {
   Account,
   IndexerGetTransactionResultResponse,
@@ -18,8 +19,11 @@ import type {
   TransactionWaitResultResponse,
 } from "@tari-project/ootle-ts-bindings";
 import type { TransactionExecuteOpts, WalletAccountApi } from "./accountApi";
+import { deriveAccountComponentAddress } from "./componentAddress";
 import { type NetworkName, toOotleNetwork } from "./ootleNetwork";
 import { withTimeout } from "./timeout";
+import { toHex } from "./vault";
+import { substateExists } from "./wallet";
 import type { TokenBalance } from "./wallet";
 
 const DAEMON_TIMEOUT_MS = 15_000;
@@ -228,6 +232,10 @@ export class DaemonAccount implements WalletAccountApi {
       divisibility: b.divisibility,
       symbol: b.token_symbol,
       name: nameByResource.get(b.resource_address) ?? null,
+      // The daemon's BalanceEntry RPC has no token-id list field to surface here (unlike the local
+      // vault-container path in OotleAccount.getBalances()) -- daemon-relayed NonFungible display
+      // is out of scope for this fix.
+      nonFungibleTokenIds: null,
     }));
   }
 
@@ -291,13 +299,35 @@ export class DaemonAccount implements WalletAccountApi {
     return toIndexerResultShape(response);
   }
 
-  async send(recipientAddress: string, resourceAddress: string, amount: bigint, maxFee = 5000n): Promise<unknown> {
+  /** See `OotleAccount.send()`'s doc comment — same missing-recipient-account problem, same fix:
+   * a recipient with no prior on-chain activity has no account component for `deposit` to target,
+   * `detect_inputs` on the daemon's own submit RPC only resolves *existing* substates, and no
+   * amount of retrying makes a component exist that was never created. */
+  async send(recipientWalletAddress: string, resourceAddress: string, amount: bigint, maxFee = 5000n): Promise<unknown> {
     const account = await this.getComponentAddress();
-    const instructions: Instruction[] = [
+    const provider = await this.getProvider();
+    const { owner_key: recipientPublicKey } = parseOotleAddress(recipientWalletAddress);
+    const recipientAddress = deriveAccountComponentAddress(recipientPublicKey);
+    const recipientExists = await substateExists(provider, recipientAddress);
+
+    const instructions: Instruction[] = [];
+    if (!recipientExists) {
+      instructions.push(
+        { CreateAccount: { owner_public_key: toHex(recipientPublicKey), owner_rule: null, access_rules: null, bucket_workspace_id: null } },
+        { PutLastInstructionOutputOnWorkspace: { key: 0 } },
+      );
+    }
+    instructions.push(
       { CallMethod: { call: { Address: account }, method: "withdraw", args: [resourceAddressLiteral(resourceAddress), amountLiteral(amount)] } },
-      { PutLastInstructionOutputOnWorkspace: { key: 0 } },
-      { CallMethod: { call: { Address: recipientAddress }, method: "deposit", args: [{ Workspace: { id: 0, offset: null } }] } },
-    ];
+      { PutLastInstructionOutputOnWorkspace: { key: 1 } },
+      {
+        CallMethod: {
+          call: recipientExists ? { Address: recipientAddress } : { Workspace: 0 },
+          method: "deposit",
+          args: [{ Workspace: { id: 1, offset: null } }],
+        },
+      },
+    );
     return this.execute(instructions, { maxFee });
   }
 

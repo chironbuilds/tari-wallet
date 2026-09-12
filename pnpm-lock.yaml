@@ -34,8 +34,8 @@ importers:
         specifier: ^0.3.0
         version: 0.3.0
       '@tari-project/ootle-wasm':
-        specifier: ^0.39.1
-        version: 0.39.1
+        specifier: file:vendor/ootle-wasm-patched
+        version: file:vendor/ootle-wasm-patched
       hash-wasm:
         specifier: ^4.12.0
         version: 4.12.0
@@ -46,6 +46,9 @@ importers:
       '@crxjs/vite-plugin':
         specifier: ^2.7.1
         version: 2.7.1(vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1))
+      '@noble/curves':
+        specifier: ^2.4.0
+        version: 2.4.0
       '@types/chrome':
         specifier: ^0.2.2
         version: 0.2.2
@@ -253,8 +256,16 @@ packages:
     resolution: {integrity: sha512-Z6pjIZ/8IJcCGzb2S/0Px5J81yij85xASuk1teLNeg75bfT07MV3a/O2Mtn1I2se43k3lkVEcFaR10N4cgQcZA==}
     engines: {node: '>= 20.19.0'}
 
+  '@noble/curves@2.4.0':
+    resolution: {integrity: sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew==}
+    engines: {node: '>= 20.19.0'}
+
   '@noble/hashes@2.2.0':
     resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
+    engines: {node: '>= 20.19.0'}
+
+  '@noble/hashes@2.4.0':
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
     engines: {node: '>= 20.19.0'}
 
   '@oxc-project/types@0.139.0':
@@ -483,6 +494,9 @@ packages:
 
   '@tari-project/ootle-wasm@0.39.1':
     resolution: {integrity: sha512-9qRiW/oWOQEEFJh+/CcrdlnEoXM+zWO3qciHIZNYkLwd+6Ui0ORVdSJ7MBxbcn0DFCWfa/0XVjhmyC6Elrr5ZA==}
+
+  '@tari-project/ootle-wasm@file:vendor/ootle-wasm-patched':
+    resolution: {directory: vendor/ootle-wasm-patched, type: directory}
 
   '@tari-project/ootle@file:vendor/ootle-patched':
     resolution: {directory: vendor/ootle-patched, type: directory}
@@ -1183,7 +1197,13 @@ snapshots:
 
   '@noble/ciphers@2.2.0': {}
 
+  '@noble/curves@2.4.0':
+    dependencies:
+      '@noble/hashes': 2.4.0
+
   '@noble/hashes@2.2.0': {}
+
+  '@noble/hashes@2.4.0': {}
 
   '@oxc-project/types@0.139.0': {}
 
@@ -1333,6 +1353,8 @@ snapshots:
       '@tari-project/wallet_jrpc_client': 1.22.0
 
   '@tari-project/ootle-wasm@0.39.1': {}
+
+  '@tari-project/ootle-wasm@file:vendor/ootle-wasm-patched': {}
 
   '@tari-project/ootle@file:vendor/ootle-patched':
     dependencies:
