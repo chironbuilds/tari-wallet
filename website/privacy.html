@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy Policy — Sapient</title>
+  <meta name="description" content="Privacy policy for the Sapient Chrome extension wallet and the sapient.tari.mw website." />
+  <link rel="icon" href="assets/favicon.png" />
+  <meta name="theme-color" content="#08050c" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="wrap">
+      <a class="brand" href="index.html">
+        <img src="assets/logo.svg" alt="" />
+        Sapient
+      </a>
+      <div class="nav-links">
+        <a href="index.html#features">Features</a>
+        <a href="index.html#screenshots">Screenshots</a>
+        <a href="index.html#how-it-works">How it works</a>
+        <a href="https://github.com/chironbuilds/tari-wallet" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://universe.tari.mw/integration" target="_blank" rel="noopener">Docs</a>
+      </div>
+      <div class="nav-cta">
+        <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/tari-ootle-wallet/demkeckolenopkgnfbnpflkpbbdhpgkl" target="_blank" rel="noopener">
+          Add to Chrome
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <div class="legal">
+      <span class="eyebrow">Legal</span>
+      <h1>Privacy Policy</h1>
+      <p class="updated">Last updated: September 2026</p>
+
+      <p>
+        Sapient is a self-custody wallet: it is built to work <strong>without</strong> a server of ours
+        sitting in the middle. This policy covers two separate things — the Sapient browser extension,
+        and this website (sapient.tari.mw) — since they collect different things (the extension:
+        essentially nothing; the site: only what a static page loads by default).
+      </p>
+
+      <h2>The short version</h2>
+      <ul>
+        <li>Sapient has no backend. There is no Sapient server that ever sees your seed phrase, your keys, your balances, or your transactions.</li>
+        <li>Your recovery phrase and derived keys are generated on-device and stored only in this browser's encrypted local storage, protected by the password you set.</li>
+        <li>The extension talks directly to the Tari Ootle network (an indexer/validator you're connected to) and, only with your explicit approval, to sites you choose to connect a wallet account to.</li>
+        <li>Nothing is sent to any analytics, advertising, or tracking service — by the extension or by this website.</li>
+      </ul>
+
+      <h2>The extension</h2>
+      <p><strong>What's generated and stored, and where:</strong></p>
+      <ul>
+        <li>
+          A 24-word recovery phrase is generated (or imported) entirely on-device. It, and the keys
+          derived from it, are encrypted with the password you set and stored only in this browser's
+          local extension storage (<code>chrome.storage.local</code>) — never transmitted anywhere,
+          including to us, since there is nowhere for it to be transmitted <em>to</em>.
+        </li>
+        <li>
+          Wallet metadata that isn't secret on its own — account labels, an optional address book,
+          cached substate versions, a locally-recorded transaction history, and (if you use one) a
+          connected wallet daemon's API key — is also kept only in local extension storage. None of it
+          leaves the browser except to the network destinations described below.
+        </li>
+        <li>
+          If the extension's service worker or popup ever throws an error, that error stays in your own
+          browser's console. Sapient does not run any crash- or usage-reporting service.
+        </li>
+      </ul>
+
+      <p><strong>What leaves your browser, and to whom:</strong></p>
+      <ul>
+        <li>
+          <strong>The Ootle network.</strong> To check balances, resolve substates, and submit
+          transactions, the extension talks directly to an Ootle indexer (by default a testnet
+          indexer for the esmeralda/igor network) — the same way any blockchain wallet talks to a
+          node. That indexer sees the on-chain addresses and transactions it's serving, the same
+          information any node operator can see for requests it handles; it is not operated by us.
+        </li>
+        <li>
+          <strong>Sites you connect to.</strong> A web page only ever learns your wallet exists, or
+          gets access to a specific account, after you approve a connection request in the extension's
+          own popup — the same explicit-approval model used by other browser-extension wallets. A site
+          you haven't connected to cannot see your accounts, balances, or activity.
+        </li>
+        <li>
+          <strong>A wallet daemon, if you choose to connect one.</strong> Connecting to a self-hosted
+          or third-party <code>tari_ootle_walletd</code> is optional and off by default; if you use it,
+          requests for that account go to whatever daemon URL you configured, not to us.
+        </li>
+      </ul>
+
+      <p>
+        The extension requests browser permissions for local storage (<code>storage</code>), its
+        auto-lock timer (<code>alarms</code>), and network access to the hosts above — plus, only when
+        you initiate a connection to a new site, that one site's origin
+        (<code>optional_host_permissions</code>), granted per-site through Chrome's own permission
+        prompt rather than assumed up front.
+      </p>
+
+      <h2>This website</h2>
+      <p>
+        sapient.tari.mw is a static page with no account system, no analytics, and no advertising or
+        tracking scripts. It sets no cookies and reads/writes nothing to your browser's storage. The
+        one third-party request it makes is to <strong>Google Fonts</strong> (fonts.googleapis.com /
+        fonts.gstatic.com) to load its typefaces — like any site using Google Fonts, that exposes your
+        IP address and browser's user agent to Google as part of that request. No other outbound
+        request is made by this page.
+      </p>
+
+      <h2>Data you control</h2>
+      <p>
+        Because everything sensitive lives only in this browser's local storage, you control it
+        directly: uninstalling the extension or using its own "Erase wallet" action deletes it.
+        There is no remote account for us to delete anything from, because none exists.
+      </p>
+
+      <div class="callout">
+        <p>
+          Sapient is testnet software under active development. This policy describes the code's
+          current behavior as accurately as we can; if you find a discrepancy, please open an issue
+          on <a href="https://github.com/chironbuilds/tari-wallet" target="_blank" rel="noopener">GitHub</a>.
+        </p>
+      </div>
+
+      <h2>Changes to this policy</h2>
+      <p>
+        If Sapient's data handling changes — for example, adding an optional feature that talks to a
+        new third party — this page will be updated to reflect it, and the "Last updated" date above
+        will change accordingly.
+      </p>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <a class="footer-brand" href="index.html">
+        <img src="assets/logo.svg" alt="" />
+        Sapient
+      </a>
+      <div class="footer-links">
+        <a href="https://github.com/chironbuilds/tari-wallet" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://universe.tari.mw/integration" target="_blank" rel="noopener">Documentation</a>
+        <a href="https://github.com/chironbuilds/tari-wallet/blob/master/LICENSE" target="_blank" rel="noopener">License</a>
+        <a href="https://github.com/tari-project/tari-ootle" target="_blank" rel="noopener">Tari Ootle</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="terms.html">Terms of Use</a>
+      </div>
+      <div class="footer-meta">
+        <span>*PolyForm Noncommercial 1.0.0 — free for noncommercial use, source-available rather than OSI open-source.</span>
+        <span>Not affiliated with the Tari Project.</span>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
