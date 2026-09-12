@@ -40,6 +40,7 @@ import type {
   PopupRequest,
   PrivateBalance,
   PrivatePaymentScanResult,
+  ResourceUtxoScanResult,
   ShieldedOutputSummary,
   TransactionRequestOperation,
   TransactionRequestSummary,
@@ -262,6 +263,26 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       if (site) await recordPrivatePaymentHistory(site.accountId, found);
       const result: PrivatePaymentScanResult = {
         claimed,
+        found: found.map((f) => ({
+          resourceAddress: f.resourceAddress,
+          commitment: f.commitment,
+          amount: f.amount.toString(),
+          transactionId: f.transactionId,
+          memo: f.memo,
+        })),
+      };
+      return result;
+    }
+
+    case "tari_scanForResourceUtxos": {
+      const account = await requireViewAccess(origin);
+      const p = params as { resourceAddress: string; maxPages?: number; pageSize?: number };
+      if (!p?.resourceAddress) throw new Error("resourceAddress is required.");
+      const found = await account.scanForResourceUtxos(p.resourceAddress, { maxPages: p.maxPages, pageSize: p.pageSize });
+      const site = await getConnectedSite(origin);
+      if (site) await recordPrivatePaymentHistory(site.accountId, found);
+      const result: ResourceUtxoScanResult = {
+        claimed: found.length,
         found: found.map((f) => ({
           resourceAddress: f.resourceAddress,
           commitment: f.commitment,

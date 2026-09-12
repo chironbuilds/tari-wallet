@@ -28,6 +28,7 @@ export type ProviderMethod =
   | "tari_getPrivateBalances"
   | "tari_getShieldedOutputs"
   | "tari_scanForPrivatePayments"
+  | "tari_scanForResourceUtxos"
   | "tari_claimPrivatePayment"
   // ---- Ownership proof (spends nothing; local accounts only) ----
   | "tari_signOwnershipChallenge"
@@ -370,6 +371,19 @@ export interface ProviderRequestParams {
    */
   tari_scanForPrivatePayments: { maxPages?: number } | undefined;
   /**
+   * Like `tari_scanForPrivatePayments`, but for one specific `resourceAddress` and not limited to
+   * outputs from a native `StealthTransfer` instruction -- it also finds a UTXO minted by custom
+   * template logic inside a `CallFunction`/`CallMethod` (a voting template's ballot tokens, for
+   * instance), which `tari_scanForPrivatePayments` can never see. Returns `{ claimed, found }`,
+   * same shape as `tari_scanForPrivatePayments`.
+   *
+   * More expensive per page than `tari_scanForPrivatePayments` (it fetches each candidate
+   * transaction's full result, not just the pruned listing), so `maxPages`/`pageSize` default to a
+   * small lookback meant for an interactive "do I have one of these" check on a resource whose
+   * mint is known to be recent -- not a background sweep of the whole chain.
+   */
+  tari_scanForResourceUtxos: { resourceAddress: string; maxPages?: number; pageSize?: number };
+  /**
    * Claims a specific stealth payment this account was told about out of band, by commitment --
    * the recipient-side counterpart to a `sendPrivately` result's `recipientCommitment`. Fetches the
    * `utxo_{resource}_{commitment}` substate and decrypts it with this account's view secret;
@@ -475,6 +489,9 @@ export interface PrivatePaymentScanResult {
   found: { resourceAddress: string; commitment: string; amount: string; transactionId: string; memo?: string }[];
 }
 
+/** `tari_scanForResourceUtxos`' result -- same shape as `PrivatePaymentScanResult`. */
+export type ResourceUtxoScanResult = PrivatePaymentScanResult;
+
 /** Sent from the content script to the background, tagged with the requesting page's origin. */
 export interface PageRequestMessage {
   kind: "tari-page-request";
@@ -558,8 +575,9 @@ export interface WalletCapabilities {
    * authorizations they need; a daemon-relayed account can't. */
   privateSpend: boolean;
   /** Whether this wallet can serve confidential *reads* at all (`tari_getPrivateBalances`,
-   * `tari_getShieldedOutputs`, `tari_scanForPrivatePayments`, `tari_claimPrivatePayment`) for the
-   * connected account -- they need its view secret, which a daemon-relayed account never exposes.
+   * `tari_getShieldedOutputs`, `tari_scanForPrivatePayments`, `tari_scanForResourceUtxos`,
+   * `tari_claimPrivatePayment`) for the connected account -- they need its view secret, which a
+   * daemon-relayed account never exposes.
    * Independent of `privateViewGranted`: this says the feature exists, that says the user said yes. */
   privateBalanceView: boolean;
   /** Whether *this site* currently holds the private view grant. False means the confidential-read

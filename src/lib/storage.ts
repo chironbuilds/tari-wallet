@@ -17,7 +17,7 @@ export interface ConnectedSite {
    * approved permission to read this account's confidential position: shielded balances, the
    * individual stealth UTXOs behind them, and the ability to run a view-key scan
    * (`tari_getPrivateBalances`/`tari_getShieldedOutputs`/`tari_scanForPrivatePayments`/
-   * `tari_claimPrivatePayment`). Absent = never granted.
+   * `tari_scanForResourceUtxos`/`tari_claimPrivatePayment`). Absent = never granted.
    *
    * Deliberately NOT implied by a plain connection. A connection reveals one public component
    * address; view access reveals the whole confidential position the rest of the chain cannot
