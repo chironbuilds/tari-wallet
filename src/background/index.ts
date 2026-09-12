@@ -393,6 +393,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
         exactInputSelection: true,
         stealthWithdraw: isLocal,
         stealthRedeem: isLocal,
+        stealthRedeemPrivateFee: isLocal,
         htlcFund: isLocal,
         scriptPathSpend: isLocal,
         privateSpend: isLocal,
@@ -598,6 +599,11 @@ function summarizeOperationForApproval(operation: TransactionRequestOperation): 
         instructions: operation.followUpInstructions,
         note: `Redeems a stealth token (${operation.commitmentHex.slice(0, 12)}…, ${BigInt(operation.revealedAmount).toString()} of ${operation.resourceAddress}) for use in this transaction.`,
       };
+    case "redeemStealthOutputWithPrivateFee":
+      return {
+        instructions: operation.followUpInstructions,
+        note: `Redeems a stealth token (${operation.commitmentHex.slice(0, 12)}…, ${BigInt(operation.revealedAmount).toString()} of ${operation.resourceAddress}) for use in this transaction, paying the fee from a separate stealth UTXO -- this account's address is never revealed.`,
+      };
     case "htlcFund":
       return {
         instructions: [],
@@ -689,6 +695,10 @@ function operationHistoryLabel(origin: string, operation: TransactionRequestOper
     case "redeemStealthOutputAndExecute": {
       const summary = operation.followUpInstructions.map((i) => summarizeInstruction(i).title).join(", ");
       return `${origin}: redeem + ${summary}`;
+    }
+    case "redeemStealthOutputWithPrivateFee": {
+      const summary = operation.followUpInstructions.map((i) => summarizeInstruction(i).title).join(", ");
+      return `${origin}: private redeem + ${summary}`;
     }
     case "htlcFund":
       return `${origin}: HTLC fund -> ${operation.claimantWalletAddress}`;
@@ -823,6 +833,18 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
           operation.followUpInstructions,
           operation.relatedComponents ?? [],
           maxFee
+        );
+      case "redeemStealthOutputWithPrivateFee":
+        // Same account requirement as withdrawStealthAndExecute -- see its own comment above.
+        return requireLocalAccount(account, "Redeeming a stealth token privately").redeemStealthOutputWithPrivateFee(
+          operation.resourceAddress,
+          operation.commitmentHex,
+          BigInt(operation.revealedAmount),
+          operation.followUpInstructions,
+          operation.feeResourceAddress,
+          operation.feeCommitmentHex,
+          BigInt(operation.maxFee),
+          operation.relatedComponents ?? []
         );
       case "htlcFund":
         // See tari_withdrawStealthAndExecute's own comment: only a seed-derived local account can

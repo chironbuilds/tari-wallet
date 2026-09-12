@@ -72,6 +72,25 @@ export type TransactionRequestOperation =
       relatedComponents?: string[];
       maxFee?: string;
     }
+  // See `OotleAccount.redeemStealthOutputWithPrivateFee`'s doc comment: identical to
+  // `redeemStealthOutputAndExecute`, except the fee is ALSO paid from a stealth UTXO (a second,
+  // separate commitment of `feeResourceAddress` this account owns) instead of this account's
+  // revealed balance -- required whenever `followUpInstructions` carries information that would
+  // deanonymize the account if the fee input did (e.g. a voting ballot's ranking). Confirmed live:
+  // the resulting transaction's substates never include this account's own component address.
+  // Returns `{ transactionId, feeChangeCommitment }` -- the fee UTXO's unspent remainder becomes a
+  // new stealth output the caller must track itself to fund a next call the same way.
+  | {
+      kind: "redeemStealthOutputWithPrivateFee";
+      resourceAddress: string;
+      commitmentHex: string;
+      revealedAmount: string;
+      followUpInstructions: Instruction[];
+      feeResourceAddress: string;
+      feeCommitmentHex: string;
+      maxFee: string;
+      relatedComponents?: string[];
+    }
   // See `OotleAccount.htlcFund`'s doc comment: creates an HTLC-locked stealth output, claimable by
   // `claimantWalletAddress` (with the preimage of `hashLockHex`) before `refundEpoch`, refundable
   // to this account after. The other two sides of the swap are the `htlcClaim`/`htlcRefund` kinds
@@ -522,6 +541,10 @@ export interface WalletCapabilities {
    * wallet by another party) into a dApp's own contract call. Same account requirement as
    * `stealthWithdraw`. */
   stealthRedeem: boolean;
+  /** The `redeemStealthOutputWithPrivateFee` transaction-request kind -- like `stealthRedeem`,
+   * but the fee is also paid from a stealth UTXO, so the transaction never reveals this
+   * account's address at all. Same account requirement as `stealthWithdraw`. */
+  stealthRedeemPrivateFee: boolean;
   /** `tari_htlcFund` -- creates an HTLC-locked (hashlock/timelock ScriptPath) stealth output.
    * Only a seed-derived local account can build the `PayTo::Conditions` output witness this
    * needs; a daemon-relayed account can't. */
