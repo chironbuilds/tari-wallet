@@ -392,6 +392,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       const capabilities: WalletCapabilities = {
         exactInputSelection: true,
         stealthWithdraw: isLocal,
+        stealthRedeem: isLocal,
         htlcFund: isLocal,
         scriptPathSpend: isLocal,
         privateSpend: isLocal,
@@ -592,6 +593,11 @@ function summarizeOperationForApproval(operation: TransactionRequestOperation): 
         instructions: operation.followUpInstructions,
         note: `Reveals ${BigInt(operation.amount).toString()} of ${operation.resourceAddress} for use in this transaction.`,
       };
+    case "redeemStealthOutputAndExecute":
+      return {
+        instructions: operation.followUpInstructions,
+        note: `Redeems a stealth token (${operation.commitmentHex.slice(0, 12)}…, ${BigInt(operation.revealedAmount).toString()} of ${operation.resourceAddress}) for use in this transaction.`,
+      };
     case "htlcFund":
       return {
         instructions: [],
@@ -679,6 +685,10 @@ function operationHistoryLabel(origin: string, operation: TransactionRequestOper
     case "withdrawStealthAndExecute": {
       const summary = operation.followUpInstructions.map((i) => summarizeInstruction(i).title).join(", ");
       return `${origin}: reveal + ${summary}`;
+    }
+    case "redeemStealthOutputAndExecute": {
+      const summary = operation.followUpInstructions.map((i) => summarizeInstruction(i).title).join(", ");
+      return `${origin}: redeem + ${summary}`;
     }
     case "htlcFund":
       return `${origin}: HTLC fund -> ${operation.claimantWalletAddress}`;
@@ -800,6 +810,16 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
           operation.resourceAddress,
           BigInt(operation.amount),
           operation.workspaceVarName,
+          operation.followUpInstructions,
+          operation.relatedComponents ?? [],
+          maxFee
+        );
+      case "redeemStealthOutputAndExecute":
+        // Same account requirement as withdrawStealthAndExecute -- see its own comment above.
+        return requireLocalAccount(account, "Redeeming a stealth token").redeemStealthOutputAndExecute(
+          operation.resourceAddress,
+          operation.commitmentHex,
+          BigInt(operation.revealedAmount),
           operation.followUpInstructions,
           operation.relatedComponents ?? [],
           maxFee

@@ -56,6 +56,22 @@ export type TransactionRequestOperation =
       relatedComponents?: string[];
       maxFee?: string;
     }
+  // See `OotleAccount.redeemStealthOutputAndExecute`'s doc comment: unlike `withdrawStealthAndExecute`
+  // (an *amount* drawn from this account's own tracked vault balance), this spends *one specific,
+  // externally-known* stealth commitment -- a token some other party minted directly to this
+  // wallet's address out of band (a voting ballot, ticket, voucher) -- revealing its full value into
+  // `followUpInstructions`. `commitmentHex` and `revealedAmount` (the output's actual value) both
+  // come from whatever protocol minted the token; the connected account must be its intended owner
+  // or this fails when the wallet can't decrypt it.
+  | {
+      kind: "redeemStealthOutputAndExecute";
+      resourceAddress: string;
+      commitmentHex: string;
+      revealedAmount: string;
+      followUpInstructions: Instruction[];
+      relatedComponents?: string[];
+      maxFee?: string;
+    }
   // See `OotleAccount.htlcFund`'s doc comment: creates an HTLC-locked stealth output, claimable by
   // `claimantWalletAddress` (with the preimage of `hashLockHex`) before `refundEpoch`, refundable
   // to this account after. The other two sides of the swap are the `htlcClaim`/`htlcRefund` kinds
@@ -501,6 +517,11 @@ export interface WalletCapabilities {
    * in one signed transaction. Only a seed-derived local account can produce the stealth balance
    * proof this needs; a daemon-relayed account can't. */
   stealthWithdraw: boolean;
+  /** The `redeemStealthOutputAndExecute` transaction-request kind -- spends one specific,
+   * externally-known stealth commitment (e.g. a ballot/ticket token minted directly to this
+   * wallet by another party) into a dApp's own contract call. Same account requirement as
+   * `stealthWithdraw`. */
+  stealthRedeem: boolean;
   /** `tari_htlcFund` -- creates an HTLC-locked (hashlock/timelock ScriptPath) stealth output.
    * Only a seed-derived local account can build the `PayTo::Conditions` output witness this
    * needs; a daemon-relayed account can't. */
