@@ -17,7 +17,10 @@ See "Daemon-relayed accounts" below.
 
 **[Install from the Chrome Web Store](https://chromewebstore.google.com/detail/tari-ootle-wallet/demkeckolenopkgnfbnpflkpbbdhpgkl)**
 — listed there under the extension's original name/version pending a store update; the current
-name is Sapient. **Testnet-only. Under active development. Do not use it to hold real value.**
+name is Sapient. A new build submitted to the Web Store goes through Google's own review before it
+goes live, so the listed version can lag behind `master` for a few days — if you want the latest
+release right away, **[install from the latest GitHub release](#installing-from-a-github-release-instead-of-the-web-store)**
+instead. **Testnet-only. Under active development. Do not use it to hold real value.**
 
 📖 **[Full documentation](docs/README.md)** — architecture (extension internals, transaction
 lifecycle, stealth/HTLC support) and integration (provider API reference, transaction-request flow,
@@ -534,6 +537,28 @@ patched version via `pnpm-workspace.yaml`'s `overrides` rather than by changing 
 plugin itself, which this project is deliberately pinned to (see above).
 
 ## Loading it in Chrome
+
+### Installing from a GitHub release (instead of the Web Store)
+
+The [Chrome Web Store listing](https://chromewebstore.google.com/detail/tari-ootle-wallet/demkeckolenopkgnfbnpflkpbbdhpgkl)
+has to clear Google's own review before an update goes live, which can lag a real release by days
+— a prebuilt, ready-to-load zip is attached to every
+[GitHub release](https://github.com/chironbuilds/tari-wallet/releases) for exactly that gap. No
+build step, no Node/pnpm required.
+
+1. Download `sapient-wallet-<version>.zip` from the
+   [latest release](https://github.com/chironbuilds/tari-wallet/releases/latest) and unzip it
+   somewhere you'll keep it (Chrome loads the extension from that folder every time it starts —
+   don't delete or move it afterward).
+2. Open `chrome://extensions`, enable **Developer mode** (top right).
+3. Click **Load unpacked** and select the unzipped folder (the one containing `manifest.json`
+   directly, not a parent folder).
+4. Click the extension icon to open the popup and create or import a wallet.
+
+Chrome doesn't auto-update a sideloaded extension — repeat these steps with a newer release's zip
+(over the same unzipped folder) when you want to upgrade.
+
+### Building and loading from source
 
 1. `pnpm run build`
 2. Open `chrome://extensions`, enable **Developer mode** (top right)
