@@ -52,6 +52,7 @@ interface WalletCapabilities {
   transactionResultLookup: boolean; // always true today
   transactionRequests: boolean;    // create/approve/submit flow -- always true today
   walletAddress: boolean;          // tari_getWalletAddress -- always true today
+  supportsPrivateFees: boolean;    // feeType: "private" on a transaction request -- local accounts only
   dryRunIsLocal: boolean;          // always false today -- dry runs round-trip to the indexer
 }
 ```
@@ -205,6 +206,13 @@ interface TransactionRequestSummary {
 operation executes). Treat it like `"submitted"`-in-progress: keep polling until it resolves to
 `"submitted"` or `"failed"`. It only sticks if the wallet's service worker died mid-submission, in
 which case the request is permanently unresubmittable — re-create it instead.
+
+**Fee type.** Every kind above except `redeemStealthOutputWithPrivateFee` (already always private)
+also takes an optional `feeType: "private" | "transparent"` hint and `enforceFeeType?: boolean`.
+Unenforced, it's only a hint — the approval popup shows a toggle seeded from it (or the wallet's
+own default) that the user can still change. `enforceFeeType: true` requires `feeType` and locks
+the popup's toggle to it. `"private"` needs `capabilities.supportsPrivateFees` (seed-derived local
+accounts only) and pays the fee from a separate stealth XTR UTXO.
 
 ### Private spends
 

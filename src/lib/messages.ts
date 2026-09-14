@@ -41,11 +41,29 @@ export type ProviderMethod =
  * `TransactionRequestRecord` (storage.ts) persists and later executes at submit time, so there is
  * exactly one place this shape is defined.
  */
+/**
+ * `feeType`/`enforceFeeType`, present on every kind below except `redeemStealthOutputWithPrivateFee`
+ * (already always a private fee): lets a dApp request or require how the transaction's fee is
+ * paid. `feeType` alone is only a hint -- the wallet still applies its own default/switch and the
+ * user can change it in the approval popup. `enforceFeeType: true` makes `feeType` (then
+ * required) binding: the popup locks the choice and tells the user this site requires it, with no
+ * way to change it short of rejecting. `feeType: "private"` needs a seed-derived local account
+ * (same requirement as every Stealth-touching kind below) -- see `resolveFeeType`'s doc comment in
+ * background/index.ts. See `WalletCapabilities.supportsPrivateFees` for how a dApp checks this
+ * exists before relying on it.
+ */
 export type TransactionRequestOperation =
   // `inputs` lets a dApp pin substates it already knows are needed (e.g. a component it just read
   // and knows the address of); the wallet's own auto-resolve retry (see OotleAccount.execute())
   // handles whatever's still missing, so this is an optimization, never required for correctness.
-  | { kind: "instructions"; instructions: Instruction[]; maxFee?: string; inputs?: SubstateRequirement[] }
+  | {
+      kind: "instructions";
+      instructions: Instruction[];
+      maxFee?: string;
+      inputs?: SubstateRequirement[];
+      feeType?: "private" | "transparent";
+      enforceFeeType?: boolean;
+    }
   // See `OotleAccount.withdrawStealthAndExecute`'s doc comment: the only way for a dApp to move
   // Stealth-typed funds (e.g. XTR) into its own contract call in one transaction.
   | {
@@ -56,6 +74,8 @@ export type TransactionRequestOperation =
       followUpInstructions: Instruction[];
       relatedComponents?: string[];
       maxFee?: string;
+      feeType?: "private" | "transparent";
+      enforceFeeType?: boolean;
     }
   // See `OotleAccount.redeemStealthOutputAndExecute`'s doc comment: unlike `withdrawStealthAndExecute`
   // (an *amount* drawn from this account's own tracked vault balance), this spends *one specific,
@@ -72,6 +92,8 @@ export type TransactionRequestOperation =
       followUpInstructions: Instruction[];
       relatedComponents?: string[];
       maxFee?: string;
+      feeType?: "private" | "transparent";
+      enforceFeeType?: boolean;
     }
   // See `OotleAccount.redeemStealthOutputWithPrivateFee`'s doc comment: identical to
   // `redeemStealthOutputAndExecute`, except the fee is ALSO paid from a stealth UTXO (a second,
@@ -80,7 +102,10 @@ export type TransactionRequestOperation =
   // deanonymize the account if the fee input did (e.g. a voting ballot's ranking). Confirmed live:
   // the resulting transaction's substates never include this account's own component address.
   // Returns `{ transactionId, feeChangeCommitment }` -- the fee UTXO's unspent remainder becomes a
-  // new stealth output the caller must track itself to fund a next call the same way.
+  // new stealth output the caller must track itself to fund a next call the same way. Already
+  // always a private fee -- no `feeType`/`enforceFeeType` here; use
+  // `redeemStealthOutputAndExecute` with `enforceFeeType: true, feeType: "private"` instead if
+  // auto-selecting the fee UTXO is fine.
   | {
       kind: "redeemStealthOutputWithPrivateFee";
       resourceAddress: string;
@@ -104,6 +129,8 @@ export type TransactionRequestOperation =
       hashLockHex: string;
       refundEpoch: string;
       maxFee?: string;
+      feeType?: "private" | "transparent";
+      enforceFeeType?: boolean;
     }
   // ---- Private spends ----------------------------------------------------------------------
   // The four operations that move value in or out of, or between, stealth (confidential) outputs.
@@ -126,18 +153,42 @@ export type TransactionRequestOperation =
    * doc comment on this field below. Result:
    * `{ transactionId, commitment, substateId, minimumValuePromise }` -- `substateId` is the
    * proof artifact, verifiable by anyone with no cooperation from this wallet. */
-  | { kind: "shield"; resourceAddress: string; amount: string; maxFee?: string; memo?: string; minimumValuePromise?: string }
+  | {
+      kind: "shield";
+      resourceAddress: string;
+      amount: string;
+      maxFee?: string;
+      memo?: string;
+      minimumValuePromise?: string;
+      feeType?: "private" | "transparent";
+      enforceFeeType?: boolean;
+    }
   /** Revealed -> a Confidential-type vault, same account -- the "Confidential" `ResourceType`'s
    * equivalent of `shield`, a different privacy mechanism (vault-based, ElGamal-encrypted to a
    * resource view key) than the Stealth kinds around it. Only meaningful against a resource
    * actually created as `ResourceType::Confidential`; fails on-chain against any other resource
    * type, not client-side. No `minimumValuePromise` equivalent exists for Confidential vaults --
    * see the integration docs' resource-types section for why. */
-  | { kind: "depositConfidential"; resourceAddress: string; amount: string; maxFee?: string }
+  | {
+      kind: "depositConfidential";
+      resourceAddress: string;
+      amount: string;
+      maxFee?: string;
+      feeType?: "private" | "transparent";
+      enforceFeeType?: boolean;
+    }
   /** Private -> revealed, back into this same account's on-chain vault. `revealedAmount` is what
    * lands revealed; which stealth UTXOs get spent to cover it is the wallet's own coin-selection
    * decision (largest-first), not the dApp's. */
-  | { kind: "unshield"; resourceAddress: string; revealedAmount: string; maxFee?: string; memo?: string }
+  | {
+      kind: "unshield";
+      resourceAddress: string;
+      revealedAmount: string;
+      maxFee?: string;
+      memo?: string;
+      feeType?: "private" | "transparent";
+      enforceFeeType?: boolean;
+    }
   /** Private -> private, to someone else's bech32m wallet address. The result carries
    * `recipientCommitment` -- the recipient has no way to discover the payment without it (there is
    * no scan-by-view-key API for a specific counterparty), so a dApp brokering this transfer is
@@ -154,6 +205,8 @@ export type TransactionRequestOperation =
        * what they were paid without revealing the exact amount. Result adds
        * `recipientSubstateId` and `minimumValuePromise`. */
       minimumValuePromise?: string;
+      feeType?: "private" | "transparent";
+      enforceFeeType?: boolean;
     }
   /** Spends an HTLC output addressed to this account by revealing the claim leaf's preimage.
    * `conditions` must be the exact two-leaf tree the funding side produced (`htlcFund`'s result),
@@ -166,6 +219,8 @@ export type TransactionRequestOperation =
       conditions: object[];
       preimageHex: string;
       maxFee?: string;
+      feeType?: "private" | "transparent";
+      enforceFeeType?: boolean;
     }
   /** Refunds an HTLC *this* account funded, once `refundEpoch` has passed. `amount` and
    * `outputMask` must be exactly what the matching `htlcFund` returned: the output is addressed to
@@ -178,6 +233,8 @@ export type TransactionRequestOperation =
       amount: string;
       outputMask: string;
       maxFee?: string;
+      feeType?: "private" | "transparent";
+      enforceFeeType?: boolean;
     };
 
 /**
@@ -614,6 +671,12 @@ export interface WalletCapabilities {
    * Confidential-type vault (a different privacy mechanism from the Stealth surface the rest of
    * this interface covers). Same account requirement: seed-derived local accounts only. */
   confidentialDeposit: boolean;
+  /** `feeType`/`enforceFeeType` on every transaction-request kind except
+   * `redeemStealthOutputWithPrivateFee` (always private already) -- see that field's own doc
+   * comment on `TransactionRequestOperation`. `feeType: "private"` needs a seed-derived local
+   * account, same requirement as the rest of the stealth surface; this reports false for a
+   * daemon-relayed account even though `feeType: "transparent"` still works for one. */
+  supportsPrivateFees: boolean;
   /** Whether `tari_signAndSubmitTransaction`'s `dryRun: true` executes locally (no network
    * egress) or is simulated remotely by the indexer. False today -- a transaction carrying secret
    * witness data (e.g. a future ScriptPath preimage) should not be dry-run through this wallet
@@ -669,7 +732,7 @@ export type PopupRequest =
    * outright -- the user-side counterpart to a dApp's own `tari_revokeViewAccess`. */
   | { kind: "popup-revoke-site-view-access"; origin: string }
   | { kind: "popup-get-pending-approval"; approvalId: string }
-  | { kind: "popup-resolve-approval"; approvalId: string; approve: boolean }
+  | { kind: "popup-resolve-approval"; approvalId: string; approve: boolean; feeType?: "private" | "transparent" }
   | { kind: "popup-reset-wallet" }
   | { kind: "popup-connect-daemon"; url: string; apiKey: string; label: string }
   | { kind: "popup-list-daemon-accounts"; connectionId: string }
@@ -677,6 +740,7 @@ export type PopupRequest =
   | { kind: "popup-remove-daemon-connection"; connectionId: string }
   | { kind: "popup-remove-daemon-account"; connectionId: string; componentAddress: string }
   | { kind: "popup-set-auto-lock-minutes"; minutes: number }
+  | { kind: "popup-set-fee-privacy-default"; feeType: "private" | "transparent" }
   | { kind: "popup-add-address-book-entry"; label: string; address: string }
   | { kind: "popup-remove-address-book-entry"; id: string }
   | { kind: "popup-set-network"; network: "esmeralda" | "igor" }
@@ -714,6 +778,7 @@ export interface WalletStatus {
   daemonConnections: { id: string; url: string; label: string }[];
   addressBook: { id: string; label: string; address: string }[];
   autoLockMinutes: number;
+  feePrivacyDefault: "private" | "transparent";
 }
 
 /** Mirrors storage.ts's `TransactionHistoryEntry` — see its doc comment for scope. Declared
@@ -757,7 +822,19 @@ export type PendingApproval =
       instructions: Instruction[];
       maxFee?: string;
       dryRun?: boolean;
+      /** The flat, dApp-facing text (also `TransactionRequestSummary.note` from
+       * `tari_getTransactionRequest`) -- `steps`/`warning` below are the same facts, structured
+       * for the popup's own rendering; this is `[...steps, warning].join(" ")`. */
       note?: string;
+      /** Each one a single fact worth reading on its own (see `summarizeOperationForApproval`'s
+       * doc comment in background/index.ts) -- rendered as separate lines rather than the one
+       * run-on paragraph `note` collapses them into. Absent only for a raw `instructions` request
+       * whose own instruction cards already carry the detail. */
+      steps?: string[];
+      /** The minimum-value-promise disclosure, when this request carries one -- kept apart from
+       * `steps` so the popup can render it in its own highlighted box instead of a line indistinct
+       * from the rest. */
+      warning?: string;
       /** The account that will actually sign -- the site's connected account (bound at connect
        * time), which is NOT necessarily whichever account happens to be active right now. Shown
        * on the approval screen so a user with multiple accounts can confirm which identity/funds
@@ -765,6 +842,11 @@ export type PendingApproval =
        * field existed (a pending approval from before an extension update — display falls back to
        * "an account" rather than guessing). */
       accountId?: string;
+      /** Absent for a dry run or for `redeemStealthOutputWithPrivateFee` (no `feeType` field, and
+       * dry runs never touch storage or spend anything). Otherwise `enforced` locks the popup's
+       * fee-type row to `initial` (a fact, not a choice); unenforced renders it as a toggle seeded
+       * at `initial` -- see `resolveApproval`'s doc comment for where the user's live pick ends up. */
+      feeChoice?: { enforced: boolean; initial: "private" | "transparent" };
     }
   /** `tari_signOwnershipChallenge`'s prompt. Spends nothing -- shown as its own kind, not folded
    * into `transaction`, so the copy can say that plainly instead of reusing language about moving
@@ -789,7 +871,10 @@ export type PendingApprovalInput =
       maxFee?: string;
       dryRun?: boolean;
       note?: string;
+      steps?: string[];
+      warning?: string;
       accountId?: string;
+      feeChoice?: { enforced: boolean; initial: "private" | "transparent" };
     }
   | { kind: "signOwnershipProof"; origin: string; accountId: string; resourceAddress: string; substateId: string; challenge: string }
   | { kind: "signWalletOwnershipProof"; origin: string; accountId: string; walletAddress: string; challenge: string };

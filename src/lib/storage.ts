@@ -169,6 +169,10 @@ export interface WalletState {
   transactionHistory: TransactionHistoryEntry[];
   /** Minutes of inactivity before the wallet auto-locks; 0 = never. See src/lib/autoLock.ts. */
   autoLockMinutes: number;
+  /** Default fee-payment type for a transaction request when the dApp doesn't enforce one.
+   * "transparent" (unchanged behavior) unless the user opts in to "private" -- see
+   * `resolveFeeType` in background/index.ts. */
+  feePrivacyDefault: "private" | "transparent";
   /** The active account's own component address, cached in plaintext from the last time it was
    * unlocked -- a component address is public on-chain data, no more sensitive than the addressBook
    * entries above, so caching it costs nothing. Lets the lock screen show the real per-account
@@ -201,6 +205,7 @@ const DEFAULTS: WalletState = {
   addressBook: [],
   transactionHistory: [],
   autoLockMinutes: DEFAULT_AUTO_LOCK_MINUTES,
+  feePrivacyDefault: "transparent",
   lastKnownAddress: null,
   transactionRequests: [],
   walletOrigin: null,
@@ -432,14 +437,30 @@ export async function setTransactionRequestStatus(
  * race a submission that started moments earlier, and an unconditional write would flip a
  * mid-flight request back to "approved", reopening the exact double-submit window
  * beginTransactionRequestSubmit exists to close. */
-export async function recordTransactionRequestDecision(id: string, approved: boolean): Promise<boolean> {
+/**
+ * `chosenFeeType`, when given on an approval, overwrites the operation's own `feeType` with
+ * whatever the user settled on in the popup — the dApp's original `feeType` was only ever a hint
+ * (or, under `enforceFeeType`, the locked value the popup didn't let the user change either way) —
+ * so by the time `submitApprovedTransactionRequest` reads the record's operation later, it's
+ * always the final decision, not the dApp's request.
+ */
+export async function recordTransactionRequestDecision(
+  id: string,
+  approved: boolean,
+  chosenFeeType?: "private" | "transparent"
+): Promise<boolean> {
   return serialized(async () => {
     const state = await getState();
     const index = state.transactionRequests.findIndex((r) => r.id === id);
     if (index === -1) return false;
-    if (state.transactionRequests[index]!.status !== "pending") return false;
+    const record = state.transactionRequests[index]!;
+    if (record.status !== "pending") return false;
     const transactionRequests = [...state.transactionRequests];
-    transactionRequests[index] = { ...transactionRequests[index]!, status: approved ? "approved" : "rejected" };
+    const operation =
+      approved && chosenFeeType && record.operation.kind !== "redeemStealthOutputWithPrivateFee"
+        ? { ...record.operation, feeType: chosenFeeType }
+        : record.operation;
+    transactionRequests[index] = { ...record, operation, status: approved ? "approved" : "rejected" };
     await setState({ transactionRequests });
     return true;
   });

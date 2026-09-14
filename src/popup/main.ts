@@ -158,6 +158,20 @@ function h<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
+/** A labeled two-state sliding toggle (see .switch-label/.switch-track/.switch-thumb in
+ * styles.css) for a strictly binary choice, e.g. fee privacy. The side labels' highlighting is
+ * pure CSS (a sibling selector off the checkbox's own :checked state), so it stays in sync with
+ * no re-render. Returns the `<label>`; the nested `<input type=checkbox>` gets `id` so the
+ * caller can attach its own `change` listener the same way every other control here does. */
+function switchControl(id: string, checked: boolean, offLabel: string, onLabel: string): HTMLLabelElement {
+  return h("label", { class: "switch-label" }, [
+    h("input", { type: "checkbox", id, ...(checked ? { checked: "true" } : {}) }),
+    h("span", { class: "switch-side switch-side-off" }, [offLabel]),
+    h("span", { class: "switch-track" }, [h("span", { class: "switch-thumb" }, [])]),
+    h("span", { class: "switch-side switch-side-on" }, [onLabel]),
+  ]);
+}
+
 // Every screen swap replays a short fade/slide-in on #app — restarting a CSS animation requires a
 // reflow between removing and re-adding its class, since re-adding the same class name alone is a
 // no-op as far as the browser's style engine is concerned.
@@ -785,6 +799,12 @@ function renderSettings(status: WalletStatus) {
   const networkRow = h("div", { class: "settings-row settings-row-static" }, [h("span", {}, ["Network"]), networkSelect]);
   const networkConfirmEl = h("div", { class: "status", style: "display:none" });
 
+  const feePrivacySwitch = switchControl("feePrivacyDefault", status.feePrivacyDefault === "private", "Transparent", "Private");
+  const feePrivacyRow = h("div", { class: "settings-row settings-row-static" }, [
+    h("span", {}, ["Default fee privacy (Ootle)"]),
+    feePrivacySwitch,
+  ]);
+
   render(
     h("h1", {}, ["Settings"]),
     back,
@@ -797,6 +817,7 @@ function renderSettings(status: WalletStatus) {
       backupBtn,
       autoLockRow,
       networkRow,
+      feePrivacyRow,
     ]),
     networkConfirmEl,
     lockBtn
@@ -809,6 +830,10 @@ function renderSettings(status: WalletStatus) {
   });
   autoLockSelect.addEventListener("change", () => {
     void send({ kind: "popup-set-auto-lock-minutes", minutes: Number((autoLockSelect as HTMLSelectElement).value) });
+  });
+  document.getElementById("feePrivacyDefault")!.addEventListener("change", (e) => {
+    const feeType = (e.target as HTMLInputElement).checked ? "private" : "transparent";
+    void send({ kind: "popup-set-fee-privacy-default", feeType });
   });
   networkSelect.addEventListener("change", () => {
     const chosen = (networkSelect as HTMLSelectElement).value as "esmeralda" | "igor";
@@ -2233,8 +2258,14 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     return;
   }
 
+  // Live only while `approval.kind === "transaction"` and `feeChoice` is present and unenforced --
+  // see the `<select>` built below. Read by `resolve` at click-time, never by re-rendering.
+  let chosenFeeType: "private" | "transparent" | undefined =
+    approval.kind === "transaction" ? approval.feeChoice?.initial : undefined;
+
   const resolve = async (approve: boolean) => {
-    const { resolved } = await send<{ resolved: boolean }>({ kind: "popup-resolve-approval", approvalId, approve });
+    const feeType = approve ? chosenFeeType : undefined;
+    const { resolved } = await send<{ resolved: boolean }>({ kind: "popup-resolve-approval", approvalId, approve, feeType });
     if (!resolved) {
       // The background service worker restarted while this popup sat open (MV3 tears workers down
       // after ~30s idle) — the page's own original request already died with it, so this click
@@ -2330,7 +2361,8 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     const instructionCards = approval.instructions.map((instr, i) => {
       const { title, detail } = summarizeInstruction(instr);
       const args = summarizeArgs(instr);
-      return h("div", { class: "instruction-card" }, [
+      const isLast = i === approval.instructions.length - 1;
+      return h("div", { class: `instruction-card${isLast ? "" : " instruction-card-connected"}` }, [
         h("div", { class: "instruction-index" }, [String(i + 1)]),
         h("div", { class: "instruction-body" }, [
           h("div", { class: "instruction-title" }, [title]),
@@ -2348,18 +2380,56 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
       h("div", { class: "instruction-list" }, [rawJson]),
     ]);
 
+    // Absent for a dry run or `redeemStealthOutputWithPrivateFee` (no `feeChoice` at all -- see
+    // that field's own doc comment). `enforced` shows the locked fact as text; otherwise the same
+    // sliding switch settings uses (see switchControl) whose `change` updates `chosenFeeType`
+    // above for `resolve` to read at click-time.
+    const feeChoiceBlock = approval.feeChoice
+      ? approval.feeChoice.enforced
+        ? h("p", { class: "muted" }, [
+            "This site requires a ",
+            h("b", {}, [approval.feeChoice.initial]),
+            " fee for this request — it can't be changed here. Reject if you don't want that.",
+          ])
+        : h("div", { class: "fee-choice" }, [
+            h("label", { class: "muted", style: "display:block;margin-bottom:6px" }, ["Fee payment"]),
+            switchControl("fee-type-switch", approval.feeChoice.initial === "private", "Transparent", "Private"),
+          ])
+      : "";
+
+    // Each fact on its own line rather than one run-on paragraph -- see
+    // summarizeOperationForApproval's doc comment in background/index.ts for why they're already
+    // split this way by the time they get here.
+    const stepsBlock =
+      approval.steps && approval.steps.length > 0
+        ? h(
+            "div",
+            { class: "approval-steps" },
+            approval.steps.map((step) => h("div", { class: "approval-step" }, [step]))
+          )
+        : "";
+    const warningBlock = approval.warning ? h("div", { class: "approval-warning" }, [approval.warning]) : "";
+    const hasInstructions = approval.instructions.length > 0;
+
     render(
       h("h1", {}, ["Transaction request"]),
       h("p", { class: "muted" }, [h("b", {}, [approval.origin]), " wants you to sign and submit a transaction."]),
       approvalAccountChip(status, approval.accountId),
-      approval.note ? h("p", { class: "muted", style: "color:var(--highlight)" }, [approval.note]) : "",
+      stepsBlock,
+      warningBlock,
       approval.maxFee ? h("p", { class: "muted" }, [`Max fee: ${approval.maxFee}`]) : "",
       approval.dryRun ? h("p", { class: "muted" }, ["This is a dry run — nothing will be spent."]) : "",
-      h("div", { class: "instruction-cards" }, instructionCards),
-      rawDetails,
+      feeChoiceBlock,
+      hasInstructions ? h("div", { class: "instruction-cards" }, instructionCards) : "",
+      hasInstructions ? rawDetails : "",
       h("button", { class: "primary", id: "approve" }, [approval.dryRun ? "Simulate" : "Approve & Sign"]),
       h("button", { class: "secondary", id: "reject" }, ["Reject"])
     );
+    if (approval.feeChoice && !approval.feeChoice.enforced) {
+      document.getElementById("fee-type-switch")!.addEventListener("change", (e) => {
+        chosenFeeType = (e.target as HTMLInputElement).checked ? "private" : "transparent";
+      });
+    }
   }
 
   document.getElementById("approve")!.addEventListener("click", () => resolve(true));

@@ -70,6 +70,19 @@ of WalletConnect) and their trade-offs.
 
 ## Recent additions (typecheck/test/build verified; not yet exercised live)
 
+- **Private transaction fees** (`WalletCapabilities.supportsPrivateFees`): every
+  `tari_createTransactionRequest` kind except `redeemStealthOutputWithPrivateFee` (already always
+  private) now takes an optional `feeType: "private" | "transparent"` hint and `enforceFeeType`
+  flag. Unenforced, the approval popup shows a Transparent/Private toggle seeded from the dApp's
+  hint or the wallet's own default (Settings → "Default fee privacy") and the user can change it
+  before signing; `enforceFeeType: true` locks the toggle to the dApp's choice instead, with a plain
+  sentence explaining why. A private fee pays from a separate stealth XTR UTXO
+  (`resolveFeeType` in `background/index.ts`) and needs a seed-derived local account, same
+  requirement as the rest of the stealth surface. The approval screen's per-kind copy was also
+  restructured while this was in: each operation now renders as separate one-line facts
+  (`steps`) instead of one run-on paragraph, with the minimum-value-promise disclosure broken out
+  into its own highlighted warning box.
+
 - **The private surface is now available to dApps**, in two halves that are deliberately separate
   permissions:
   - **Reading** a connected account's confidential position (`tari_getPrivateBalances`,

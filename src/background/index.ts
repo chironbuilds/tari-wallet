@@ -58,6 +58,7 @@ import {
   recoverPendingShields,
   resetKnownVersions,
   wipeOotleState,
+  type FeeType,
   type WalletAccountApi,
 } from "@chironbuilder/ootle-sdk";
 import { DaemonAccount } from "../lib/daemonAccount";
@@ -432,6 +433,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
         ownershipProof: isLocal,
         walletOwnershipProof: isLocal,
         confidentialDeposit: isLocal,
+        supportsPrivateFees: isLocal,
         dryRunIsLocal: false,
       };
       return capabilities;
@@ -522,6 +524,9 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       await touchActivity();
       const operation = params as TransactionRequestOperation;
       if (operation.kind === "instructions") assertNoStealthTransferInstruction(operation.instructions);
+      if ("enforceFeeType" in operation && operation.enforceFeeType && !operation.feeType) {
+        throw new Error("enforceFeeType requires feeType to also be set.");
+      }
       const { requestId } = await createTransactionRequest(origin, site.accountId, operation);
       return { requestId };
     }
@@ -611,97 +616,156 @@ async function requireViewAccess(origin: string): Promise<OotleAccount> {
 /** The (instructions to display, note to explain) pair shown on the popup approval screen for
  * `operation` -- one case per kind, matching exactly what each of the three deprecated RPCs
  * showed before they became wrappers over this shared flow. */
-function summarizeOperationForApproval(operation: TransactionRequestOperation): { instructions: Instruction[]; note?: string } {
+/** The well-known native-token resource -- engine-special-cased on-chain (see chain.mjs-style
+ * comments elsewhere in this codebase), so worth a real ticker instead of 64 hex characters. */
+const XTR_RESOURCE_ADDRESS = "resource_0101010101010101010101010101010101010101010101010101010101010101";
+
+/** A short, readable label for a resource address -- the one thing that shows up in nearly every
+ * approval fact below and is otherwise the least readable part of it. */
+function resourceLabel(address: string): string {
+  if (address === XTR_RESOURCE_ADDRESS) return "XTR";
+  return shortId(address);
+}
+
+/** Truncates a long identifier (a resource/component address, a wallet address, a commitment) to
+ * its first and last 8 characters -- long enough to eyeball-match against something the user
+ * already has open, short enough not to dominate the line it's part of. */
+function shortId(id: string, n = 8): string {
+  return id.length > n * 2 + 3 ? `${id.slice(0, n)}…${id.slice(-n)}` : id;
+}
+
+/**
+ * Breaks an operation down into the distinct facts the approval popup shows as separate lines
+ * (see main.ts's `renderApprovalDetails`), rather than one run-on sentence -- each line is one
+ * thing worth reading on its own, in the order that matters most: what moves, then where it ends
+ * up, then anything unusual about how. `warning` (the minimum-value-promise disclosure, the one
+ * case here that's a genuine risk to miss) is kept separate so the popup can render it in its own
+ * highlighted box instead of buried in the middle of a paragraph.
+ */
+function summarizeOperationForApproval(
+  operation: TransactionRequestOperation
+): { instructions: Instruction[]; steps?: string[]; warning?: string } {
   switch (operation.kind) {
-    case "instructions":
-      return { instructions: operation.instructions };
+    case "instructions": {
+      // Unlike every other kind below, this is arbitrary dApp-authored instructions -- there is no
+      // structured field to build a specific sentence from (see instructionSummary.ts's own file
+      // header for why the args' actual values are never decoded either). A plain step count at
+      // least tells the user there IS a sequence to read below, rather than nothing at all.
+      const count = operation.instructions.length;
+      return {
+        instructions: operation.instructions,
+        steps:
+          count === 0
+            ? ["This transaction has no instructions."]
+            : [`Custom transaction from this site — ${count} step${count === 1 ? "" : "s"}, run in order.`, "Review each one below before approving."],
+      };
+    }
     case "withdrawStealthAndExecute":
       return {
         instructions: operation.followUpInstructions,
-        note: `Reveals ${BigInt(operation.amount).toString()} of ${operation.resourceAddress} for use in this transaction.`,
+        steps: [`Reveals ${BigInt(operation.amount).toString()} ${resourceLabel(operation.resourceAddress)} for use in this transaction.`],
       };
     case "redeemStealthOutputAndExecute":
       return {
         instructions: operation.followUpInstructions,
-        note: `Redeems a stealth token (${operation.commitmentHex.slice(0, 12)}…, ${BigInt(operation.revealedAmount).toString()} of ${operation.resourceAddress}) for use in this transaction.`,
+        steps: [
+          `Redeems a stealth token (${shortId(operation.commitmentHex)}).`,
+          `Reveals ${BigInt(operation.revealedAmount).toString()} ${resourceLabel(operation.resourceAddress)} for use in this transaction.`,
+        ],
       };
     case "redeemStealthOutputWithPrivateFee":
       return {
         instructions: operation.followUpInstructions,
-        note: `Redeems a stealth token (${operation.commitmentHex.slice(0, 12)}…, ${BigInt(operation.revealedAmount).toString()} of ${operation.resourceAddress}) for use in this transaction, paying the fee from a separate stealth UTXO -- this account's address is never revealed.`,
+        steps: [
+          `Redeems a stealth token (${shortId(operation.commitmentHex)}).`,
+          `Reveals ${BigInt(operation.revealedAmount).toString()} ${resourceLabel(operation.resourceAddress)} for use in this transaction.`,
+          "Pays the fee from a separate stealth UTXO — this account's address is never revealed.",
+        ],
       };
     case "htlcFund":
       return {
         instructions: [],
-        note: `Locks ${BigInt(operation.amount).toString()} of ${operation.resourceAddress} in an HTLC, claimable by ${
-          operation.claimantWalletAddress
-        } (with the matching secret) before epoch ${BigInt(operation.refundEpoch).toString()}, refundable back to this account after.`,
+        steps: [
+          `Locks ${BigInt(operation.amount).toString()} ${resourceLabel(operation.resourceAddress)} in an HTLC.`,
+          `Claimable by ${shortId(operation.claimantWalletAddress)} with the matching secret, before epoch ${BigInt(operation.refundEpoch).toString()}.`,
+          "Refundable back to this account after that epoch.",
+        ],
       };
     // Every private-spend kind shows an empty instruction list on purpose: the wallet builds the
     // StealthTransfer itself at submit time (a dApp cannot hand one over -- see
     // assertNoStealthTransferInstruction), so there are no dApp-authored instructions to display.
-    // The note carries the whole meaning of the request instead, and each one states plainly which
+    // The steps carry the whole meaning of the request instead, and each one states plainly which
     // direction value moves and whether it becomes publicly visible -- that is the only thing
     // distinguishing these from each other on the approval screen.
-    case "shield": {
-      const base = `Moves ${BigInt(operation.amount).toString()} of ${operation.resourceAddress} from your public balance into your private balance. Stays in this account.`;
-      // Stated outright, not left for the user to infer from a field name. Shielding is the act of
-      // making value invisible; a promise puts a permanent public floor back on it, for everyone,
-      // for as long as the output lives. Someone approving a "move to private" must not discover
-      // afterwards that they also published a number.
+    case "shield":
       return {
         instructions: [],
-        note: promiseNote(operation.minimumValuePromise, base, "this new private output"),
+        steps: [
+          `Moves ${BigInt(operation.amount).toString()} ${resourceLabel(operation.resourceAddress)} from your public balance into your private balance.`,
+          "Stays in this account.",
+        ],
+        // Stated outright, not left for the user to infer from a field name. Shielding is the act
+        // of making value invisible; a promise puts a permanent public floor back on it, for
+        // everyone, for as long as the output lives. Someone approving a "move to private" must
+        // not discover afterwards that they also published a number.
+        warning: promiseWarning(operation.minimumValuePromise, "this new private output"),
       };
-    }
     case "depositConfidential":
       return {
         instructions: [],
-        note: `Moves ${BigInt(operation.amount).toString()} of ${operation.resourceAddress} from your public balance into a Confidential vault. Stays in this account. Different privacy mechanism from "shield" -- only works if this resource was created as a Confidential-type resource.`,
+        steps: [
+          `Moves ${BigInt(operation.amount).toString()} ${resourceLabel(operation.resourceAddress)} from your public balance into a Confidential vault.`,
+          "Stays in this account.",
+          `Different privacy mechanism from "shield" — only works if this resource was created as a Confidential-type resource.`,
+        ],
       };
     case "unshield":
       return {
         instructions: [],
-        note: `Moves ${BigInt(
-          operation.revealedAmount
-        ).toString()} of ${operation.resourceAddress} from your private balance back into your public balance — this amount becomes visible on-chain.`,
+        steps: [
+          `Moves ${BigInt(operation.revealedAmount).toString()} ${resourceLabel(operation.resourceAddress)} from your private balance back into your public balance.`,
+          "This amount becomes visible on-chain.",
+        ],
       };
-    case "sendPrivately": {
-      const base = `Sends ${BigInt(operation.amount).toString()} of ${operation.resourceAddress} privately to ${
-        operation.recipientWalletAddress
-      }. The amount and recipient stay hidden on-chain.`;
+    case "sendPrivately":
       return {
         instructions: [],
-        note: promiseNote(operation.minimumValuePromise, base, "the recipient's new output"),
+        steps: [
+          `Sends ${BigInt(operation.amount).toString()} ${resourceLabel(operation.resourceAddress)} privately to ${shortId(operation.recipientWalletAddress)}.`,
+          "The amount and recipient stay hidden on-chain.",
+        ],
+        warning: promiseWarning(operation.minimumValuePromise, "the recipient's new output"),
       };
-    }
     case "htlcClaim":
       return {
         instructions: [],
-        note: `Claims an HTLC-locked private payment of ${operation.resourceAddress} into your private balance, by revealing the secret to the network.`,
+        steps: [
+          `Claims an HTLC-locked private payment of ${resourceLabel(operation.resourceAddress)} into your private balance.`,
+          "Reveals the secret to the network.",
+        ],
       };
     case "htlcRefund":
       return {
         instructions: [],
-        note: `Refunds ${BigInt(
-          operation.amount
-        ).toString()} of ${operation.resourceAddress} from an HTLC you funded back into your private balance. Only works once its refund epoch has passed.`,
+        steps: [
+          `Refunds ${BigInt(operation.amount).toString()} ${resourceLabel(operation.resourceAddress)} from an HTLC you funded, back into your private balance.`,
+          "Only works once its refund epoch has passed.",
+        ],
       };
   }
 }
 
 /**
- * Appends the minimum-value-promise disclosure to an operation's approval note, when one is set.
- *
- * Separate from the per-kind notes because the warning is identical wherever a promise appears and
- * must not drift between them: the whole point is that the user reads the same unambiguous sentence
- * about a permanent public disclosure regardless of which operation carries it. A zero or absent
- * promise adds nothing at all -- a warning shown on every transaction is one nobody reads on the
+ * The minimum-value-promise disclosure, when one is set -- kept as its own function (rather than
+ * inlined per case) so the wording can never drift between the two operation kinds that carry a
+ * promise: the whole point is that the user reads the exact same unambiguous sentence about a
+ * permanent public disclosure regardless of which one triggered it. A zero or absent promise
+ * returns `undefined` -- a warning shown on every transaction is one nobody reads on the
  * transaction that needed it.
  */
-function promiseNote(minimumValuePromise: string | undefined, base: string, subject: string): string {
-  if (minimumValuePromise === undefined || BigInt(minimumValuePromise) === 0n) return base;
-  return `${base} It will also publicly and permanently record that ${subject} is worth at least ${BigInt(
+function promiseWarning(minimumValuePromise: string | undefined, subject: string): string | undefined {
+  if (minimumValuePromise === undefined || BigInt(minimumValuePromise) === 0n) return undefined;
+  return `This will also publicly and permanently record that ${subject} is worth at least ${BigInt(
     minimumValuePromise,
   ).toString()} — visible to everyone on-chain, not just this site, for as long as the output exists.`;
 }
@@ -768,7 +832,12 @@ async function createTransactionRequest(
   operation: TransactionRequestOperation
 ): Promise<{ requestId: string; approved: Promise<boolean> }> {
   const requestId = crypto.randomUUID();
-  const { instructions, note } = summarizeOperationForApproval(operation);
+  const { instructions, steps, warning } = summarizeOperationForApproval(operation);
+  // The persisted record's `note` (also `TransactionRequestSummary.note` -- the dApp-facing text
+  // from `tari_getTransactionRequest`) stays a single flat string for API stability; the popup
+  // gets the structured `steps`/`warning` below instead, so it can render each fact on its own
+  // line and the promise disclosure in its own highlighted box.
+  const note = [...(steps ?? []), warning].filter(Boolean).join(" ");
   const maxFee = "maxFee" in operation ? operation.maxFee : undefined;
   const now = Date.now();
   const record: TransactionRequestRecord = {
@@ -776,7 +845,7 @@ async function createTransactionRequest(
     origin,
     accountId,
     operation,
-    note: note ?? "",
+    note,
     status: "pending",
     createdAt: now,
     expiresAt: now + TRANSACTION_REQUEST_TTL_MS,
@@ -785,7 +854,19 @@ async function createTransactionRequest(
   // write (background/approvals.ts) always finds this record -- there is no window where the user
   // could click before it exists.
   await addTransactionRequest(record);
-  const approval: PendingApprovalInput = { kind: "transaction", origin, instructions, maxFee, note, accountId };
+  // Absent for `redeemStealthOutputWithPrivateFee`, which has no `feeType` field (already always
+  // private). Otherwise seeded from the dApp's own `feeType` hint if it gave one, else this
+  // wallet's own default -- `enforced` locks the popup's toggle instead of letting the user change
+  // it (background/index.ts's `tari_createTransactionRequest` handler already required `feeType`
+  // be set whenever `enforceFeeType` is).
+  const feeChoice =
+    operation.kind === "redeemStealthOutputWithPrivateFee"
+      ? undefined
+      : {
+          enforced: operation.enforceFeeType === true,
+          initial: operation.feeType ?? (await getState()).feePrivacyDefault,
+        };
+  const approval: PendingApprovalInput = { kind: "transaction", origin, instructions, maxFee, note, steps, warning, accountId, feeChoice };
   const approved = requestApproval(approval, requestId);
   return { requestId, approved };
 }
@@ -801,6 +882,31 @@ function requireLocalAccount(account: WalletAccountApi, what: string): OotleAcco
     throw new Error(`${what} isn't available for daemon-connected accounts — switch to a local account first.`);
   }
   return account;
+}
+
+/**
+ * Resolves an operation's already-decided `feeType` ("private" | "transparent" | absent, set at
+ * approval time — see `resolveApproval`'s own doc comment) into the SDK's `FeeType` shape.
+ *
+ * A daemon-relayed account has no local stealth-fee support (`OotleAccount`'s `feeType: "private"`
+ * builds and signs a `StealthTransfer` fee spend itself; a `DaemonAccount` only relays to
+ * `tari_ootle_walletd`, which this doesn't talk to) — same reasoning as `requireLocalAccount`,
+ * reused here so both give the same style of error naming what needs a local account.
+ *
+ * "private" needs a `feeResourceAddress` the dApp never supplies (only the wallet's own fee
+ * resource is meaningful here, almost always XTR) — found the same way the wallet's own send UI
+ * does: the balance whose `symbol` is `"XTR"`.
+ */
+async function resolveFeeType(account: WalletAccountApi, feeType: "private" | "transparent" | undefined): Promise<FeeType> {
+  if (feeType !== "private") return { kind: "transparent" };
+  requireLocalAccount(account, "Paying a private fee");
+  // XTR_RESOURCE_ADDRESS is a fixed, well-known constant -- no balance lookup needed, and
+  // `getBalances()` (revealed/vault balances) would be the wrong thing to check anyway: it can
+  // come back with no XTR entry at all for an account holding XTR purely as shielded UTXOs (no
+  // revealed vault ever touched), which is exactly the kind of account most likely to want a
+  // private fee. Whether there's actually a shielded UTXO big enough to pay from is
+  // ootle-sdk-ts's own concern (`selectPrivateFeeUtxo`, surfaced as its own clear error if not).
+  return { kind: "private", feeResourceAddress: XTR_RESOURCE_ADDRESS };
 }
 
 /**
@@ -834,34 +940,47 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
   const operation = record.operation;
   const maxFee = operation.maxFee !== undefined ? BigInt(operation.maxFee) : undefined;
 
-  const doExecute = (): Promise<unknown> => {
+  const feeType = operation.kind === "redeemStealthOutputWithPrivateFee" ? undefined : operation.feeType;
+
+  const doExecute = async (): Promise<unknown> => {
     switch (operation.kind) {
       case "instructions":
-        return account.execute(operation.instructions, { maxFee, inputs: operation.inputs });
-      case "withdrawStealthAndExecute":
+        return account.execute(operation.instructions, {
+          maxFee,
+          inputs: operation.inputs,
+          feeType: await resolveFeeType(account, feeType),
+        });
+      case "withdrawStealthAndExecute": {
         // Needs this account's own view secret + one-time stealth signing (SecretKeyWallet), same
         // as shield()/unshield() — a daemon-relayed account can't provide either (see
         // WalletDaemonSigner's own doc comment).
-        return requireLocalAccount(account, "Withdrawing stealth funds").withdrawStealthAndExecute(
+        const local = requireLocalAccount(account, "Withdrawing stealth funds");
+        return local.withdrawStealthAndExecute(
           operation.resourceAddress,
           BigInt(operation.amount),
           operation.workspaceVarName,
           operation.followUpInstructions,
           operation.relatedComponents ?? [],
-          maxFee
+          maxFee,
+          await resolveFeeType(local, feeType)
         );
-      case "redeemStealthOutputAndExecute":
+      }
+      case "redeemStealthOutputAndExecute": {
         // Same account requirement as withdrawStealthAndExecute -- see its own comment above.
-        return requireLocalAccount(account, "Redeeming a stealth token").redeemStealthOutputAndExecute(
+        const local = requireLocalAccount(account, "Redeeming a stealth token");
+        return local.redeemStealthOutputAndExecute(
           operation.resourceAddress,
           operation.commitmentHex,
           BigInt(operation.revealedAmount),
           operation.followUpInstructions,
           operation.relatedComponents ?? [],
-          maxFee
+          maxFee,
+          await resolveFeeType(local, feeType)
         );
+      }
       case "redeemStealthOutputWithPrivateFee":
         // Same account requirement as withdrawStealthAndExecute -- see its own comment above.
+        // Already always a private fee -- no feeType to resolve here.
         return requireLocalAccount(account, "Redeeming a stealth token privately").redeemStealthOutputWithPrivateFee(
           operation.resourceAddress,
           operation.commitmentHex,
@@ -872,68 +991,84 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
           BigInt(operation.maxFee),
           operation.relatedComponents ?? []
         );
-      case "htlcFund":
+      case "htlcFund": {
         // See tari_withdrawStealthAndExecute's own comment: only a seed-derived local account can
         // build the PayTo::Conditions output witness this needs.
-        return requireLocalAccount(account, "Funding an HTLC").htlcFund(
+        const local = requireLocalAccount(account, "Funding an HTLC");
+        return local.htlcFund(
           operation.resourceAddress,
           BigInt(operation.amount),
           operation.claimantWalletAddress,
           operation.hashLockHex,
           BigInt(operation.refundEpoch),
-          maxFee
+          maxFee,
+          await resolveFeeType(local, feeType)
         );
+      }
       // Private spends. Each defers entirely to the OotleAccount method of the same name -- the
       // dApp never sees a mask, a view secret, or which specific UTXOs get spent (coin selection is
       // the wallet's own decision, from its own local ledger of stealth outputs). Same
       // local-account requirement as everything else stealth-touching.
-      case "shield":
-        return requireLocalAccount(account, "Shielding funds").shield(
+      case "shield": {
+        const local = requireLocalAccount(account, "Shielding funds");
+        return local.shield(
           operation.resourceAddress,
           BigInt(operation.amount),
           maxFee,
           operation.memo,
-          operation.minimumValuePromise !== undefined ? BigInt(operation.minimumValuePromise) : 0n
+          operation.minimumValuePromise !== undefined ? BigInt(operation.minimumValuePromise) : 0n,
+          await resolveFeeType(local, feeType)
         );
-      case "depositConfidential":
-        return requireLocalAccount(account, "Depositing into a Confidential vault").depositConfidential(
-          operation.resourceAddress,
-          BigInt(operation.amount),
-          maxFee
-        );
-      case "unshield":
-        return requireLocalAccount(account, "Unshielding funds").unshield(
+      }
+      case "depositConfidential": {
+        const local = requireLocalAccount(account, "Depositing into a Confidential vault");
+        return local.depositConfidential(operation.resourceAddress, BigInt(operation.amount), maxFee, await resolveFeeType(local, feeType));
+      }
+      case "unshield": {
+        const local = requireLocalAccount(account, "Unshielding funds");
+        return local.unshield(
           operation.resourceAddress,
           BigInt(operation.revealedAmount),
           maxFee,
-          operation.memo
+          operation.memo,
+          await resolveFeeType(local, feeType)
         );
-      case "sendPrivately":
-        return requireLocalAccount(account, "Sending privately").sendPrivately(
+      }
+      case "sendPrivately": {
+        const local = requireLocalAccount(account, "Sending privately");
+        return local.sendPrivately(
           operation.resourceAddress,
           operation.recipientWalletAddress,
           BigInt(operation.amount),
           maxFee,
           operation.memo,
-          operation.minimumValuePromise !== undefined ? BigInt(operation.minimumValuePromise) : 0n
+          operation.minimumValuePromise !== undefined ? BigInt(operation.minimumValuePromise) : 0n,
+          await resolveFeeType(local, feeType)
         );
-      case "htlcClaim":
-        return requireLocalAccount(account, "Claiming an HTLC").htlcClaim(
+      }
+      case "htlcClaim": {
+        const local = requireLocalAccount(account, "Claiming an HTLC");
+        return local.htlcClaim(
           operation.resourceAddress,
           operation.commitment,
           operation.conditions,
           operation.preimageHex,
-          maxFee
+          maxFee,
+          await resolveFeeType(local, feeType)
         );
-      case "htlcRefund":
-        return requireLocalAccount(account, "Refunding an HTLC").htlcRefund(
+      }
+      case "htlcRefund": {
+        const local = requireLocalAccount(account, "Refunding an HTLC");
+        return local.htlcRefund(
           operation.resourceAddress,
           operation.commitment,
           operation.conditions,
           BigInt(operation.amount),
           operation.outputMask,
-          maxFee
+          maxFee,
+          await resolveFeeType(local, feeType)
         );
+      }
     }
   };
 
@@ -1063,6 +1198,7 @@ async function buildStatus(): Promise<WalletStatus> {
     daemonConnections: state.daemonConnections.map((c) => ({ id: c.id, url: c.url, label: c.label })),
     addressBook: state.addressBook,
     autoLockMinutes: state.autoLockMinutes,
+    feePrivacyDefault: state.feePrivacyDefault,
   };
 }
 
@@ -1364,7 +1500,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       return getPendingApproval(message.approvalId) ?? null;
 
     case "popup-resolve-approval":
-      return { resolved: await resolveApproval(message.approvalId, message.approve) };
+      return { resolved: await resolveApproval(message.approvalId, message.approve, message.feeType) };
 
     case "popup-reset-wallet": {
       await clearUnlockedSeed();
@@ -1432,6 +1568,11 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
 
     case "popup-set-auto-lock-minutes": {
       await setState({ autoLockMinutes: message.minutes });
+      return {};
+    }
+
+    case "popup-set-fee-privacy-default": {
+      await setState({ feePrivacyDefault: message.feeType });
       return {};
     }
 

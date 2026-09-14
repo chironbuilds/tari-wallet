@@ -65,7 +65,10 @@ export function getPendingApproval(id: string): PendingApproval | undefined {
  * dApp can pick it up via `tari_getTransactionRequest`/`tari_submitTransactionRequest` after the
  * fact. The caller uses this return value to tell the user whether the click was lost outright.
  */
-export async function resolveApproval(id: string, approved: boolean): Promise<boolean> {
+/** `chosenFeeType`: the popup's live fee-type toggle at the moment of approval (absent for a
+ * rejection, an enforced choice, or an approval with no `feeChoice` at all) -- see
+ * `recordTransactionRequestDecision`'s doc comment for where it ends up. */
+export async function resolveApproval(id: string, approved: boolean, chosenFeeType?: "private" | "transparent"): Promise<boolean> {
   const entry = pending.get(id);
   if (entry) {
     entry.resolve(approved);
@@ -76,7 +79,7 @@ export async function resolveApproval(id: string, approved: boolean): Promise<bo
   // Guarded (pending-only) transition: if a submission already claimed this record moments after
   // the click resolved, writing "approved" here unconditionally would flip it back open and let a
   // second submit through -- see recordTransactionRequestDecision's doc comment.
-  const persisted = await recordTransactionRequestDecision(id, approved);
+  const persisted = await recordTransactionRequestDecision(id, approved, chosenFeeType);
   return entry !== undefined || persisted;
 }
 
