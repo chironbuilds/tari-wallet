@@ -8,6 +8,7 @@
   "scripts": {
     "postinstall": "node scripts/sync-vendored-ootle-wasm.mjs",
     "build": "vite build",
+    "package": "vite build && node scripts/make-store-zip.mjs",
     "dev": "vite build --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
