@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Privacy Policy — Sapient</title>
+  <title>Privacy Policy - Sapient</title>
   <meta name="description" content="Privacy policy for the Sapient Chrome extension wallet and the sapient.tari.mw website." />
   <link rel="icon" href="assets/favicon.png" />
   <meta name="theme-color" content="#08050c" />
@@ -22,8 +22,11 @@
       </a>
       <div class="nav-links">
         <a href="index.html#features">Features</a>
-        <a href="index.html#screenshots">Screenshots</a>
-        <a href="index.html#how-it-works">How it works</a>
+        <a href="index.html#privacy">Privacy</a>
+        <a href="index.html#security">Security</a>
+        <a href="index.html#integrations">Integrations</a>
+        <a href="thesis.html">Thesis</a>
+        <a href="index.html#support">Support</a>
         <a href="https://github.com/chironbuilds/tari-wallet" target="_blank" rel="noopener">GitHub</a>
         <a href="https://universe.tari.mw/integration" target="_blank" rel="noopener">Docs</a>
       </div>
@@ -43,8 +46,8 @@
 
       <p>
         Sapient is a self-custody wallet: it is built to work <strong>without</strong> a server of ours
-        sitting in the middle. This policy covers two separate things — the Sapient browser extension,
-        and this website (sapient.tari.mw) — since they collect different things (the extension:
+        sitting in the middle. This policy covers two separate things: the Sapient browser extension,
+        and this website (sapient.tari.mw), since they collect different things (the extension:
         essentially nothing; the site: only what a static page loads by default).
       </p>
 
@@ -53,7 +56,7 @@
         <li>Sapient has no backend. There is no Sapient server that ever sees your seed phrase, your keys, your balances, or your transactions.</li>
         <li>Your recovery phrase and derived keys are generated on-device and stored only in this browser's encrypted local storage, protected by the password you set.</li>
         <li>The extension talks directly to the Tari Ootle network (an indexer/validator you're connected to) and, only with your explicit approval, to sites you choose to connect a wallet account to.</li>
-        <li>Nothing is sent to any analytics, advertising, or tracking service — by the extension or by this website.</li>
+        <li>Nothing is sent to any analytics, advertising, or tracking service, whether by the extension or by this website.</li>
       </ul>
 
       <h2>The extension</h2>
@@ -62,13 +65,13 @@
         <li>
           A 24-word recovery phrase is generated (or imported) entirely on-device. It, and the keys
           derived from it, are encrypted with the password you set and stored only in this browser's
-          local extension storage (<code>chrome.storage.local</code>) — never transmitted anywhere,
+          local extension storage (<code>chrome.storage.local</code>), never transmitted anywhere,
           including to us, since there is nowhere for it to be transmitted <em>to</em>.
         </li>
         <li>
-          Wallet metadata that isn't secret on its own — account labels, an optional address book,
+          Wallet metadata that isn't secret on its own (account labels, an optional address book,
           cached substate versions, a locally-recorded transaction history, and (if you use one) a
-          connected wallet daemon's API key — is also kept only in local extension storage. None of it
+          connected wallet daemon's API key) is also kept only in local extension storage. None of it
           leaves the browser except to the network destinations described below.
         </li>
         <li>
@@ -82,14 +85,14 @@
         <li>
           <strong>The Ootle network.</strong> To check balances, resolve substates, and submit
           transactions, the extension talks directly to an Ootle indexer (by default a testnet
-          indexer for the esmeralda/igor network) — the same way any blockchain wallet talks to a
+          indexer for the esmeralda/igor network), the same way any blockchain wallet talks to a
           node. That indexer sees the on-chain addresses and transactions it's serving, the same
           information any node operator can see for requests it handles; it is not operated by us.
         </li>
         <li>
           <strong>Sites you connect to.</strong> A web page only ever learns your wallet exists, or
           gets access to a specific account, after you approve a connection request in the extension's
-          own popup — the same explicit-approval model used by other browser-extension wallets. A site
+          own popup, the same explicit-approval model used by other browser-extension wallets. A site
           you haven't connected to cannot see your accounts, balances, or activity.
         </li>
         <li>
@@ -101,7 +104,7 @@
 
       <p>
         The extension requests browser permissions for local storage (<code>storage</code>), its
-        auto-lock timer (<code>alarms</code>), and network access to the hosts above — plus, only when
+        auto-lock timer (<code>alarms</code>), and network access to the hosts above, plus, only when
         you initiate a connection to a new site, that one site's origin
         (<code>optional_host_permissions</code>), granted per-site through Chrome's own permission
         prompt rather than assumed up front.
@@ -112,7 +115,7 @@
         sapient.tari.mw is a static page with no account system, no analytics, and no advertising or
         tracking scripts. It sets no cookies and reads/writes nothing to your browser's storage. The
         one third-party request it makes is to <strong>Google Fonts</strong> (fonts.googleapis.com /
-        fonts.gstatic.com) to load its typefaces — like any site using Google Fonts, that exposes your
+        fonts.gstatic.com) to load its typefaces. Like any site using Google Fonts, that exposes your
         IP address and browser's user agent to Google as part of that request. No other outbound
         request is made by this page.
       </p>
@@ -134,8 +137,8 @@
 
       <h2>Changes to this policy</h2>
       <p>
-        If Sapient's data handling changes — for example, adding an optional feature that talks to a
-        new third party — this page will be updated to reflect it, and the "Last updated" date above
+        If Sapient's data handling changes (for example, adding an optional feature that talks to a
+        new third party) this page will be updated to reflect it, and the "Last updated" date above
         will change accordingly.
       </p>
     </div>
@@ -150,13 +153,15 @@
       <div class="footer-links">
         <a href="https://github.com/chironbuilds/tari-wallet" target="_blank" rel="noopener">GitHub</a>
         <a href="https://universe.tari.mw/integration" target="_blank" rel="noopener">Documentation</a>
+        <a href="thesis.html">The Ootle Thesis</a>
+        <a href="index.html#support">Support Sapient</a>
         <a href="https://github.com/chironbuilds/tari-wallet/blob/master/LICENSE" target="_blank" rel="noopener">License</a>
         <a href="https://github.com/tari-project/tari-ootle" target="_blank" rel="noopener">Tari Ootle</a>
         <a href="privacy.html">Privacy Policy</a>
         <a href="terms.html">Terms of Use</a>
       </div>
       <div class="footer-meta">
-        <span>MIT licensed — free to use, modify, and share, including commercially.</span>
+        <span>MIT licensed. Free to use, modify, and share, including commercially.</span>
         <span>Not affiliated with the Tari Project.</span>
       </div>
     </div>

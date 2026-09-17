@@ -168,4 +168,61 @@
 
     requestAnimationFrame(draw);
   }
+
+  // -------------------------------------------------------------------
+  // Copy-to-clipboard for the donation address
+  // -------------------------------------------------------------------
+  const copyBtn = document.getElementById("copyDonateAddress");
+  if (copyBtn) {
+    const addressEl = document.querySelector("#donateAddress code");
+    const fallbackCopy = (text) => {
+      const helper = document.createElement("textarea");
+      helper.value = text;
+      helper.style.position = "fixed";
+      helper.style.opacity = "0";
+      document.body.appendChild(helper);
+      helper.select();
+      try {
+        document.execCommand("copy");
+      } catch {
+        // Nothing more to try; the address is still visible and selectable by hand.
+      }
+      document.body.removeChild(helper);
+    };
+    copyBtn.addEventListener("click", () => {
+      const text = addressEl ? addressEl.textContent.trim() : "";
+      // navigator.clipboard.writeText can hang indefinitely if the permission prompt is
+      // never resolved (seen under some automation contexts) -- race it against a short
+      // timeout and fall back to the always-synchronous execCommand path either way, so the
+      // button never gets stuck on "Copy" waiting for a promise that may never settle.
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        const label = copyBtn.querySelector("span");
+        const original = label.textContent;
+        copyBtn.classList.add("copied");
+        label.textContent = "Copied";
+        setTimeout(() => {
+          copyBtn.classList.remove("copied");
+          label.textContent = original;
+        }, 1800);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(finish).catch(() => {
+          fallbackCopy(text);
+          finish();
+        });
+        setTimeout(() => {
+          if (!settled) {
+            fallbackCopy(text);
+            finish();
+          }
+        }, 600);
+      } else {
+        fallbackCopy(text);
+        finish();
+      }
+    });
+  }
 })();

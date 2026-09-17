@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sapient — a self-custody wallet for Tari Ootle</title>
-  <meta name="description" content="Sapient is a self-custody Chrome extension wallet for Tari Ootle. Your own 24-word seed, transactions signed and submitted directly to the network, stealth-private transfers, and a MetaMask-style injected provider for dApps." />
+  <title>Sapient: a self-custody wallet for Tari Ootle</title>
+  <meta name="description" content="Sapient is a self-custody Chrome extension wallet for Tari Ootle. Your own 24-word seed, stealth-private transfers with view-key-gated balances, native HTLCs, a MetaMask-style window.tari provider, and two rounds of publicly documented security self-audit." />
   <link rel="icon" href="assets/favicon.png" />
-  <meta property="og:title" content="Sapient — a Tari Ootle wallet" />
-  <meta property="og:description" content="Self-custody. No wallet daemon required. Your seed, your keys, straight to the network." />
+  <meta property="og:title" content="Sapient: a Tari Ootle wallet" />
+  <meta property="og:description" content="Self-custody, stealth-private by design, no wallet daemon required. Your seed, your keys, straight to the network." />
   <meta property="og:type" content="website" />
   <meta name="theme-color" content="#08050c" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -25,8 +25,11 @@
       </a>
       <div class="nav-links">
         <a href="#features">Features</a>
-        <a href="#screenshots">Screenshots</a>
-        <a href="#how-it-works">How it works</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#security">Security</a>
+        <a href="#integrations">Integrations</a>
+        <a href="thesis.html">Thesis</a>
+        <a href="#support">Support</a>
         <a href="https://github.com/chironbuilds/tari-wallet" target="_blank" rel="noopener">GitHub</a>
         <a href="https://universe.tari.mw/integration" target="_blank" rel="noopener">Docs</a>
       </div>
@@ -41,7 +44,32 @@
   <div class="banner">
     <div class="wrap">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      Testnet only. Under active development — do not use to hold real value.
+      Testnet only. Under active development. Do not use to hold real value.
+    </div>
+  </div>
+
+  <div class="trustbar">
+    <div class="wrap">
+      <span class="trust-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+        2 self-audit passes, publicly documented
+      </span>
+      <span class="trust-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20Z"/><path d="M2 12h20"/></svg>
+        MIT, fully open source
+      </span>
+      <span class="trust-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
+        Stealth-private by design
+      </span>
+      <span class="trust-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="14" width="20" height="8" rx="2"/><rect x="2" y="2" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+        No daemon required
+      </span>
+      <span class="trust-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+        Live DEX &amp; DAO built on it
+      </span>
     </div>
   </div>
 
@@ -49,12 +77,12 @@
     <section class="hero">
       <div class="wrap">
         <div class="hero-copy" data-reveal>
-          <span class="eyebrow">Sapient — a Tari Ootle wallet</span>
+          <span class="eyebrow">Sapient: a Tari Ootle wallet</span>
           <h1>A wallet that<br />follows only <span class="gradient-text">you</span>.</h1>
           <p class="lede">
             Self-custody for <a href="https://github.com/tari-project/tari-ootle" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">Tari Ootle</a>.
             Sapient generates and holds its own 24-word recovery phrase, then signs and submits
-            transactions straight to the network — no wallet daemon required.
+            transactions straight to the network. No wallet daemon required.
           </p>
           <div class="hero-cta">
             <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/tari-ootle-wallet/demkeckolenopkgnfbnpflkpbbdhpgkl" target="_blank" rel="noopener">
@@ -86,7 +114,7 @@
         <div class="section-head" data-reveal>
           <span class="eyebrow">Features</span>
           <h2>Everything a self-custody wallet should be</h2>
-          <p>Built directly against the Ootle network, with the privacy tooling most wallets bolt on later shipped from day one.</p>
+          <p>Built directly against the Ootle network. No guessed balances, no re-pasted addresses, no daemon to babysit.</p>
         </div>
         <div class="features-grid">
 
@@ -95,7 +123,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>
             </div>
             <h3>True self-custody</h3>
-            <p>Generates and holds its own 24-word recovery phrase. Keys are derived and used on-device — they never leave the extension.</p>
+            <p>Generates and holds its own 24-word recovery phrase. Keys are derived and used on-device, and they never leave the extension.</p>
           </div>
 
           <div class="feature-card" data-reveal>
@@ -111,23 +139,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a2 2 0 0 1 2-2h4"/><path d="M4 15v4a2 2 0 0 0 2 2h4"/><path d="M20 9V5a2 2 0 0 0-2-2h-4"/><path d="M20 15v4a2 2 0 0 1-2 2h-4"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
             </div>
             <h3><code>window.tari</code> provider</h3>
-            <p>A MetaMask-style injected provider for dApps — connect, sign, and submit in the page's own context, not a WalletConnect relay.</p>
-          </div>
-
-          <div class="feature-card" data-reveal>
-            <div class="feature-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
-            </div>
-            <h3>Private by design</h3>
-            <p>Stealth-type transfers, confidential vaults, and view-key-gated balance access — a connected site sees only what you explicitly grant.</p>
-          </div>
-
-          <div class="feature-card" data-reveal>
-            <div class="feature-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <h3>HTLC support</h3>
-            <p>Fund, claim, and refund hash-time-locked contracts natively — the primitive cross-chain swaps and escrows are built on.</p>
+            <p>A MetaMask-style injected provider for dApps: connect, sign, and submit in the page's own context, not a WalletConnect relay.</p>
           </div>
 
           <div class="feature-card" data-reveal>
@@ -138,6 +150,201 @@
             <p>Multiple accounts per wallet, each independently derived. Switch freely without re-entering your seed.</p>
           </div>
 
+          <div class="feature-card" data-reveal>
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
+            </div>
+            <h3>Address book</h3>
+            <p>Save recipients once, pick them from a list on Send or Send-privately. No more re-pasting long addresses.</p>
+          </div>
+
+          <div class="feature-card" data-reveal>
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/></svg>
+            </div>
+            <h3>Network switching</h3>
+            <p>Move between Esmeralda and Igor testnets from Settings, with a confirmation step so you never sign on the wrong one by accident.</p>
+          </div>
+
+          <div class="feature-card" data-reveal>
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+            </div>
+            <h3>Transaction history</h3>
+            <p>Every send, shield, unshield, private transfer, and dApp transaction recorded locally, labeled clearly without ever decoding raw instruction data.</p>
+          </div>
+
+          <div class="feature-card" data-reveal>
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/><path d="M12 2v2"/><path d="M12 20v2"/></svg>
+            </div>
+            <h3>Real on-chain balances</h3>
+            <p>Every token renders with its actual on-chain divisibility and symbol, read from the network, never a guessed constant.</p>
+          </div>
+
+          <div class="feature-card" data-reveal>
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="m6.34 6.34 2.83 2.83"/><path d="M2 12h4"/><path d="m6.34 17.66 2.83-2.83"/><path d="M12 18v4"/><path d="m14.83 14.83 2.83 2.83"/><path d="M18 12h4"/><path d="m14.83 9.17 2.83-2.83"/></svg>
+            </div>
+            <h3>Testnet faucet built in</h3>
+            <p>Claim testnet XTR straight from the home screen, including the self-funding path a brand-new, empty account needs for its very first transaction.</p>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <section id="privacy" class="split-section">
+      <div class="wrap">
+        <div class="split-visual" data-reveal>
+          <div class="glow-badge glow-badge-lg">
+            <span class="glow-ring"></span>
+            <span class="glow-ring glow-ring-2"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
+          </div>
+        </div>
+        <div class="split-copy">
+          <div class="section-head section-head-left" data-reveal>
+            <span class="eyebrow">Privacy</span>
+            <h2>The part most wallets bolt on later, shipped from day one</h2>
+            <p>A connected site sees only what you explicitly grant, never your full position by default.</p>
+          </div>
+          <div class="privacy-list">
+            <div class="privacy-item" data-reveal>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <div>
+                <h4>Stealth-type transfers</h4>
+                <p>Shield, unshield, and send-privately. The wallet builds every stealth output itself, coin selection included; a dApp only ever supplies an amount, never a blinding mask or view secret.</p>
+              </div>
+            </div>
+            <div class="privacy-item" data-reveal>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              <div>
+                <h4>View-key-gated confidential balances</h4>
+                <p>Reading your private position is a separate, revocable grant from connecting. A site can know your address without ever learning what you actually hold.</p>
+              </div>
+            </div>
+            <div class="privacy-item" data-reveal>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
+              <div>
+                <h4>Private transaction fees</h4>
+                <p>The fee itself can be paid from a stealth UTXO instead of your visible balance, so the transaction doesn't reveal an active account on-chain at all.</p>
+              </div>
+            </div>
+            <div class="privacy-item" data-reveal>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <div>
+                <h4>Encrypted memos</h4>
+                <p>Attach a private note to a stealth output, visible only to its recipient and never recorded in the clear on-chain.</p>
+              </div>
+            </div>
+            <div class="privacy-item" data-reveal>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <div>
+                <h4>Native HTLC support</h4>
+                <p>Fund, claim, and refund hash-time-locked contracts directly, the primitive cross-chain swaps and trustless escrows are built on.</p>
+              </div>
+            </div>
+            <div class="privacy-item" data-reveal>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/></svg>
+              <div>
+                <h4>Reveal straight into a dApp call</h4>
+                <p><code>tari_withdrawStealthAndExecute</code> pulls stealth funds directly into a caller's own contract call in one signed transaction, with no separate reveal-then-send round trip.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="security" class="split-section split-reverse">
+      <div class="wrap">
+        <div class="split-copy">
+          <div class="section-head section-head-left" data-reveal>
+            <span class="eyebrow">Security</span>
+            <h2>Checked, not just claimed</h2>
+            <p>Two rounds of internal, code-level self-audit: different passes, different tooling, both publicly documented rather than kept private.</p>
+          </div>
+          <div class="privacy-list">
+            <div class="privacy-item" data-reveal>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><polyline points="8.5 12 11 14.5 16 9"/></svg>
+              <div>
+                <h4>Real bugs found, fixed, and written up</h4>
+                <p>An auto-lock bypass, a scan cursor that could permanently skip a private payment, and storage races between concurrent requests: every one documented with file/line references in <code>SECURITY_AUDIT.md</code>, not smoothed over.</p>
+              </div>
+            </div>
+            <div class="privacy-item" data-reveal>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <div>
+                <h4>AES-256-GCM at rest, 600k-iteration PBKDF2</h4>
+                <p>Meets OWASP's 2023 minimum. The decrypted seed lives only in <code>chrome.storage.session</code>, never reachable from a content script.</p>
+              </div>
+            </div>
+            <div class="privacy-item" data-reveal>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12 6.5 9.5 5 11l4 4 10-10-1.5-1.5L9 12Z"/><path d="M12 21c-4.4-1-8-4.6-8-9V6l8-3 8 3v6c0 4.4-3.6 8-8 9Z"/></svg>
+              <div>
+                <h4>Mandatory seed verification</h4>
+                <p>Create Wallet gates past the recovery-phrase screen with a spot-check (re-enter three random words) before finishing. No more trusting an unverified "I saved it" click.</p>
+              </div>
+            </div>
+            <div class="privacy-item" data-reveal>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20Z"/><path d="M2 12h20"/></svg>
+              <div>
+                <h4>MIT licensed, fully open source</h4>
+                <p>No noncommercial clause, nothing closed off. Read every line the seed and signing logic actually run, <a href="https://github.com/chironbuilds/tari-wallet" target="_blank" rel="noopener" style="color:var(--accent-1)">on GitHub</a>.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="split-visual" data-reveal>
+          <div class="glow-badge glow-badge-lg">
+            <span class="glow-ring"></span>
+            <span class="glow-ring glow-ring-2"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><polyline points="8.5 12 11 14.5 16 9"/></svg>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="integrations">
+      <div class="wrap">
+        <div class="section-head" data-reveal>
+          <span class="eyebrow">Integrations</span>
+          <h2>Real dApps, already running against it</h2>
+          <p>A MetaMask-style <code>window.tari</code> provider: connect, sign, and submit in the page's own context. Not a relay, not a bridge.</p>
+        </div>
+        <div class="features-grid">
+
+          <div class="feature-card" data-reveal>
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            </div>
+            <h3>A full DEX</h3>
+            <p>Token creation, liquidity-pool creation, adding liquidity, and swaps, including the multi-instruction, multi-retry transactions those flows require, exercised live end-to-end.</p>
+          </div>
+
+          <div class="feature-card" data-reveal>
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12 6.5 9.5 5 11l4 4 10-10-1.5-1.5L9 12Z"/><path d="M12 21c-4.4-1-8-4.6-8-9V6l8-3 8 3v6c0 4.4-3.6 8-8 9Z"/></svg>
+            </div>
+            <h3>A sealed-bid DAO</h3>
+            <p>Reveal → deposit → withdraw-confidential → place-bid, chained through <code>tari_withdrawStealthAndExecute</code> as one wallet-signed transaction, verified against a real bid with no dry run.</p>
+          </div>
+
+          <div class="feature-card" data-reveal>
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a2 2 0 0 1 2-2h4"/><path d="M4 15v4a2 2 0 0 0 2 2h4"/><path d="M20 9V5a2 2 0 0 0-2-2h-4"/><path d="M20 15v4a2 2 0 0 1-2 2h-4"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+            </div>
+            <h3>Your dApp next</h3>
+            <p>The full provider API (transaction requests, private-balance access, stealth sends) is documented and ready to build against today.</p>
+          </div>
+
+        </div>
+        <div class="integrations-cta" data-reveal>
+          <a class="btn btn-primary" href="https://universe.tari.mw/integration" target="_blank" rel="noopener">
+            Read the integration docs
+          </a>
+          <span>Full provider API reference, transaction-request flow, and what to expect, at <code>universe.tari.mw/integration</code></span>
         </div>
       </div>
     </section>
@@ -147,13 +354,19 @@
         <div class="section-head" data-reveal>
           <span class="eyebrow">Screenshots</span>
           <h2>See it in action</h2>
-          <p>The full flow — balances, sending, and dApp approvals — in a compact popup that stays out of your way.</p>
+          <p>The full flow (balances, sending, and dApp approvals) in a compact popup that stays out of your way.</p>
         </div>
         <div class="shots-strip">
 
           <div class="shot-card tilt-card" data-reveal>
             <div class="shot-image">
-              <img src="assets/screenshots/home.png" alt="Balances and account view in the Sapient popup" loading="lazy" />
+              <div class="shot-toolbar">
+                <span class="shot-dot"></span><span class="shot-dot"></span><span class="shot-dot"></span>
+                <span class="shot-toolbar-chip"><img src="assets/logo.svg" alt="" />Sapient</span>
+              </div>
+              <div class="shot-frame">
+                <img src="assets/screenshots/home.png" alt="Balances and account view in the Sapient popup" loading="lazy" />
+              </div>
             </div>
             <div class="shot-caption">
               <h4>Balances at a glance</h4>
@@ -163,17 +376,29 @@
 
           <div class="shot-card tilt-card" data-reveal>
             <div class="shot-image">
-              <img src="assets/screenshots/send.png" alt="Send screen with a wallet address and amount filled in" loading="lazy" />
+              <div class="shot-toolbar">
+                <span class="shot-dot"></span><span class="shot-dot"></span><span class="shot-dot"></span>
+                <span class="shot-toolbar-chip"><img src="assets/logo.svg" alt="" />Sapient</span>
+              </div>
+              <div class="shot-frame">
+                <img src="assets/screenshots/send.png" alt="Send screen with a wallet address and amount filled in" loading="lazy" />
+              </div>
             </div>
             <div class="shot-caption">
               <h4>Send to a wallet address</h4>
-              <p>Just paste an <code>otl_…</code> address — Sapient handles the rest, even for brand-new recipients.</p>
+              <p>Just paste an <code>otl_…</code> address. Sapient handles the rest, even for brand-new recipients.</p>
             </div>
           </div>
 
           <div class="shot-card tilt-card" data-reveal>
             <div class="shot-image">
-              <img src="assets/screenshots/connect.png" alt="dApp connection approval popup" loading="lazy" />
+              <div class="shot-toolbar">
+                <span class="shot-dot"></span><span class="shot-dot"></span><span class="shot-dot"></span>
+                <span class="shot-toolbar-chip"><img src="assets/logo.svg" alt="" />Sapient</span>
+              </div>
+              <div class="shot-frame">
+                <img src="assets/screenshots/connect.png" alt="dApp connection approval popup" loading="lazy" />
+              </div>
             </div>
             <div class="shot-caption">
               <h4>Explicit dApp approval</h4>
@@ -200,7 +425,7 @@
           <div class="how-step" data-reveal>
             <span class="step-num">02</span>
             <h3>Derive &amp; hold keys</h3>
-            <p>Account keys are derived on-device. Sapient signs with them locally — the seed never leaves the extension.</p>
+            <p>Account keys are derived on-device. Sapient signs with them locally, and the seed never leaves the extension.</p>
           </div>
           <div class="how-step" data-reveal>
             <span class="step-num">03</span>
@@ -210,7 +435,7 @@
           <div class="how-step" data-reveal>
             <span class="step-num">04</span>
             <h3>Submit directly</h3>
-            <p>The signed transaction goes straight to an Ootle indexer — no intermediary daemon required for your own accounts.</p>
+            <p>The signed transaction goes straight to an Ootle indexer. No intermediary daemon required for your own accounts.</p>
           </div>
         </div>
       </div>
@@ -218,15 +443,29 @@
 
     <section id="about-the-name">
       <div class="wrap">
+        <a class="origin origin-link" href="thesis.html" data-reveal>
+          <span class="origin-mark origin-mark-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg>
+          </span>
+          <div>
+            <span class="eyebrow">The Ootle Thesis</span>
+            <h3>Money was always a bearer instrument. Here's why we think it should stay that way.</h3>
+            <p>
+              Why privacy and programmability had to end up in the same primitive, and why that's
+              specifically what led to building Sapient on Ootle, not just another privacy chain.
+              <span class="origin-cta">Read the essay →</span>
+            </p>
+          </div>
+        </a>
         <div class="origin" data-reveal>
           <img class="origin-mark" src="assets/logo.svg" alt="" />
           <div>
             <h3>Why "Sapient"?</h3>
             <p>
-              Named after <em>sapient pearwood</em> — the self-aware wood Discworld's ever-loyal, fiercely
+              Named after <em>sapient pearwood</em>, the self-aware wood Discworld's ever-loyal, fiercely
               protective Luggage is carved from. Fitting for a wallet that follows only you and answers to
               no one else, in the same nerdy-but-earnest naming tradition as Tari's own testnets
-              (Weatherwax, Igor, Esmeralda — all Discworld references too).
+              (Weatherwax, Igor, Esmeralda, all Discworld references too).
             </p>
           </div>
         </div>
@@ -247,6 +486,39 @@
         </div>
       </div>
     </section>
+
+    <section id="support">
+      <div class="wrap">
+        <div class="section-head" data-reveal>
+          <span class="eyebrow">Support</span>
+          <h2>We don't sell your data. We don't take a cut of your fees.</h2>
+          <p>Sapient exists to make Ootle usable, not to extract revenue from the people using it. Read the <a href="thesis.html" style="color:var(--accent-1)">full reasoning behind that</a>.</p>
+        </div>
+        <div class="support-card" data-reveal>
+          <div class="support-copy">
+            <p>
+              There's no business model here. No analytics, no data broker, no premium tier, no
+              markup baked into a fee. Sapient is built by people who take the
+              <a href="thesis.html" style="color:var(--accent-1)">Cypherpunk's Manifesto</a> at its
+              word: someone has to write the software, so we're writing it, and we're not going to
+              fund it in a way that quietly undoes the point. The only thing keeping this maintained
+              is direct support from people who want Ootle and the dApps built on it to keep existing.
+            </p>
+          </div>
+          <div class="support-donate">
+            <span class="support-label">Tari (XTM) &middot; L1 mainnet address</span>
+            <div class="support-address" id="donateAddress">
+              <code>12Gtjb5qbgYBbF9meZ31HKnEusGgnwfbDYBcZV3k4xko1htBQisjvgMW1zJL4gERkcryLntDKLqK2GQ2xEKD2i6Bq8s</code>
+              <button class="support-copy-btn" id="copyDonateAddress" type="button" aria-label="Copy donation address">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span>Copy</span>
+              </button>
+            </div>
+            <p class="support-note">This is an L1 (Minotari) address, not an Ootle otl_esm&hellip; address. Sending Ootle-native tokens here will not work.</p>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <footer>
@@ -258,13 +530,15 @@
       <div class="footer-links">
         <a href="https://github.com/chironbuilds/tari-wallet" target="_blank" rel="noopener">GitHub</a>
         <a href="https://universe.tari.mw/integration" target="_blank" rel="noopener">Documentation</a>
+        <a href="thesis.html">The Ootle Thesis</a>
+        <a href="#support">Support Sapient</a>
         <a href="https://github.com/chironbuilds/tari-wallet/blob/master/LICENSE" target="_blank" rel="noopener">License</a>
         <a href="https://github.com/tari-project/tari-ootle" target="_blank" rel="noopener">Tari Ootle</a>
         <a href="privacy.html">Privacy Policy</a>
         <a href="terms.html">Terms of Use</a>
       </div>
       <div class="footer-meta">
-        <span>MIT licensed — free to use, modify, and share, including commercially.</span>
+        <span>MIT licensed. Free to use, modify, and share, including commercially.</span>
         <span>Not affiliated with the Tari Project.</span>
       </div>
     </div>
