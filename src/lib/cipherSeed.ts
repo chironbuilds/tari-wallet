@@ -154,7 +154,12 @@ export async function createWalletSeed(): Promise<{ seed: WalletSeed; mnemonic: 
 }
 
 export async function importWalletSeed(mnemonic: string): Promise<WalletSeed> {
+  // NFKC folds compatibility variants (full-width Latin letters, some styled-text substitutions a
+  // phrase could pick up from being copied out of a web page) to their plain ASCII equivalents
+  // before wordlist lookup -- without it, a word that's visually identical but a different code
+  // point silently fails "isn't in the wordlist" instead of being recognized as intended.
   const words = mnemonic
+    .normalize("NFKC")
     .trim()
     .split(/\s+/)
     .map((w) => w.toLowerCase());
@@ -173,7 +178,10 @@ export async function importWalletSeed(mnemonic: string): Promise<WalletSeed> {
  * expensive Argon2d pass, so it can't detect a wrong-but-well-formed phrase (that's what
  * `importWalletSeed` is for, on actual submit). */
 export function isPlausibleMnemonic(mnemonic: string): boolean {
+  // Same NFKC fold as importWalletSeed() -- see its doc comment. Kept in sync so this live-feedback
+  // check never disagrees with what actual submit will accept.
   const words = mnemonic
+    .normalize("NFKC")
     .trim()
     .split(/\s+/)
     .map((w) => w.toLowerCase());

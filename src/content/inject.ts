@@ -30,19 +30,25 @@ function emit(event: string, data: unknown) {
 }
 
 function randomId(): string {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  // A same-page script guessing a pending request's id could pre-resolve it with a forged
+  // response before the real one arrives -- crypto.randomUUID() (a CSPRNG) instead of Math.random()
+  // (not one) closes that off, matching the id generation approvals.ts already uses background-side.
+  return crypto.randomUUID();
 }
 
 function request(method: ProviderMethod, params?: unknown): Promise<unknown> {
   const id = randomId();
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    window.postMessage({ target: CONTENT_TARGET, type: "tari-request", id, method, params }, "*");
+    // Targeted at this page's own origin, not "*" -- this never crosses an origin boundary (both
+    // ends are the same window), so this is belt-and-braces rather than a fix for a real leak, but
+    // it costs nothing and removes any doubt from future refactors.
+    window.postMessage({ target: CONTENT_TARGET, type: "tari-request", id, method, params }, window.location.origin);
   });
 }
 
 window.addEventListener("message", (event) => {
-  if (event.source !== window) return;
+  if (event.source !== window || event.origin !== window.location.origin) return;
   const data = event.data;
   if (!data || data.target !== PAGE_TARGET) return;
 

@@ -31,7 +31,17 @@ export async function requestApproval(approval: PendingApprovalInput, id: string
 
   const approved = await new Promise<boolean>((resolve) => {
     pending.set(id, { approval: full, resolve });
-    void openApprovalWindow(id);
+    openApprovalWindow(id).catch(() => {
+      // chrome.windows.create() can reject (a blocked popup, or some other transient window-manager
+      // failure) -- without this, the entry above sits in `pending` forever with no window to ever
+      // resolve it, and every caller awaiting this promise (tari_requestAccounts, a transaction
+      // approval, ...) hangs indefinitely instead of surfacing an error.
+      const entry = pending.get(id);
+      if (entry) {
+        entry.resolve(false);
+        pending.delete(id);
+      }
+    });
   });
 
   pending.delete(id);

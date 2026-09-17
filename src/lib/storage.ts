@@ -291,13 +291,23 @@ export async function addConnectedSite(origin: string, accountId: string): Promi
  * Grants or revokes a connected site's private view access (see `ConnectedSite.viewAccessGrantedAt`).
  * A no-op for an origin that isn't connected at all — there is nothing to attach the grant to, and
  * creating a connection as a side effect of a view grant would let a site skip the connect prompt.
+ *
+ * `expectedAccountId`, when passed, must still match the site's *current* `accountId` or this is
+ * also a no-op — a grant approval prompt names one specific account and can sit open for as long
+ * as the user leaves it, during which the site's connection can be dropped and re-established
+ * against a *different* account (same origin, new `addConnectedSite` call). Without this check, a
+ * grant approved for account A's private balance would silently land on whatever account the
+ * origin happens to be connected to by the time the prompt resolves — a real account confusion,
+ * not just a stale no-op. Callers granting (never revoking) should always pass the accountId they
+ * captured before opening the approval prompt, not one re-read after.
  * Returns whether it actually wrote anything.
  */
-export async function setViewAccess(origin: string, granted: boolean): Promise<boolean> {
+export async function setViewAccess(origin: string, granted: boolean, expectedAccountId?: string): Promise<boolean> {
   return serialized(async () => {
     const state = await getState();
     const site = state.connectedSites.find((s) => s.origin === origin);
     if (!site) return false;
+    if (expectedAccountId !== undefined && site.accountId !== expectedAccountId) return false;
     const updated: ConnectedSite = granted
       ? { ...site, viewAccessGrantedAt: Date.now() }
       : // Rebuilt without the key rather than set to `undefined`: this object is JSON-serialized

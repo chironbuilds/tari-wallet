@@ -38,7 +38,7 @@ async function sendToBackground(message: PageRequestMessage, retries = 3): Promi
 }
 
 window.addEventListener("message", (event) => {
-  if (event.source !== window) return;
+  if (event.source !== window || event.origin !== window.location.origin) return;
   const data = event.data;
   if (!data || data.target !== CONTENT_TARGET || data.type !== "tari-request") return;
 
@@ -50,19 +50,23 @@ window.addEventListener("message", (event) => {
     params: data.params,
   };
 
+  // Targeted at this page's own origin, not "*" -- content-script.ts's isolated world shares its
+  // tab's origin with inject.ts's main-world one, so this never crosses an origin boundary either
+  // way; belt-and-braces, same reasoning as inject.ts's own postMessage calls.
+  const origin = window.location.origin;
   sendToBackground(message)
     .then((response) => {
       if (!response) {
         window.postMessage(
           { target: PAGE_TARGET, type: "tari-response", id: data.id, error: { code: -32603, message: "No response from wallet extension" } },
-          "*"
+          origin
         );
         return;
       }
-      window.postMessage({ target: PAGE_TARGET, type: "tari-response", id: response.id, result: response.result, error: response.error }, "*");
+      window.postMessage({ target: PAGE_TARGET, type: "tari-response", id: response.id, result: response.result, error: response.error }, origin);
     })
     .catch((e: Error) => {
-      window.postMessage({ target: PAGE_TARGET, type: "tari-response", id: data.id, error: { code: -32603, message: e.message } }, "*");
+      window.postMessage({ target: PAGE_TARGET, type: "tari-response", id: data.id, error: { code: -32603, message: e.message } }, origin);
     });
 });
 
@@ -70,5 +74,5 @@ window.addEventListener("message", (event) => {
 // page's world the same way as everything else, so inject.ts can turn it into a DOM event.
 chrome.runtime.onMessage.addListener((message: AccountsChangedBroadcast) => {
   if (!message || message.kind !== "tari-accounts-changed") return;
-  window.postMessage({ target: PAGE_TARGET, type: "tari-accounts-changed", accounts: message.accounts }, "*");
+  window.postMessage({ target: PAGE_TARGET, type: "tari-accounts-changed", accounts: message.accounts }, window.location.origin);
 });

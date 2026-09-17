@@ -14,6 +14,7 @@ import {
   getTransactionRequest,
   hasViewAccess,
   listTransactionHistory,
+  parseAccountId,
   removeAddressBookEntry,
   removeAllConnectedSites,
   removeConnectedSite,
@@ -108,6 +109,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message && typeof message.kind === "string" && message.kind.startsWith("popup-")) {
+    // `sender.tab` is only ever set for a message sent from a content script injected into a page
+    // -- an extension page (this extension's own popup, the only thing that ever sends a
+    // `popup-*` kind; see content-script.ts, which only ever sends `tari-page-request`) has no
+    // tab of its own and always sends with it unset. A page can never reach this branch at all
+    // (chrome.runtime is not exposed to page scripts, and externally_connectable isn't declared --
+    // see inject.ts's relay design), so this mainly guards against a future content-script bug
+    // accidentally forwarding a page-supplied `kind` straight through, or a compromised content
+    // script trying to reach a popup-only command directly.
+    if (sender.tab) {
+      sendResponse({ ok: false, error: "Not permitted from this context." });
+      return true;
+    }
     handlePopupRequest(message as PopupRequest)
       .then((result) => sendResponse({ ok: true, result: sanitizeForMessage(result) }))
       .catch((err) => {
@@ -196,12 +209,13 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       }
       const approved = await requestApproval({ kind: "viewAccess", origin, accountId: site.accountId });
       if (!approved) return { granted: false };
-      // Re-read rather than trusting the `site` captured before the (arbitrarily long) prompt: the
-      // user may have disconnected this origin, or switched accounts and dropped every connection,
-      // while the window sat open. setViewAccess is a no-op for a now-missing site, but a stale
-      // `{ granted: true }` back to the dApp would be a lie either way.
-      const granted = await setViewAccess(origin, true);
-      if (!granted) throw new Error("This site was disconnected before view access could be granted.");
+      // Pass the accountId captured before the (arbitrarily long) approval prompt, not a re-read
+      // one -- the user may have disconnected this origin, or reconnected it to a *different*
+      // account, while the window sat open. setViewAccess is a no-op unless the site's current
+      // accountId still matches what was actually shown and approved (see its own doc comment);
+      // either way, a stale `{ granted: true }` back to the dApp would be a lie.
+      const granted = await setViewAccess(origin, true, site.accountId);
+      if (!granted) throw new Error("This site's connection changed before view access could be granted -- ask it to request again.");
       return { granted: true };
     }
 
@@ -1586,11 +1600,30 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
 
     case "popup-remove-daemon-connection": {
       await removeDaemonConnection(message.connectionId);
+      // Both cache maps are keyed off connectionId (see accounts.ts) and neither is consulted
+      // against current state before returning a hit -- without clearing them, an account
+      // resolved earlier this session under this connection would keep working from its stale
+      // cached client/instance even though the connection (and every account under it) is now
+      // gone from storage. Reset activeAccountId too if it was pointing at one of those accounts:
+      // buildStatus() otherwise keeps trying to resolve an id storage no longer has any record of,
+      // surfacing as a raw "wallet is locked"-style error rather than a clean fallback.
+      clearAccountCache();
+      const { activeAccountId } = await getState();
+      const parsed = parseAccountId(activeAccountId);
+      if (parsed.type === "daemon" && parsed.connectionId === message.connectionId) {
+        await setState({ activeAccountId: "local:0" });
+      }
       return {};
     }
 
     case "popup-remove-daemon-account": {
       await removeDaemonAccount(message.connectionId, message.componentAddress);
+      clearAccountCache();
+      const { activeAccountId } = await getState();
+      const parsed = parseAccountId(activeAccountId);
+      if (parsed.type === "daemon" && parsed.connectionId === message.connectionId && parsed.componentAddress === message.componentAddress) {
+        await setState({ activeAccountId: "local:0" });
+      }
       return {};
     }
 
