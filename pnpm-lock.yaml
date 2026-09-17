@@ -509,6 +509,9 @@ packages:
   '@tari-project/ootle-wasm@0.39.3':
     resolution: {integrity: sha512-5IxgDSvFTac/2Om51CiiRmMize5DlMmg8TjahZPRx6vCqAXP8Y6lKqG7lRx+xHU/YaevVmESFbNPp0EGPV0TUg==}
 
+  '@tari-project/ootle-wasm@0.41.0':
+    resolution: {integrity: sha512-PajpMywrHV8QEr4WwfT1LQcnsNDs/CADZbk9pNovb2xdACjeIXDs3dQuWwUEJKYupMMHW5GU4YyKo2tfvAQoCw==}
+
   '@tari-project/ootle-wasm@file:vendor/ootle-wasm-patched':
     resolution: {directory: vendor/ootle-wasm-patched, type: directory}
 
@@ -1384,12 +1387,14 @@ snapshots:
 
   '@tari-project/ootle-wasm@0.39.3': {}
 
+  '@tari-project/ootle-wasm@0.41.0': {}
+
   '@tari-project/ootle-wasm@file:vendor/ootle-wasm-patched': {}
 
   '@tari-project/ootle@file:vendor/ootle-patched':
     dependencies:
       '@tari-project/ootle-ts-bindings': 1.49.1
-      '@tari-project/ootle-wasm': 0.39.3
+      '@tari-project/ootle-wasm': 0.41.0
 
   '@tari-project/wallet_jrpc_client@1.22.0':
     dependencies:
