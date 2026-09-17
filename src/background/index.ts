@@ -1210,6 +1210,24 @@ async function buildStatus(): Promise<WalletStatus> {
  * hiccup break the real flow" policy buildStatus() already applies to recoverPendingShields()/
  * scanForPrivatePayments().
  */
+/**
+ * Looks up `resourceAddress`'s current `divisibility`/`symbol` from the active account's balances,
+ * to snapshot onto a `TransactionHistoryEntry` at write time (see that field's doc comment for
+ * why this can't just be re-derived later from whatever the account holds *then*). Best-effort:
+ * `undefined` (record without the fields, same as before this existed) if there's no active
+ * account, the lookup fails, or the resource isn't in the current balance list at all -- a
+ * dust-swept or otherwise since-vacated vault, most commonly.
+ */
+async function resolveResourceMeta(resourceAddress: string): Promise<Pick<TransactionHistoryEntry, "divisibility" | "symbol"> | undefined> {
+  try {
+    const account = await getActiveAccount();
+    const balance = (await account?.getBalances())?.find((b) => b.resourceAddress === resourceAddress);
+    return balance ? { divisibility: balance.divisibility, symbol: balance.symbol } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function withHistory<T>(
   base: Omit<TransactionHistoryEntry, "id" | "createdAt" | "status">,
   action: () => Promise<T>,
@@ -1220,7 +1238,8 @@ async function withHistory<T>(
 ): Promise<T> {
   const record = async (status: TransactionHistoryEntry["status"], extra?: Partial<TransactionHistoryEntry>) => {
     try {
-      await addTransactionHistoryEntry({ ...base, ...extra, status, id: crypto.randomUUID(), createdAt: Date.now() });
+      const meta = base.resourceAddress ? await resolveResourceMeta(base.resourceAddress) : undefined;
+      await addTransactionHistoryEntry({ ...base, ...meta, ...extra, status, id: crypto.randomUUID(), createdAt: Date.now() });
     } catch {
       // Best-effort -- see doc comment above.
     }
@@ -1246,7 +1265,14 @@ async function withHistory<T>(
  * write must not lose the rest.
  */
 async function recordPrivatePaymentHistory(accountId: string, found: { resourceAddress: string; amount: bigint; transactionId: string; memo?: string }[]) {
+  // One shared balances fetch for the whole batch (see resolveResourceMeta's doc comment for why
+  // this gets snapshotted at all) rather than one per output -- a claim-everything rescan can
+  // surface a handful of outputs at once.
+  const balances = await getActiveAccount()
+    .then((a) => a?.getBalances())
+    .catch(() => undefined);
   for (const output of found) {
+    const balance = balances?.find((b) => b.resourceAddress === output.resourceAddress);
     try {
       await addTransactionHistoryEntry({
         accountId,
@@ -1255,6 +1281,8 @@ async function recordPrivatePaymentHistory(accountId: string, found: { resourceA
         amount: output.amount.toString(),
         transactionId: output.transactionId,
         memo: output.memo,
+        divisibility: balance?.divisibility,
+        symbol: balance?.symbol,
         status: "confirmed",
         id: crypto.randomUUID(),
         createdAt: Date.now(),

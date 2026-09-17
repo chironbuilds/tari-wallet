@@ -618,8 +618,13 @@ async function renderHome(status: WalletStatus) {
   // shielded anything.
   const heroPrivateBalance = h("div", { class: "private-balance", style: "display:none;margin-top:2px" }, [""]);
   const summaryHead = h("div", { class: "summary-head" }, [accountAvatar(status.address, 32), addrPill]);
+  // Not "Total Balance" -- heroBalance below is only ever the public/revealed XTR amount
+  // (updateHeroBalance() reads xtr.amount, never confidentialAmount), and heroPrivateBalance is a
+  // separate figure shown underneath, not summed into it. Calling that a "total" reads as "this is
+  // everything," which for an account holding shielded funds is actively wrong -- an asset row or
+  // hero number that's really "public only" needs to say so.
   const summaryBalance = h("div", { class: "summary-balance" }, [
-    h("div", { class: "summary-label" }, ["Total Balance"]),
+    h("div", { class: "summary-label" }, ["Public Balance"]),
     heroBalance,
     heroPrivateBalance,
   ]);
@@ -1093,10 +1098,18 @@ async function renderHistory(status: WalletStatus) {
           "div",
           { class: "card history-list" },
           entries.map((entry) => {
+            // Prefer what was persisted with the entry itself (see TransactionHistoryEntry's doc
+            // comment) -- only fall back to a current-balance lookup for an entry recorded before
+            // that field existed. A resource this account no longer holds at all still renders
+            // correctly via the persisted value; only the (rare, pre-migration) fallback case can
+            // still show a wrong divisibility if the resource has since dropped out of the balance
+            // list entirely -- there's no other source of truth left to recover it from then.
             const b = entry.resourceAddress ? balanceByResource.get(entry.resourceAddress) : undefined;
+            const divisibility = entry.divisibility ?? b?.divisibility ?? 0;
+            const symbol = entry.symbol !== undefined ? entry.symbol : (b?.symbol ?? null);
             const amountText =
               entry.amount && entry.resourceAddress
-                ? `${formatBalanceAmountGrouped(entry.amount, b?.divisibility ?? 0)} ${resourceLabel(entry.resourceAddress, b?.symbol ?? null)}`
+                ? `${formatBalanceAmountGrouped(entry.amount, divisibility)} ${resourceLabel(entry.resourceAddress, symbol)}`
                 : null;
             const when = new Date(entry.createdAt).toLocaleString();
             // dapp-transaction's counterparty is a human sentence ("origin: summary") -- shortAddr()
@@ -1206,6 +1219,14 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
   // and an NFT holding's `amount` is a token count with no divisibility to parse a decimal against
   // -- sending a specific token id is a different flow, out of scope here.
   const balances_ = balances.filter((b) => b.kind !== "NonFungible");
+  // renderSend()'s own `balances.length === 0` guard only catches holding nothing at all -- an
+  // all-NFT wallet reaches here with a nonempty `balances` but an empty `balances_`, which used to
+  // build a `<select>` with zero `<option>`s and then crash the first time `selected()` (the
+  // `!`-asserted `.find()` below) actually ran against it, since there was nothing left to select.
+  if (balances_.length === 0) {
+    container.replaceChildren(emptyState("You only hold NFTs right now -- sending an NFT isn't supported here yet.", ICON_INBOX));
+    return;
+  }
   const tokenSelect = h(
     "select",
     {},
@@ -1638,13 +1659,30 @@ function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: 
         // formatBalanceAmountGrouped()'s divisibility math (that produced "0" here before this
         // vault kind was handled: NonFungible has no `.amount`/`.revealed_amount` field at all).
         const amountText = b.kind === "NonFungible" ? `${b.amount} ${BigInt(b.amount) === 1n ? "NFT" : "NFTs"}` : formatBalanceAmountGrouped(b.amount, b.divisibility);
-        const row = h("button", { class: "balance-row clickable", "aria-label": `${label}, ${amountText} — view details` }, [
-          h("div", { class: "balance-left" }, [
-            h("span", { class: "token-avatar", "aria-hidden": "true" }, [tokenInitial(b.resourceAddress, b.symbol)]),
-            h("span", { class: "token-symbol" }, [label]),
-          ]),
+        // A Stealth resource held entirely as shielded funds has `amount === "0"` (nothing
+        // revealed) -- without this, the row reads as an empty balance instead of "everything
+        // here is private," the exact gap renderTokenDetail() already handles one screen deeper.
+        const hasPrivate = b.kind !== "NonFungible" && BigInt(b.confidentialAmount) > 0n;
+        const amountCol = h("span", { class: "token-amount-col" }, [
           h("span", { class: "token-amount" }, [amountText]),
+          ...(hasPrivate
+            ? [h("span", { class: "token-amount-private" }, [`+${formatBalanceAmountGrouped(b.confidentialAmount, b.divisibility)} private`])]
+            : []),
         ]);
+        const row = h(
+          "button",
+          {
+            class: "balance-row clickable",
+            "aria-label": `${label}, ${amountText}${hasPrivate ? ` public, plus ${formatBalanceAmountGrouped(b.confidentialAmount, b.divisibility)} private` : ""} — view details`,
+          },
+          [
+            h("div", { class: "balance-left" }, [
+              h("span", { class: "token-avatar", "aria-hidden": "true" }, [tokenInitial(b.resourceAddress, b.symbol)]),
+              h("span", { class: "token-symbol" }, [label]),
+            ]),
+            amountCol,
+          ]
+        );
         row.addEventListener("click", () => renderTokenDetail(status, b));
         return row;
       })

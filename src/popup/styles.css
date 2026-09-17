@@ -761,6 +761,18 @@ button + button {
 .token-amount {
   font-variant-numeric: tabular-nums;
 }
+.token-amount-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.token-amount-private {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .section-title {
   font-size: 12px;
   color: var(--muted);

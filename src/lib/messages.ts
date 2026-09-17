@@ -795,6 +795,8 @@ export interface TransactionHistoryEntry {
   createdAt: number;
   status: "confirmed" | "failed";
   memo?: string;
+  divisibility?: number;
+  symbol?: string | null;
 }
 
 /** One account as reported by a wallet daemon's `accounts.list`/`accounts.get` JRPC, surfaced to

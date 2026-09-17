@@ -102,6 +102,15 @@ export interface TransactionHistoryEntry {
   /** The plaintext memo attached to a shield/unshield/send-privately/private-payment-received
    * entry, if any -- see `ShieldedOutputRecord.memo`. */
   memo?: string;
+  /** `resourceAddress`'s `divisibility`/`symbol` at the time this entry was recorded (see
+   * `TokenBalance`) -- persisted rather than re-derived from the account's *current* balances,
+   * which may no longer hold this resource at all (a fully-spent/dust-swept vault drops out of
+   * `getBalances()`) or may briefly show a divisibility of 0 for a resource whose only remaining
+   * balance is confidential-only. Either gap would otherwise silently misrender a raw amount by
+   * orders of magnitude. Omitted for an entry with no `resourceAddress`, and for entries recorded
+   * before this field existed -- the popup falls back to a current-balance lookup for those. */
+  divisibility?: number;
+  symbol?: string | null;
 }
 
 const MAX_TRANSACTION_HISTORY_ENTRIES = 500;
