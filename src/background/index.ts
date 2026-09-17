@@ -109,15 +109,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message && typeof message.kind === "string" && message.kind.startsWith("popup-")) {
-    // `sender.tab` is only ever set for a message sent from a content script injected into a page
-    // -- an extension page (this extension's own popup, the only thing that ever sends a
-    // `popup-*` kind; see content-script.ts, which only ever sends `tari-page-request`) has no
-    // tab of its own and always sends with it unset. A page can never reach this branch at all
-    // (chrome.runtime is not exposed to page scripts, and externally_connectable isn't declared --
-    // see inject.ts's relay design), so this mainly guards against a future content-script bug
-    // accidentally forwarding a page-supplied `kind` straight through, or a compromised content
-    // script trying to reach a popup-only command directly.
-    if (sender.tab) {
+    // Gate on origin, not `sender.tab`: the approval window (approvals.ts's
+    // `chrome.windows.create({ type: "popup", url: "popup.html#/approve/..." })`) runs this same
+    // popup.html/main.ts bundle, but -- unlike the toolbar popup -- it's a real window with a real
+    // tab in it, so `sender.tab` is set for it too. Checking `sender.tab` alone would reject every
+    // approval-flow message (connect/approve/reject, transaction approvals, ...), not just ones
+    // from a content script. `sender.origin` is what actually distinguishes "one of this
+    // extension's own pages" (chrome-extension://<this-id>/...) from a content script's sender,
+    // whose origin is always the *page's* origin, never the extension's -- true for the toolbar
+    // popup and the approval window alike. A page can never reach this branch at all regardless
+    // (chrome.runtime isn't exposed to page scripts, and externally_connectable isn't declared --
+    // see inject.ts's relay design); this mainly guards a future content-script bug forwarding a
+    // page-supplied `kind` straight through, or a compromised content script reaching a
+    // popup-only command directly.
+    if (sender.origin !== chrome.runtime.getURL("").slice(0, -1)) {
       sendResponse({ ok: false, error: "Not permitted from this context." });
       return true;
     }
