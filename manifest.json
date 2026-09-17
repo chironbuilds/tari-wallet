@@ -25,12 +25,14 @@
       "matches": ["http://*/*", "https://*/*"],
       "js": ["src/content/inject.ts"],
       "world": "MAIN",
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "all_frames": true
     },
     {
       "matches": ["http://*/*", "https://*/*"],
       "js": ["src/content/content-script.ts"],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "all_frames": true
     }
   ],
   "permissions": ["storage", "alarms"],
