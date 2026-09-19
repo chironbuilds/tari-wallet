@@ -649,7 +649,7 @@ async function renderHome(status: WalletStatus) {
 
   // Rescanning needs this account's own view key (see OotleAccount.scanForPrivatePayments()) --
   // unavailable for a daemon-relayed account, same gating Shield/Unshield/Send-privately use.
-  const isLocalAccount = status.accounts.find((a) => a.id === status.activeAccountId)?.kind === "local";
+  const isLocalAccount = activeAccountSummary(status)?.kind === "local";
   const rescanControl = isLocalAccount ? buildRescanControl() : null;
   const balancesTitleRow = h("div", { class: "row", style: "justify-content:space-between;align-items:center;margin:2px 0 0" }, [
     h("div", { class: "section-title", style: "margin:0" }, ["Assets"]),
@@ -932,7 +932,7 @@ function renderReceive(status: WalletStatus) {
     ]),
   ]);
 
-  const isLocalAccount = status.accounts.find((a) => a.id === status.activeAccountId)?.kind === "local";
+  const isLocalAccount = activeAccountSummary(status)?.kind === "local";
   const claimCard = isLocalAccount ? buildClaimPrivatePaymentCard(status) : null;
 
   render(
@@ -1141,8 +1141,8 @@ async function renderHistory(status: WalletStatus) {
  * The single "Send" screen, covering both a plain revealed-balance transfer and a private
  * (stealth-to-stealth) send from behind one tab toggle -- previously two separate screens
  * (renderSend/renderSendPrivately) reached from two separate entry points. The private tab is
- * only shown for local accounts (sendPrivately() has no daemon-account equivalent, same gating
- * Shield/Unshield already use).
+ * shown for local *and* daemon-relayed accounts (see popup-send-privately's own comment in
+ * background/index.ts) -- same gating Shield/Unshield use.
  */
 function renderSend(
   status: WalletStatus,
@@ -1158,12 +1158,14 @@ function renderSend(
     return;
   }
 
-  const isLocalAccount = status.accounts.find((a) => a.id === status.activeAccountId)?.kind === "local";
+  const accountKind = activeAccountSummary(status)?.kind;
+  const isLocalAccount = accountKind === "local";
+  const isDaemonAccount = accountKind === "daemon";
 
   const publicSection = h("div", {});
   const privateSection = h("div", { style: "display:none" });
 
-  if (!isLocalAccount) {
+  if (!isLocalAccount && !isDaemonAccount) {
     render(h("h1", {}, ["Send"]), publicSection, back);
     document.getElementById("back")!.addEventListener("click", onBack);
     buildPublicSendForm(publicSection, balances, status.addressBook);
@@ -1709,9 +1711,11 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
   // actually something to show instead.
   const isConfidential = BigInt(balance.confidentialAmount) > 0n || balance.confidentialDecryptFailures > 0;
   const failures = balance.confidentialDecryptFailures;
-  // Shielding needs this account's own view key/stealth signing -- unavailable for a
-  // daemon-relayed account (see background/index.ts's popup-shield handler).
-  const isLocalAccount = status.accounts.find((a) => a.id === status.activeAccountId)?.kind === "local";
+  // Shield/Unshield/Send-privately are all available for both a seed-derived local account and
+  // a daemon-relayed one -- the daemon does the actual spend server-side (see background/index.ts's
+  // popup-shield/popup-unshield/popup-send-privately handlers).
+  const activeAccountKind = activeAccountSummary(status)?.kind;
+  const hasPrivacyActions = activeAccountKind === "local" || activeAccountKind === "daemon";
 
   // Of the engine's three resource kinds (Fungible, Confidential, Stealth — see
   // demo_token/src/lib.rs's ResourceBuilder usage and StealthTransfer.prepare()'s source for how
@@ -1719,19 +1723,19 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
   // Stealth resources support shield()/unshield()/sendPrivately()'s StealthTransfer pipeline at
   // all -- attempting it against a Fungible resource (e.g. a plain DemoToken like tUSD) or a real
   // Confidential-vault resource fails on-chain with "Stealth transfer is only allowed for stealth
-  // resources". Gate every privacy action on this instead of just `isLocalAccount`.
+  // resources". Gate every privacy action on this instead of just `hasPrivacyActions`.
   const isStealthResource = balance.kind === "Stealth";
 
   const shieldBtn =
-    isLocalAccount && isStealthResource ? h("button", { class: "secondary" }, [`Shield ${displaySymbol}`]) : null;
+    hasPrivacyActions && isStealthResource ? h("button", { class: "secondary" }, [`Shield ${displaySymbol}`]) : null;
   if (shieldBtn) shieldBtn.addEventListener("click", () => renderShield(status, balance));
 
   const unshieldBtn =
-    isLocalAccount && isConfidential && isStealthResource ? h("button", { class: "secondary" }, [`Unshield ${displaySymbol}`]) : null;
+    hasPrivacyActions && isConfidential && isStealthResource ? h("button", { class: "secondary" }, [`Unshield ${displaySymbol}`]) : null;
   if (unshieldBtn) unshieldBtn.addEventListener("click", () => renderUnshield(status, balance));
 
   const sendPrivatelyBtn =
-    isLocalAccount && isConfidential && isStealthResource ? h("button", { class: "secondary" }, [`Send ${displaySymbol} privately`]) : null;
+    hasPrivacyActions && isConfidential && isStealthResource ? h("button", { class: "secondary" }, [`Send ${displaySymbol} privately`]) : null;
 
   // A real Confidential-vault resource (distinct from Stealth -- see above) can genuinely carry a
   // nonzero confidential balance that this wallet correctly *displays* (sumConfidentialCommitments
@@ -1740,7 +1744,7 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
   // have no private balance to begin with, so isConfidential is already false for them and no note
   // is shown.
   const noPrivacyActionsNote =
-    isLocalAccount && !isStealthResource && isConfidential
+    hasPrivacyActions && !isStealthResource && isConfidential
       ? h("div", { class: "muted", style: "margin-top:10px;font-size:13px" }, [
           "This token's private balance uses a format this wallet doesn't support sending or unshielding for yet.",
         ])
@@ -2296,26 +2300,59 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     return;
   }
 
+  // Held open for as long as this approval is showing, purely so the background service worker
+  // has an open port keeping it awake -- see the listener's own comment in background/index.ts.
+  // Without this, a human taking more than ~30s to actually read the request before clicking is
+  // enough to let MV3 tear the worker down first, silently orphaning whichever RPC is waiting on
+  // this decision. window.close() (both below and on navigation away) disconnects it on its own;
+  // nothing else needs to reference it.
+  chrome.runtime.connect({ name: "approval-keepalive" });
+
   // Live only while `approval.kind === "transaction"` and `feeChoice` is present and unenforced --
   // see the `<select>` built below. Read by `resolve` at click-time, never by re-rendering.
   let chosenFeeType: "private" | "transparent" | undefined =
     approval.kind === "transaction" ? approval.feeChoice?.initial : undefined;
 
+  // Shown for a rejected operation (e.g. `resolveFeeType()` throwing because `chosenFeeType` was
+  // switched to "private" on a daemon-connected account, which can't pay a fee privately) --
+  // included as the last child of every branch's `render()` call below. Without this, `resolve()`
+  // rejecting left the approve/reject buttons dead with no on-screen error at all: the click
+  // handler had no try/catch, so the rejection became an unhandled promise rejection instead of
+  // anything the user could see (confirmed live: switching to a private fee against a daemon
+  // account "silently" did nothing).
+  const statusEl = h("div", { class: "status", style: "display:none" });
+  const showApprovalStatus = (msg: string, cls: "err" | "ok") => {
+    statusEl.style.display = "block";
+    statusEl.className = `status ${cls}`;
+    statusEl.textContent = msg;
+  };
+
   const resolve = async (approve: boolean) => {
-    const feeType = approve ? chosenFeeType : undefined;
-    const { resolved } = await send<{ resolved: boolean }>({ kind: "popup-resolve-approval", approvalId, approve, feeType });
-    if (!resolved) {
-      // The background service worker restarted while this popup sat open (MV3 tears workers down
-      // after ~30s idle) — the page's own original request already died with it, so this click
-      // didn't do anything. Say so instead of closing and letting the user believe it went through.
-      render(
-        h("div", { class: "status err" }, [
-          "This request expired before you responded (the connection to the site was lost). Nothing was sent — try again from the site.",
-        ])
-      );
-      return;
+    const approveBtn = document.getElementById("approve") as HTMLButtonElement | null;
+    const rejectBtn = document.getElementById("reject") as HTMLButtonElement | null;
+    if (approveBtn) setBusy(approveBtn, true, approve ? "Submitting…" : "Working…");
+    if (rejectBtn) rejectBtn.disabled = true;
+    try {
+      const feeType = approve ? chosenFeeType : undefined;
+      const { resolved } = await send<{ resolved: boolean }>({ kind: "popup-resolve-approval", approvalId, approve, feeType });
+      if (!resolved) {
+        // The keepalive port above should make this unreachable in practice now, but a service
+        // worker restart from some other cause (a browser update, the user quitting Chrome
+        // mid-review) still leaves the page's own original request dead with it. Say so instead of
+        // closing and letting the user believe it went through.
+        render(
+          h("div", { class: "status err" }, [
+            "This request expired before you responded (the connection to the site was lost). Nothing was sent — try again from the site.",
+          ])
+        );
+        return;
+      }
+      window.close();
+    } catch (e) {
+      showApprovalStatus(e instanceof Error ? e.message : String(e), "err");
+      if (approveBtn) setBusy(approveBtn, false);
+      if (rejectBtn) rejectBtn.disabled = false;
     }
-    window.close();
   };
 
   if (approval.kind === "connect") {
@@ -2323,6 +2360,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
       h("h1", {}, ["Connection request"]),
       h("p", { class: "muted" }, [h("b", {}, [approval.origin]), " wants to connect to your wallet and view your address."]),
       approvalAccountChip(status, undefined),
+      statusEl,
       h("button", { class: "primary", id: "approve" }, ["Connect"]),
       h("button", { class: "secondary", id: "reject" }, ["Cancel"])
     );
@@ -2348,6 +2386,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
         h("div", { class: "view-access-grant deny" }, ["It will NOT receive your keys, and cannot read payments sent to anyone else."]),
       ]),
       h("p", { class: "muted" }, ["You can revoke this any time from Connected sites, without disconnecting the site."]),
+      statusEl,
       h("button", { class: "primary", id: "approve" }, ["Grant view access"]),
       h("button", { class: "secondary", id: "reject" }, ["Deny"])
     );
@@ -2372,6 +2411,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
         h("div", { class: "view-access-grant deny" }, ["It will NOT be able to spend this output or any other funds."]),
         h("div", { class: "view-access-grant deny" }, ["It will NOT receive your keys."]),
       ]),
+      statusEl,
       h("button", { class: "primary", id: "approve" }, ["Sign"]),
       h("button", { class: "secondary", id: "reject" }, ["Reject"])
     );
@@ -2392,6 +2432,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
         h("div", { class: "view-access-grant deny" }, ["It will NOT be able to spend anything."]),
         h("div", { class: "view-access-grant deny" }, ["It will NOT receive your keys."]),
       ]),
+      statusEl,
       h("button", { class: "primary", id: "approve" }, ["Sign"]),
       h("button", { class: "secondary", id: "reject" }, ["Reject"])
     );
@@ -2460,6 +2501,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
       feeChoiceBlock,
       hasInstructions ? h("div", { class: "instruction-cards" }, instructionCards) : "",
       hasInstructions ? rawDetails : "",
+      statusEl,
       h("button", { class: "primary", id: "approve" }, [approval.dryRun ? "Simulate" : "Approve & Sign"]),
       h("button", { class: "secondary", id: "reject" }, ["Reject"])
     );

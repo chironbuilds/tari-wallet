@@ -13,6 +13,17 @@ describe("classifyProviderError", () => {
     expect(classifyProviderError("Transaction rejected.")).toEqual({ code: 4001, message: "Request rejected by the user" });
   });
 
+  it("does not classify a genuine on-chain transaction rejection as user-declined, even though its message also contains 'rejected' (confirmed live against a daemon: a real Reject outcome was previously misreported as 4001)", () => {
+    expect(classifyProviderError("Transaction abc123 was rejected: SubstateNotFound")).toEqual({
+      code: -32603,
+      message: "Transaction abc123 was rejected: SubstateNotFound",
+    });
+    expect(classifyProviderError("Transaction abc123 accepted the fee but rejected the rest: InsufficientFeesPaid")).toEqual({
+      code: -32603,
+      message: "Transaction abc123 accepted the fee but rejected the rest: InsufficientFeesPaid",
+    });
+  });
+
   it("classifies no-connection/locked-wallet states as 4100 (unauthorized)", () => {
     expect(classifyProviderError("Wallet is locked.")).toEqual({
       code: 4100,

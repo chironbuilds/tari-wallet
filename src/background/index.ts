@@ -93,6 +93,23 @@ function sanitizeForMessage(value: unknown): unknown {
   return value;
 }
 
+// The approval popup opens one of these (named "approval-keepalive") for as long as it's showing
+// a pending approval, purely so this service worker has an open port to hold it awake -- MV3 tears
+// a worker down after ~30s with no activity, and a human actually reading a transaction summary
+// before clicking Approve routinely takes longer than that. Losing the worker mid-approval doesn't
+// just fail this one approval: the deprecated blocking RPCs (`tari_signAndSubmitTransaction` and
+// friends, still what most dApps call through window.tari) have their entire suspended call --
+// including the `sendResponse` closure the dApp is waiting on -- torn down with it, with no way to
+// recover that specific promise (see `createAndWaitToSubmit`'s own comment). The dApp then hangs
+// forever awaiting a response that will never come, which for a dApp that also gates "one
+// transaction at a time" on that same promise (as tari-market does) locks out every later attempt
+// too. Nothing needs to happen in this listener beyond accepting the connection; the open port
+// itself is what keeps the worker classified as active.
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "approval-keepalive") return;
+  port.onDisconnect.addListener(() => {});
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.kind === "tari-page-request") {
     handlePageRequest(message as PageRequestMessage, sender)
@@ -206,11 +223,14 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       if (site.viewAccessGrantedAt !== undefined) return { granted: true };
       const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Wallet is locked.");
-      // Refused early, before opening a prompt the user could only answer with a lie: a
-      // daemon-relayed account never exposes its view secret, so nothing behind this grant could
-      // ever be served for it (capabilities.privateBalanceView says the same thing up front).
-      if (!(account instanceof OotleAccount)) {
-        throw new Error("Private view access isn't available for daemon-connected accounts — switch to a local account first.");
+      // Refused early, before opening a prompt the user could only answer with a lie, for any
+      // account this grant could serve nothing behind at all. A daemon-relayed account no longer
+      // qualifies for that blanket refusal -- it can serve tari_getPrivateBalances/
+      // tari_getShieldedOutputs (daemon-delegated via its own stealth JRPC), just not the rest of
+      // what view access gates (scanForPrivatePayments, scanForResourceUtxos, claimPrivatePayment
+      // -- see requireViewAccess, still local-only for those).
+      if (!(account instanceof OotleAccount) && !(account instanceof DaemonAccount)) {
+        throw new Error("Private view access isn't available for this account.");
       }
       const approved = await requestApproval({ kind: "viewAccess", origin, accountId: site.accountId });
       if (!approved) return { granted: false };
@@ -241,7 +261,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
     // ---- Confidential reads ------------------------------------------------------------------
 
     case "tari_getPrivateBalances": {
-      const account = await requireViewAccess(origin);
+      const account = await requireViewAccessAnyAccount(origin);
       return (await account.getPrivateBalances()).map(
         (b): PrivateBalance => ({
           resourceAddress: b.resourceAddress,
@@ -255,7 +275,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
     }
 
     case "tari_getShieldedOutputs": {
-      const account = await requireViewAccess(origin);
+      const account = await requireViewAccessAnyAccount(origin);
       const p = (params ?? {}) as { resourceAddress?: string };
       const records = await account.listUnspentShieldedOutputs(p.resourceAddress);
       // Mapped field by field rather than spread: a ShieldedOutputRecord also carries `accountId`
@@ -430,11 +450,13 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
       const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Wallet is locked.");
       await touchActivity();
-      // Every stealth-touching feature -- spend or read -- needs this account's own view secret
-      // and one-time stealth signing, which only a seed-derived local account has (see
-      // WalletDaemonSigner's doc comment). One check, reused, rather than a per-field instanceof
-      // that could drift apart from the checks submitApprovedTransactionRequest actually enforces.
+      // Some stealth-touching features need this account's own view secret and one-time stealth
+      // signing, which only a seed-derived local account has (see WalletDaemonSigner's doc
+      // comment) -- those stay `isLocal`-only below. Others (shield/unshield/sendPrivately/balance
+      // reads) the daemon can do entirely server-side instead, so they're `isLocal || isDaemon` --
+      // see each field's own doc comment in messages.ts for which is which.
       const isLocal = account instanceof OotleAccount;
+      const isDaemon = account instanceof DaemonAccount;
       const capabilities: WalletCapabilities = {
         exactInputSelection: true,
         stealthWithdraw: isLocal,
@@ -442,8 +464,10 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
         stealthRedeemPrivateFee: isLocal,
         htlcFund: isLocal,
         scriptPathSpend: isLocal,
-        privateSpend: isLocal,
-        privateBalanceView: isLocal,
+        privateSpend: isLocal || isDaemon,
+        shieldFunds: isLocal || isDaemon,
+        privateBalanceView: isLocal || isDaemon,
+        privateScan: isLocal,
         privateViewGranted: site.viewAccessGrantedAt !== undefined,
         transactionResultLookup: true,
         transactionRequests: true,
@@ -617,7 +641,7 @@ function assertNoStealthTransferInstruction(instructions: Instruction[]): void {
  * handling "ask for the grant", "ask the user to unlock", and "this account can never do this"
  * identically would be stuck in a prompt loop for the last of them.
  */
-async function requireViewAccess(origin: string): Promise<OotleAccount> {
+async function requireViewAccessAccount(origin: string): Promise<WalletAccountApi> {
   const site = await getConnectedSite(origin);
   if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
   if (site.viewAccessGrantedAt === undefined) {
@@ -625,10 +649,28 @@ async function requireViewAccess(origin: string): Promise<OotleAccount> {
   }
   const account = await getAccountById(site.accountId);
   if (!account) throw new Error("Wallet is locked.");
+  await touchActivity();
+  return account;
+}
+
+async function requireViewAccess(origin: string): Promise<OotleAccount> {
+  const account = await requireViewAccessAccount(origin);
   if (!(account instanceof OotleAccount)) {
     throw new Error("Reading private balances isn't available for daemon-connected accounts — switch to a local account first.");
   }
-  await touchActivity();
+  return account;
+}
+
+/** Like `requireViewAccess`, but for the subset of private-read operations `DaemonAccount` also
+ * implements (`getPrivateBalances`/`listUnspentShieldedOutputs`, both daemon-delegated via its own
+ * stealth JRPC) -- everything else gated by `requireViewAccess` itself (scanForPrivatePayments,
+ * scanForResourceUtxos, claimPrivatePayment) has no daemon-side equivalent yet, so those stay
+ * local-only. */
+async function requireViewAccessAnyAccount(origin: string): Promise<OotleAccount | DaemonAccount> {
+  const account = await requireViewAccessAccount(origin);
+  if (!(account instanceof OotleAccount) && !(account instanceof DaemonAccount)) {
+    throw new Error("Reading private balances isn't available for this account.");
+  }
   return account;
 }
 
@@ -904,6 +946,34 @@ function requireLocalAccount(account: WalletAccountApi, what: string): OotleAcco
 }
 
 /**
+ * Like `requireLocalAccount`, but for the popup-triggered stealth operations (`popup-shield`/
+ * `popup-unshield`/`popup-send-privately`) that a `DaemonAccount` can *also* perform server-side --
+ * narrows to whichever of the two concrete classes `account` actually is, or throws naming the
+ * operation that wanted it. `what` reads as a gerund (e.g. "Shielding", "Sending privately") to fit
+ * "<what> isn't available for this account.".
+ */
+function requireLocalOrDaemonAccount(account: WalletAccountApi, what: string): OotleAccount | DaemonAccount {
+  if (!(account instanceof OotleAccount) && !(account instanceof DaemonAccount)) {
+    throw new Error(`${what} isn't available for this account.`);
+  }
+  return account;
+}
+
+/**
+ * A daemon-relayed account has no local stealth-fee support (see `resolveFeeType`'s own doc
+ * comment) -- shared by every stealth operation `submitApprovedTransactionRequest` lets a
+ * `DaemonAccount` perform (`shield`/`unshield`/`sendPrivately`), so a `feeType: "private"` request
+ * fails with the same clear error regardless of which one asked for it.
+ */
+function rejectPrivateFeeForDaemon(feeType: "private" | "transparent" | undefined, what: string): void {
+  if (feeType === "private") {
+    throw new Error(
+      `Paying a private fee isn't available for daemon-connected accounts (needed for ${what}) — use a transparent fee or switch to a local account.`
+    );
+  }
+}
+
+/**
  * Resolves an operation's already-decided `feeType` ("private" | "transparent" | absent, set at
  * approval time — see `resolveApproval`'s own doc comment) into the SDK's `FeeType` shape.
  *
@@ -1029,6 +1099,16 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
       // the wallet's own decision, from its own local ledger of stealth outputs). Same
       // local-account requirement as everything else stealth-touching.
       case "shield": {
+        if (account instanceof DaemonAccount) {
+          rejectPrivateFeeForDaemon(feeType, "shielding funds");
+          return account.shield(
+            operation.resourceAddress,
+            BigInt(operation.amount),
+            maxFee,
+            operation.memo,
+            operation.minimumValuePromise !== undefined ? BigInt(operation.minimumValuePromise) : 0n
+          );
+        }
         const local = requireLocalAccount(account, "Shielding funds");
         return local.shield(
           operation.resourceAddress,
@@ -1044,6 +1124,10 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
         return local.depositConfidential(operation.resourceAddress, BigInt(operation.amount), maxFee, await resolveFeeType(local, feeType));
       }
       case "unshield": {
+        if (account instanceof DaemonAccount) {
+          rejectPrivateFeeForDaemon(feeType, "unshielding funds");
+          return account.unshield(operation.resourceAddress, BigInt(operation.revealedAmount), maxFee, operation.memo);
+        }
         const local = requireLocalAccount(account, "Unshielding funds");
         return local.unshield(
           operation.resourceAddress,
@@ -1054,6 +1138,17 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
         );
       }
       case "sendPrivately": {
+        if (account instanceof DaemonAccount) {
+          rejectPrivateFeeForDaemon(feeType, "sending privately");
+          return account.sendPrivately(
+            operation.resourceAddress,
+            operation.recipientWalletAddress,
+            BigInt(operation.amount),
+            maxFee,
+            operation.memo,
+            operation.minimumValuePromise !== undefined ? BigInt(operation.minimumValuePromise) : 0n
+          );
+        }
         const local = requireLocalAccount(account, "Sending privately");
         return local.sendPrivately(
           operation.resourceAddress,
@@ -1102,13 +1197,46 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
   }
 }
 
+/**
+ * Waits for a transaction request to leave "pending", the same way `createAndWaitToSubmit`
+ * always has -- except it doesn't trust the in-memory `approved` promise alone. That promise's
+ * resolver lives only in this service worker instance's memory (`approvals.ts`'s `pending` Map);
+ * if Chrome tears the MV3 worker down mid-approval (it does this after ~30s idle, and a human
+ * actually reading a transaction summary easily takes longer), the resolver is gone for good even
+ * though the click itself still lands -- `resolveApproval` writes the decision through
+ * `chrome.storage` regardless of whether an in-memory waiter exists. Racing `approved` against a
+ * poll of that same persisted record means the fast path (worker survives, common case) resolves
+ * exactly as before with no added latency, while a restart is recovered by the poll noticing the
+ * record moved to "approved"/"rejected" instead of hanging forever -- which otherwise strands not
+ * just this call but every future one, since a dApp's own "one transaction at a time" guard has no
+ * way to know this one will never finish.
+ */
+async function waitForApprovalDecision(requestId: string, approved: Promise<boolean>): Promise<boolean> {
+  let stopped = false;
+  const poll = (async (): Promise<boolean> => {
+    while (!stopped) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (stopped) break;
+      const record = await getTransactionRequest(requestId);
+      if (!record || record.status === "rejected" || record.status === "failed") return false;
+      if (record.status === "approved" || record.status === "submitting" || record.status === "submitted") return true;
+    }
+    return false;
+  })();
+  try {
+    return await Promise.race([approved, poll]);
+  } finally {
+    stopped = true;
+  }
+}
+
 /** The deprecated-RPC path: create, block until the user responds (exactly like these methods
  * always blocked), then submit through the same atomic claim gate as
  * `tari_submitTransactionRequest` -- which also closes the old gap where an approval granted after
  * the request sat past its TTL still submitted (the gate rejects an expired "approved" record). */
 async function createAndWaitToSubmit(origin: string, accountId: string, operation: TransactionRequestOperation): Promise<unknown> {
   const { requestId, approved } = await createTransactionRequest(origin, accountId, operation);
-  if (!(await approved)) throw new Error("Transaction rejected.");
+  if (!(await waitForApprovalDecision(requestId, approved))) throw new Error("Transaction rejected.");
   return submitApprovedTransactionRequest(requestId);
 }
 
@@ -1398,16 +1526,14 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     }
 
     case "popup-shield": {
-      const account = await getActiveAccount();
-      if (!account) throw new Error("Wallet is locked.");
-      // Shield/unshield needs this account's own view secret and one-time stealth signing
-      // (SecretKeyWallet), neither of which a daemon-relayed account can provide -- the daemon
-      // never exports its view secret to clients (see WalletDaemonSigner's own doc comment).
-      // Not on WalletAccountApi at all (unlike claimTestnetXtr, which DaemonAccount genuinely
-      // can do via a different RPC) -- this is a real capability gap, not just an unwired one.
-      if (!(account instanceof OotleAccount)) {
-        throw new Error("Shielding isn't available for daemon-connected accounts -- switch to a local account first.");
-      }
+      const activeAccount = await getActiveAccount();
+      if (!activeAccount) throw new Error("Wallet is locked.");
+      // Unlike unshield/sendPrivately/HTLC (still local-only: they need this account's own view
+      // secret client-side to spend an existing stealth output, which a daemon-relayed account can
+      // never have -- see WalletDaemonSigner's own doc comment), shield only ever *creates* a new
+      // stealth output from revealed funds, which the daemon can do entirely server-side via its
+      // own accounts.stealth_transfer RPC (DaemonAccount.shield(), confirmed against a live daemon).
+      const account = requireLocalOrDaemonAccount(activeAccount, "Shielding");
       const maxFee = message.maxFee ? BigInt(message.maxFee) : undefined;
       const { activeAccountId } = await getState();
       return withHistory(
@@ -1417,11 +1543,12 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     }
 
     case "popup-unshield": {
-      const account = await getActiveAccount();
-      if (!account) throw new Error("Wallet is locked.");
-      if (!(account instanceof OotleAccount)) {
-        throw new Error("Unshielding isn't available for daemon-connected accounts -- switch to a local account first.");
-      }
+      const activeAccount = await getActiveAccount();
+      if (!activeAccount) throw new Error("Wallet is locked.");
+      // See popup-shield's own comment: unlike HTLC/withdrawStealthAndExecute, this doesn't need
+      // this account's own view secret client-side -- the daemon spends its own stealth UTXOs
+      // server-side (DaemonAccount.unshield(), confirmed against a live daemon).
+      const account = requireLocalOrDaemonAccount(activeAccount, "Unshielding");
       const maxFee = message.maxFee ? BigInt(message.maxFee) : undefined;
       const { activeAccountId } = await getState();
       return withHistory(
@@ -1431,11 +1558,10 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     }
 
     case "popup-send-privately": {
-      const account = await getActiveAccount();
-      if (!account) throw new Error("Wallet is locked.");
-      if (!(account instanceof OotleAccount)) {
-        throw new Error("Sending privately isn't available for daemon-connected accounts -- switch to a local account first.");
-      }
+      const activeAccount = await getActiveAccount();
+      if (!activeAccount) throw new Error("Wallet is locked.");
+      // See popup-unshield's own comment.
+      const account = requireLocalOrDaemonAccount(activeAccount, "Sending privately");
       const maxFee = message.maxFee ? BigInt(message.maxFee) : undefined;
       const { activeAccountId } = await getState();
       return withHistory(

@@ -12,18 +12,29 @@ import { WalletDaemonClient } from "@tari-project/ootle-wallet-daemon-signer";
 import { parseOotleAddress } from "@tari-project/ootle-wasm";
 import type {
   Account,
+  AccountsCreateStealthTransferStatementRequest,
+  AccountsCreateStealthTransferStatementResponse,
   IndexerGetTransactionResultResponse,
   Instruction,
   KeyId,
+  StealthTransferStatement,
+  SubstateRequirement,
   TransactionResult,
   TransactionWaitResultResponse,
+  TransferOutput,
 } from "@tari-project/ootle-ts-bindings";
 import {
   type NetworkName,
+  type PrivateBalance,
+  type ShieldedOutputRecord,
   type TokenBalance,
   type TransactionExecuteOpts,
   type WalletAccountApi,
   deriveAccountComponentAddress,
+  extractMissingSubstateAddress,
+  resolveInputsWithRetry,
+  resolveSendPrivatelyPlan,
+  resolveUnshieldPlan,
   substateExists,
   toOotleNetwork,
   withTimeout,
@@ -31,6 +42,12 @@ import {
 import { toHex } from "./vault";
 
 const DAEMON_TIMEOUT_MS = 15_000;
+
+// Mirrors tari-wallet-extension's own popup/format.ts copy of this same well-known constant (not
+// re-exported by @chironbuilder/ootle-sdk itself, and not worth importing across the popup/lib
+// boundary just for one string) -- see that file's own comment for why every project in this
+// ecosystem independently declares it rather than sharing one source.
+const TARI_RESOURCE_ADDRESS = "resource_0101010101010101010101010101010101010101010101010101010101010101";
 
 /**
  * A plain `fetch()` failure (connection refused, DNS failure, or — on some platforms — a hang that
@@ -243,16 +260,348 @@ export class DaemonAccount implements WalletAccountApi {
     }));
   }
 
+  /** Shared by getPrivateBalances() and shield()'s own recipient-side friendly display -- the
+   * daemon's stealth RPCs return only a resource address, never its symbol/name/divisibility
+   * (unlike accountsGetBalances(), whose BalanceEntry carries token_symbol/divisibility directly).
+   * Mirrors getBalances()'s own indexer substate lookup. */
+  private async fetchResourceMeta(resourceAddress: string): Promise<{ name: string | null; symbol: string | null; divisibility: number }> {
+    const { substates } = await this.indexerProvider.fetchSubstates([resourceAddress]);
+    const value = substates[resourceAddress]?.substate;
+    const resource = value && "Resource" in value ? (value.Resource as { metadata?: Record<string, unknown>; divisibility?: number }) : undefined;
+    const name = resource?.metadata?.name;
+    const symbol = resource?.metadata?.SYMBOL ?? resource?.metadata?.symbol;
+    return {
+      name: typeof name === "string" ? name : null,
+      symbol: typeof symbol === "string" ? symbol : null,
+      divisibility: resource?.divisibility ?? 0,
+    };
+  }
+
+  /**
+   * Lists this account's unspent stealth (freestanding UTXO) outputs for `resourceAddress` —
+   * the daemon-relayed counterpart to `OotleAccount.listUnspentShieldedOutputs()`. Unlike that
+   * local method (which can only ever know about an output it created or was explicitly told
+   * about — see `ShieldedOutputRecord`'s own doc comment for why there is no scan-by-commitment
+   * API), the daemon maintains its own server-side index of every stealth UTXO addressed to this
+   * account's view key, decrypted server-side, so `stealthUtxosList`'s own `value` field is
+   * already the real amount for any UTXO this call scopes to (`account_address` set) — confirmed
+   * directly against a live daemon that a *separate* `stealthUtxosDecryptValue` call for the same
+   * ids comes back empty (that RPC is for a commitment this account doesn't already recognize as
+   * its own -- claiming an externally-handed-off payment, not re-deriving a value `list` already
+   * decrypted), so this does not also call it.
+   *
+   * `transactionId`/`createdAt` are always empty/zero: `UtxoInfo` (the daemon's own shape) carries
+   * neither, unlike `OotleAccount`'s locally-written `ShieldedOutputRecord`, which knows both
+   * because it wrote the record itself at creation time.
+   */
+  async listUnspentShieldedOutputs(resourceAddress: string = TARI_RESOURCE_ADDRESS): Promise<ShieldedOutputRecord[]> {
+    const { utxos } = await daemonCall(
+      this.url,
+      this.client.stealthUtxosList({ resource_address: resourceAddress, account_address: this.account.component_address, filter_by_status: "Unspent" }),
+      "listing shielded outputs"
+    );
+    return utxos.map((utxo) => ({
+      accountId: this.account.component_address,
+      resourceAddress,
+      commitment: utxo.address.id,
+      amount: utxo.value.toString(),
+      transactionId: "",
+      createdAt: 0,
+      spent: utxo.status !== "Unspent",
+      memo: utxo.memo && "Message" in utxo.memo ? utxo.memo.Message : undefined,
+    }));
+  }
+
+  /** Daemon-relayed counterpart to `OotleAccount.getPrivateBalances()`. Scoped to XTR only (unlike
+   * the local implementation, which can total any resource it has records for): the daemon has no
+   * "list every resource this account has stealth activity in" RPC, only a per-resource
+   * `stealthUtxosList`, so there is no way to discover which other resources to even ask about
+   * without the caller already naming one. XTR is the one resource every account in this ecosystem
+   * is guaranteed to have touched (fees, `claimTestnetXtr()`), so it is the only one queried here. */
+  async getPrivateBalances(): Promise<PrivateBalance[]> {
+    const resourceAddress = TARI_RESOURCE_ADDRESS;
+    const outputs = await this.listUnspentShieldedOutputs(resourceAddress);
+    if (outputs.length === 0) return [];
+    const amount = outputs.reduce((sum, o) => sum + BigInt(o.amount), 0n);
+    const meta = await this.fetchResourceMeta(resourceAddress);
+    return [{ resourceAddress, amount, outputCount: outputs.length, divisibility: meta.divisibility, symbol: meta.symbol, name: meta.name }];
+  }
+
+  /**
+   * Moves `amount` of this account's own revealed balance into a freestanding stealth output
+   * addressed to itself, via the daemon's own `accounts.stealth_transfer` RPC (`RevealedOnly`
+   * input selection: source is the revealed vault, never an existing stealth/confidential output).
+   * Unlike `OotleAccount.shield()`, which builds and signs the `StealthTransfer` locally and
+   * already knows the commitment it created before submitting, this only learns the daemon's own
+   * choice of commitment/substate after the fact, by finding the one `utxo_<resource>_<commitment>`
+   * entry in the finalized transaction's `up_substates` — confirmed directly against a live daemon
+   * (dry-run and real submission both verified) rather than assumed from the request/response
+   * types alone, since neither documents this shape.
+   *
+   * `feeType` is deliberately not a parameter (unlike `OotleAccount.shield()`'s signature): a
+   * private-fee shield needs a stealth UTXO to already exist to pay from, which is exactly what
+   * this call is creating — `resolveFeeType()` in background/index.ts already requires a local
+   * account for `feeType: "private"` on every operation, this one included.
+   */
+  async shield(
+    resourceAddress: string,
+    amount: bigint,
+    maxFee = 50000n,
+    memo?: string,
+    minimumValuePromise = 0n
+  ): Promise<{ transactionId: string; commitment: string; substateId: string; minimumValuePromise: string }> {
+    if (minimumValuePromise > amount) throw new Error("minimumValuePromise cannot exceed the shielded amount.");
+    const blindedOutputAmount = amount - minimumValuePromise;
+
+    const { transaction_id } = await daemonCall(
+      this.url,
+      this.client.stealthTransfer({
+        owner_account: { ComponentAddress: this.account.component_address },
+        fee_params: { input_selection: "RevealedOnly", pay_fee_with_swap: null },
+        input_selection: "RevealedOnly",
+        resource_address: resourceAddress,
+        transfers: [
+          {
+            destination_address: this.address,
+            blinded_output_amount: blindedOutputAmount.toString(),
+            revealed_output_amount: minimumValuePromise,
+            pay_to: "StealthPublicKey",
+            attach_sender_address: false,
+            output_memo: memo ? { Message: memo } : null,
+          },
+        ],
+        max_fee: maxFee.toString(),
+        dry_run: false,
+      }),
+      "shielding funds"
+    );
+
+    const response = await this.waitForFinalization(transaction_id, "waiting for the shield to finalize");
+    if (!response.result) throw new Error(`Transaction ${transaction_id} has no result after waiting.`);
+    throwOnRejection(transaction_id, response.result.result);
+
+    const upSubstates = "Accept" in response.result.result ? response.result.result.Accept.up_substates : [];
+    const utxoEntry = upSubstates.find(([id]) => id.startsWith("utxo_"));
+    if (!utxoEntry) throw new Error(`Shield transaction ${transaction_id} finalized but created no stealth output substate.`);
+    const [substateId] = utxoEntry;
+    const commitment = substateId.slice(substateId.lastIndexOf("_") + 1);
+
+    return { transactionId: transaction_id, commitment, substateId, minimumValuePromise: minimumValuePromise.toString() };
+  }
+
+  /**
+   * Low-level counterpart to `shield()`'s single high-level RPC: asks the daemon to build a
+   * signed spend statement for `utxoIds` (named, exact stealth UTXOs -- `Specific` selection,
+   * never an amount-based one, so the daemon locks precisely the inputs this class's own
+   * coin-selection already chose) and lock them under a `lock_id` for up to 5 minutes, without
+   * yet building or submitting any transaction. This is `accounts.create_stealth_transfer_statement`
+   * -- confirmed present and fully working against this locally-built daemon, but absent from the
+   * currently-published `@tari-project/wallet_jrpc_client` npm bindings (see the tari-ootle issue
+   * this gap was filed against), so it is called via `WalletDaemonClient.sendRequest()`'s raw
+   * escape hatch rather than a typed wrapper method.
+   *
+   * The response's own `signing_keys` is *not* always this account's owner key: confirmed live
+   * that for a `Specific` selection the daemon always derives a fresh one-off nonce key instead
+   * (since `Specific` never draws from the revealed vault, so no owner-key signature is needed for
+   * that part) -- the caller must still carry it into the transaction as an `other_signers` entry,
+   * since it authorises the statement's own balance proof. The UTXO spend-key signature itself
+   * (`utxo_signers` in the response) needs no such handling here: passing `lock_id` back as the
+   * transaction's own `lock_ids` makes the daemon re-derive and apply it automatically
+   * (`derive_stealth_signers` in `transaction.rs`).
+   */
+  private async createStealthTransferStatement(
+    resourceAddress: string,
+    utxoIds: string[],
+    outputs: TransferOutput[]
+  ): Promise<{ statement: StealthTransferStatement; lockId: number; otherSigners: KeyId[] }> {
+    const request: AccountsCreateStealthTransferStatementRequest = {
+      requests: [
+        {
+          sender_account: { ComponentAddress: this.account.component_address },
+          resource_address: resourceAddress,
+          input_selection: { Specific: { utxo_addresses: utxoIds.map((id) => ({ resource_address: resourceAddress, id })) } },
+          outputs,
+        },
+      ],
+    };
+    const response = await daemonCall(
+      this.url,
+      this.client.sendRequest<AccountsCreateStealthTransferStatementResponse>(
+        "accounts.create_stealth_transfer_statement",
+        request
+      ),
+      "building the stealth transfer statement"
+    );
+    const statement = response.statements[0];
+    if (!statement) throw new Error("The daemon returned no statement for this stealth transfer request.");
+    const ownerKeyId = this.account.owner_key_id;
+    const otherSigners = response.signing_keys.filter((k) => JSON.stringify(k) !== JSON.stringify(ownerKeyId));
+    return { statement, lockId: response.lock_id, otherSigners };
+  }
+
+  /**
+   * Submits `instructions` (already containing the `StealthTransfer` instruction built from a
+   * `createStealthTransferStatement()` statement) via the shared `buildSubmitRequest()`/
+   * `waitForFinalization()` pair `execute()` also uses, except it also passes `lockId` back as the
+   * request's own `lock_ids` and `otherSigners` -- the two details `execute()` itself never needs
+   * (a plain instruction has no stealth lock to redeem or extra statement signer to carry).
+   */
+  private async submitStealthTransaction(
+    instructions: Instruction[],
+    lockId: number,
+    otherSigners: KeyId[],
+    maxFee: bigint
+  ): Promise<{ transactionId: string; result: TransactionWaitResultResponse }> {
+    const request = await this.buildSubmitRequest(instructions, maxFee, { otherSigners, lockIds: [lockId] });
+    const { transaction_id } = await daemonCall(this.url, this.client.submitTransaction(request), "submitting the stealth transaction");
+    const response = await this.waitForFinalization(transaction_id);
+    if (response.result) throwOnRejection(transaction_id, response.result.result);
+    return { transactionId: transaction_id, result: response };
+  }
+
+  /**
+   * Daemon-relayed counterpart to `OotleAccount.unshield()`. Selects this account's own unspent
+   * stealth UTXOs via the same exported `resolveUnshieldPlan` coin-selection `OotleAccount` uses
+   * (largest-first, guaranteeing a stealth change remainder `> 0`), then spends them through
+   * `createStealthTransferStatement()`/`submitStealthTransaction()` instead of local signing.
+   *
+   * A `StealthTransfer` instruction whose statement carries a positive revealed amount always
+   * leaves that amount as a dangling bucket on the workspace -- confirmed live (dry-run and a real
+   * submission) against this daemon. `OotleAccount`'s own local path never hits this because its
+   * `WalletStealthAuthorizer` only auto-emits the matching deposit when the *same* instruction also
+   * withdraws a trivial revealed "dust" input (see that class's own `unshield()` doc comment) --
+   * this class has no such local authorizer to lean on, so it always appends its own
+   * `PutLastInstructionOutputOnWorkspace` + `deposit` pair to consume the bucket itself.
+   */
+  async unshield(
+    resourceAddress: string,
+    revealedOutAmount: bigint,
+    maxFee = 50000n,
+    memo?: string
+  ): Promise<{ transactionId: string }> {
+    if (revealedOutAmount <= 0n) throw new Error("The amount to reveal must be greater than zero.");
+
+    const records = await this.listUnspentShieldedOutputs(resourceAddress);
+    const { commitments, remainder } = resolveUnshieldPlan(records, resourceAddress, revealedOutAmount);
+
+    const { statement, lockId, otherSigners } = await this.createStealthTransferStatement(resourceAddress, commitments, [
+      {
+        address: this.address,
+        revealed_amount: revealedOutAmount.toString(),
+        blinded_amount: remainder.toString(),
+        memo: memo ? { Message: memo } : null,
+        pay_to: "StealthPublicKey",
+      },
+    ]);
+
+    const instructions: Instruction[] = [
+      { StealthTransfer: { resource_address_ref: { Address: resourceAddress }, statement, revealed_input_bucket: null } },
+      { PutLastInstructionOutputOnWorkspace: { key: 0 } },
+      {
+        CallMethod: {
+          call: { Address: this.account.component_address },
+          method: "deposit",
+          args: [{ Workspace: { id: 0, offset: null } }],
+        },
+      },
+    ];
+
+    return this.submitStealthTransaction(instructions, lockId, otherSigners, maxFee);
+  }
+
+  /**
+   * Daemon-relayed counterpart to `OotleAccount.sendPrivately()`. Selects this account's own
+   * unspent stealth UTXOs via the same exported `resolveSendPrivatelyPlan` coin-selection
+   * `OotleAccount` uses, and spends them to create a brand-new stealth output addressed to
+   * `recipientWalletAddress` (plus a same-account change output if the selected total exceeds
+   * `amount`) -- same on-chain shape as `OotleAccount.sendPrivately()`, same caveats (no scan API;
+   * the recipient only discovers the payment once handed the resulting commitment out of band).
+   *
+   * The recipient's output is always the *first* entry in the statement request specifically so
+   * `extractRecipientCommitment` can pick it out of the finalized transaction's `up_substates` --
+   * confirmed live (a real two-output submission, distinct amounts) that `up_substates`' stealth
+   * UTXO entries come back in the same order the request's `outputs` were given in, not some
+   * other order (e.g. smallest-first or hash order).
+   *
+   * `minimumValuePromise > 0` is deliberately unsupported here (unlike `OotleAccount`'s own
+   * signature): partially revealing the *recipient's* output would need that revealed portion
+   * deposited into their own account component -- deriving it, and creating it on-chain first if
+   * it doesn't exist yet, the same way `send()` already handles a first-time recipient -- which
+   * has not been built or verified against a live daemon. Only the fully-blinded transfer this
+   * defaults to has been confirmed (dry-run and a real submission).
+   */
+  async sendPrivately(
+    resourceAddress: string,
+    recipientWalletAddress: string,
+    amount: bigint,
+    maxFee = 50000n,
+    memo?: string,
+    minimumValuePromise = 0n
+  ): Promise<{ transactionId: string; recipientCommitment: string; recipientSubstateId: string; minimumValuePromise: string }> {
+    if (amount <= 0n) throw new Error("The amount to send must be greater than zero.");
+    if (minimumValuePromise > 0n) {
+      throw new Error(
+        "Sending with a revealed minimumValuePromise isn't supported for daemon-connected accounts yet — pass minimumValuePromise: 0n (the default) or switch to a local account."
+      );
+    }
+
+    const records = await this.listUnspentShieldedOutputs(resourceAddress);
+    const { commitments, changeAmount } = resolveSendPrivatelyPlan(records, resourceAddress, amount);
+
+    const outputs: TransferOutput[] = [
+      {
+        address: recipientWalletAddress,
+        revealed_amount: "0",
+        blinded_amount: amount.toString(),
+        memo: memo ? { Message: memo } : null,
+        pay_to: "StealthPublicKey",
+      },
+    ];
+    if (changeAmount > 0n) {
+      outputs.push({
+        address: this.address,
+        revealed_amount: "0",
+        blinded_amount: changeAmount.toString(),
+        memo: null,
+        pay_to: "StealthPublicKey",
+      });
+    }
+
+    const { statement, lockId, otherSigners } = await this.createStealthTransferStatement(resourceAddress, commitments, outputs);
+
+    const instructions: Instruction[] = [
+      { StealthTransfer: { resource_address_ref: { Address: resourceAddress }, statement, revealed_input_bucket: null } },
+    ];
+
+    const { transactionId, result } = await this.submitStealthTransaction(instructions, lockId, otherSigners, maxFee);
+
+    const upSubstates =
+      result.result?.result && "Accept" in result.result.result ? result.result.result.Accept.up_substates : [];
+    const recipientEntry = upSubstates.find(([id]) => id.startsWith("utxo_"));
+    if (!recipientEntry) {
+      throw new Error(`sendPrivately transaction ${transactionId} finalized but created no stealth output substate.`);
+    }
+    const [recipientSubstateId] = recipientEntry;
+    const recipientCommitment = recipientSubstateId.slice(recipientSubstateId.lastIndexOf("_") + 1);
+
+    return { transactionId, recipientCommitment, recipientSubstateId, minimumValuePromise: minimumValuePromise.toString() };
+  }
+
   /**
    * Builds an unsigned transaction locally (same `TransactionBuilder` as `OotleAccount`), then hands
    * it to the daemon to resolve inputs, sign, and submit/simulate. `seal_signer` must be this
    * account's own owner key so the daemon signs and seals with the same key that pays the fee.
+   * Shared by `execute()` (plain instructions, no stealth lock) and `submitStealthTransaction()`
+   * (a `StealthTransfer` instruction, which needs `lockIds`/`otherSigners` from its own statement).
    */
-  async execute(instructions: Instruction[], opts: TransactionExecuteOpts = {}): Promise<unknown> {
+  private async buildSubmitRequest(
+    instructions: Instruction[],
+    maxFee: bigint,
+    opts: { inputs?: SubstateRequirement[]; otherSigners?: KeyId[]; lockIds?: number[] } = {}
+  ) {
     const ownerKeyId: KeyId | null = this.account.owner_key_id;
     if (!ownerKeyId) throw new Error("This daemon account has no owner key — it is view-only and cannot sign transactions.");
 
-    const maxFee = opts.maxFee ?? 5000n;
     const maxEpoch = await resolveMaxEpoch(this.indexerProvider);
     const builder = TransactionBuilder.new(this.network, maxEpoch)
       .withInstructions(instructions)
@@ -272,35 +621,76 @@ export class DaemonAccount implements WalletAccountApi {
     // until this was set, against a live tari_ootle_walletd on esmeralda.
     unsignedTx.is_seal_signer_authorized = true;
 
-    const request = {
+    return {
       transaction: { V1: unsignedTx },
       seal_signer: ownerKeyId,
-      other_signers: [],
+      other_signers: opts.otherSigners ?? [],
       signatures: [],
       detect_inputs: true,
       detect_inputs_use_unversioned: true,
-      lock_ids: [],
+      lock_ids: opts.lockIds ?? [],
     };
+  }
+
+  /** The daemon's own `timeout_secs: 60` bounds how long it waits for finalization server-side; the
+   * client-side budget here just needs enough slack for that plus normal round-trip time so a dead
+   * connection (not just a slow finalization) still surfaces as a clear error. Shared by every
+   * submit path (`execute()`, `submitStealthTransaction()`, `shield()`). */
+  private async waitForFinalization(
+    transactionId: string,
+    label = "waiting for the transaction to finalize"
+  ): Promise<TransactionWaitResultResponse> {
+    const response = await daemonCall(
+      this.url,
+      this.client.waitForTransactionResult({ transaction_id: transactionId, timeout_secs: 60 }),
+      label,
+      70_000
+    );
+    if (response.timed_out) throw new Error(`Timed out waiting for transaction ${transactionId} to finalize.`);
+    return response;
+  }
+
+  async execute(instructions: Instruction[], opts: TransactionExecuteOpts = {}): Promise<unknown> {
+    const maxFee = opts.maxFee ?? 5000n;
 
     if (opts.dryRun) {
+      const request = await this.buildSubmitRequest(instructions, maxFee, { inputs: opts.inputs });
       const response = await daemonCall(this.url, this.client.submitTransactionDryRun(request), "simulating the transaction");
       throwOnRejection(response.transaction_id, response.result.finalize.result);
       return response;
     }
 
-    const { transaction_id } = await daemonCall(this.url, this.client.submitTransaction(request), "submitting the transaction");
-    // The daemon's own `timeout_secs: 60` bounds how long it waits for finalization server-side;
-    // the client-side budget here just needs enough slack for that plus normal round-trip time so
-    // a dead connection (not just a slow finalization) still surfaces as a clear error.
-    const response = await daemonCall(
-      this.url,
-      this.client.waitForTransactionResult({ transaction_id, timeout_secs: 60 }),
-      "waiting for the transaction to finalize",
-      70_000
-    );
-    if (response.timed_out) throw new Error(`Timed out waiting for transaction ${transaction_id} to finalize.`);
-    if (response.result) throwOnRejection(transaction_id, response.result.result);
-    return toIndexerResultShape(response);
+    // The daemon's own `detect_inputs` runs a real want-derivation pass server-side (see this
+    // class's own doc comment above the constructor), but confirmed live it still can't discover a
+    // substate that only becomes reachable once a *nested* cross-template call actually runs (e.g.
+    // a marketplace escrow template's own internal `deposit` into the seller's vault, one level
+    // below the instruction this class submits) -- that fails on-chain as `AcceptFeeRejectRest`
+    // with "Substate '<id>' not found or is not a transaction input", the exact shape
+    // `extractMissingSubstateAddress` (originally built for `OotleAccount`'s own client-side
+    // want-derivation retry, which has no server-side detection to lean on at all) already parses.
+    // Same bounded-retry shape here: pin the newly-discovered substate as an explicit input and
+    // resubmit -- a real new transaction each attempt (a rejected one still burns its fee, same
+    // cost `OotleAccount`'s own retry already accepts), capped at `opts.maxRetries` and never
+    // retried twice for the same address.
+    const maxRetries = opts.maxRetries ?? 3;
+    let inputs = opts.inputs ?? [];
+    const seenAddresses = new Set<string>();
+    for (let attempt = 0; ; attempt++) {
+      const request = await this.buildSubmitRequest(instructions, maxFee, { inputs });
+      const { transaction_id } = await daemonCall(this.url, this.client.submitTransaction(request), "submitting the transaction");
+      const response = await this.waitForFinalization(transaction_id);
+      try {
+        if (response.result) throwOnRejection(transaction_id, response.result.result);
+        return toIndexerResultShape(response);
+      } catch (e) {
+        const missing = nextMissingSubstateToRetry(e, attempt, maxRetries, seenAddresses);
+        if (!missing) throw e;
+        seenAddresses.add(missing);
+        const [resolved] = await resolveInputsWithRetry(this.indexerProvider, [{ substate_id: missing, version: null }]);
+        if (!resolved) throw e;
+        inputs = [...inputs, resolved];
+      }
+    }
   }
 
   /** See `OotleAccount.send()`'s doc comment — same missing-recipient-account problem, same fix:
@@ -346,6 +736,26 @@ export class DaemonAccount implements WalletAccountApi {
   }
 }
 
+/**
+ * The retry decision for `execute()`'s missing-substate loop, pulled out as a pure function so it
+ * can be unit-tested without the real `TransactionBuilder`/indexer pipeline (see `execute()`'s own
+ * comment for why that pipeline itself is only verified live). Returns the substate id to pin and
+ * retry with, or `null` if `error` isn't a retryable "missing substate" rejection, the retry budget
+ * is spent, or this exact address has already been retried once (its own resolved input clearly
+ * didn't fix it, so retrying it again would only loop).
+ */
+export function nextMissingSubstateToRetry(
+  error: unknown,
+  attempt: number,
+  maxRetries: number,
+  seenAddresses: ReadonlySet<string>
+): string | null {
+  if (!(error instanceof Error) || attempt >= maxRetries) return null;
+  const missing = extractMissingSubstateAddress(error.message);
+  if (!missing || seenAddresses.has(missing)) return null;
+  return missing;
+}
+
 export function throwOnRejection(transactionId: string, outcome: TransactionResult): void {
   if ("Reject" in outcome) {
     throw new Error(`Transaction ${transactionId} was rejected: ${JSON.stringify(outcome.Reject)}`);
@@ -365,10 +775,23 @@ export function throwOnRejection(transactionId: string, outcome: TransactionResu
  * shape" against a daemon-relayed account before this normalization existed. `throwOnRejection`
  * has already run by the time this is called, so `response.result` being present here always means
  * a successful `Accept` outcome.
+ *
+ * Also carries `transaction_id`/`transactionId` at the top level, matching
+ * `OotleAccount.execute()`'s own declared return type exactly (`IndexerGetTransactionResultResponse
+ * & {transaction_id: TransactionId} & {transactionId?: string}`) -- missing here before, a plain
+ * dApp-submitted transaction (e.g. Tari Market's "Buy", via `tari_signAndSubmitTransaction`) had no
+ * id anywhere in the response for the site to read back, confirmed live: it showed "No transaction
+ * id returned" even though the transaction had actually gone through.
  */
-export function toIndexerResultShape(response: TransactionWaitResultResponse): IndexerGetTransactionResultResponse {
-  if (!response.result) return { result: "Pending" };
+export function toIndexerResultShape(
+  response: TransactionWaitResultResponse
+): IndexerGetTransactionResultResponse & { transaction_id: string; transactionId: string } {
+  if (!response.result) {
+    return { result: "Pending", transaction_id: response.transaction_id, transactionId: response.transaction_id };
+  }
   return {
+    transaction_id: response.transaction_id,
+    transactionId: response.transaction_id,
     result: {
       Finalized: {
         final_decision: "Commit",

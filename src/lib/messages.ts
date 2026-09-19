@@ -596,8 +596,21 @@ export const ERROR = {
  * `ERROR.rejected`/`ERROR.unauthorized` call would have produced, without the two ever drifting
  * apart as new cases are added elsewhere in the switch.
  */
+// The exact, fixed set of messages a user *declining an approval popup* produces (see
+// background/index.ts's own `if (!approved) throw new Error(...)` / `waitForApprovalDecision`
+// call sites) -- not a substring/regex match. A genuine on-chain rejection (e.g.
+// `daemonAccount.ts`'s `throwOnRejection`: "Transaction <id> was rejected: ...", or the
+// equivalent from OotleAccount's own polling) also contains the word "rejected", but means the
+// opposite thing to a dApp: the user approved fine, the *network* rejected the transaction. A
+// bare `/rejected/i` test conflated the two, so a dApp checking `error.code === 4001` (EIP-1193's
+// "user rejected" convention) to decide whether to let its own user retry immediately would were
+// wrongly parking a real, informative on-chain failure under the sole message "Request rejected
+// by the user" -- confirmed against a live daemon: a real `Reject` outcome surfaced exactly that
+// generic text instead of its own reason.
+const USER_DECLINED_MESSAGES = new Set(["Connection request rejected.", "Rejected by the user.", "Transaction rejected."]);
+
 export function classifyProviderError(message: string): ProviderError {
-  if (/rejected/i.test(message)) return ERROR.rejected;
+  if (USER_DECLINED_MESSAGES.has(message)) return ERROR.rejected;
   if (message === "Wallet is locked." || message.startsWith("Site is not connected")) return ERROR.unauthorized;
   if (message.startsWith("Unknown method:")) return ERROR.unsupported(message.replace(/^Unknown method:\s*/, ""));
   return ERROR.internal(message);
@@ -632,16 +645,34 @@ export interface WalletCapabilities {
    * transaction-request kinds, the other half of `htlcFund`. Same account requirement as the rest
    * of the stealth surface: a seed-derived local account only. */
   scriptPathSpend: boolean;
-  /** The private-spend transaction-request kinds (`shield`, `unshield`, `sendPrivately`). Only a
-   * seed-derived local account can build the stealth balance proof and one-time input
-   * authorizations they need; a daemon-relayed account can't. */
+  /** The `unshield`/`sendPrivately` transaction-request kinds -- spending an *existing* stealth
+   * output. A daemon-relayed account can do this too (via `accounts.create_stealth_transfer_statement`,
+   * confirmed against a live daemon), unlike the rest of the stealth-spend surface
+   * (`stealthWithdraw`/`stealthRedeem`/`htlcFund`/`scriptPathSpend`), which still needs this
+   * account's own view secret client-side and so stays local-only. True for both account kinds,
+   * but a daemon-relayed account can't pay the transaction fee privately -- `feeType: "private"`
+   * on either operation still requires a local account (see `resolveFeeType`'s own doc comment).
+   * Does NOT cover `shield` -- see `shieldFunds` below, which a daemon-relayed account can do too. */
   privateSpend: boolean;
-  /** Whether this wallet can serve confidential *reads* at all (`tari_getPrivateBalances`,
-   * `tari_getShieldedOutputs`, `tari_scanForPrivatePayments`, `tari_scanForResourceUtxos`,
-   * `tari_claimPrivatePayment`) for the connected account -- they need its view secret, which a
-   * daemon-relayed account never exposes.
-   * Independent of `privateViewGranted`: this says the feature exists, that says the user said yes. */
+  /** `tari_shield` -- moving revealed balance into a new stealth output. Unlike the rest of the
+   * private-spend surface, this only ever *creates* a stealth output rather than spending an
+   * existing one, so a daemon-relayed account can do it entirely server-side via its own
+   * `accounts.stealth_transfer` RPC (confirmed against a live daemon) without ever needing the
+   * view secret client-side. True for both account kinds. */
+  shieldFunds: boolean;
+  /** Whether this wallet can serve `tari_getPrivateBalances`/`tari_getShieldedOutputs` for the
+   * connected account. A daemon-relayed account can, via its own stealth JRPC (`stealthUtxosList`
+   * + `stealthUtxosDecryptValue`) -- unlike the rest of the confidential-read surface, these never
+   * need the view secret client-side, since the daemon already holds it and does the decryption
+   * itself. True for both account kinds. Independent of `privateViewGranted`: this says the
+   * feature exists, that says the user said yes. */
   privateBalanceView: boolean;
+  /** Whether this wallet can serve the *remaining* confidential reads (`tari_scanForPrivatePayments`,
+   * `tari_scanForResourceUtxos`, `tari_claimPrivatePayment`) for the connected account. Unlike
+   * `privateBalanceView`'s two methods, these still need this account's own view secret
+   * client-side (to trial-decrypt candidate outputs / produce a claim's ownership proof), which a
+   * daemon-relayed account never has. */
+  privateScan: boolean;
   /** Whether *this site* currently holds the private view grant. False means the confidential-read
    * methods will throw and `tari_getBalances`' `confidentialAmount` is withheld -- call
    * `tari_requestViewAccess` to ask. See `ConnectedSite.viewAccessGrantedAt` in storage.ts. */
