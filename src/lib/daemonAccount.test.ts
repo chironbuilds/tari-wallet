@@ -298,22 +298,10 @@ describe("DaemonAccount.shield", () => {
     });
   });
 
-  it("splits amount into a revealed floor (minimumValuePromise) and the remainder blinded", async () => {
-    const stealthTransfer = vi.fn().mockResolvedValue({ transaction_id: "tx1" });
-    const waitForTransactionResult = vi.fn().mockResolvedValue(finalizedAcceptResult(`utxo_${XTR}_c`));
-    const account = makeAccount({ stealthTransfer, waitForTransactionResult });
-
-    await account.shield(XTR, 5000n, 50000n, undefined, 1200n);
-
-    expect(stealthTransfer).toHaveBeenCalledWith(
-      expect.objectContaining({ transfers: [expect.objectContaining({ blinded_output_amount: "3800", revealed_output_amount: 1200n })] })
-    );
-  });
-
-  it("rejects a minimumValuePromise larger than the amount being shielded before ever calling the daemon", async () => {
+  it("rejects a nonzero minimumValuePromise before ever calling the daemon (create_output_witness hardcodes minimum_value_promise: 0 server-side -- confirmed by reading the Rust source, no daemon JRPC can set it)", async () => {
     const stealthTransfer = vi.fn();
     const account = makeAccount({ stealthTransfer });
-    await expect(account.shield(XTR, 100n, 50000n, undefined, 200n)).rejects.toThrow("cannot exceed");
+    await expect(account.shield(XTR, 5000n, 50000n, undefined, 1200n)).rejects.toThrow("minimumValuePromise");
     expect(stealthTransfer).not.toHaveBeenCalled();
   });
 

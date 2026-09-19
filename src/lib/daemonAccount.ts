@@ -342,6 +342,17 @@ export class DaemonAccount implements WalletAccountApi {
    * private-fee shield needs a stealth UTXO to already exist to pay from, which is exactly what
    * this call is creating — `resolveFeeType()` in background/index.ts already requires a local
    * account for `feeType: "private"` on every operation, this one included.
+   *
+   * `minimumValuePromise > 0` is rejected outright: read the Rust source and confirmed
+   * `create_output_witness` (`crates/wallet/sdk/src/apis/stealth_outputs.rs` -- the function
+   * *every* server-side stealth-output-creating RPC goes through) hardcodes `minimum_value_promise:
+   * 0` on every output it builds. There is no daemon JRPC that can put a nonzero floor on the
+   * output's own commitment at all -- the previous version of this method instead silently
+   * reinterpreted the parameter as "split the shielded amount into a smaller blinded output plus a
+   * plain, fully public deposit of the 'promise' back into this account's revealed vault," which is
+   * not a proof of anything and, confirmed live, throws outright once the whole amount is
+   * "promised" (blinded_output_amount becomes 0, so no witness/output gets created at all, and
+   * `up_substates` never gets a `utxo_` entry to report back).
    */
   async shield(
     resourceAddress: string,
@@ -350,8 +361,11 @@ export class DaemonAccount implements WalletAccountApi {
     memo?: string,
     minimumValuePromise = 0n
   ): Promise<{ transactionId: string; commitment: string; substateId: string; minimumValuePromise: string }> {
-    if (minimumValuePromise > amount) throw new Error("minimumValuePromise cannot exceed the shielded amount.");
-    const blindedOutputAmount = amount - minimumValuePromise;
+    if (minimumValuePromise > 0n) {
+      throw new Error(
+        "A proof-of-funds minimumValuePromise isn't supported for daemon-connected accounts — the daemon has no JRPC that can set it on the output. Pass minimumValuePromise: 0n (the default) or switch to a local account."
+      );
+    }
 
     const { transaction_id } = await daemonCall(
       this.url,
@@ -363,8 +377,8 @@ export class DaemonAccount implements WalletAccountApi {
         transfers: [
           {
             destination_address: this.address,
-            blinded_output_amount: blindedOutputAmount.toString(),
-            revealed_output_amount: minimumValuePromise,
+            blinded_output_amount: amount.toString(),
+            revealed_output_amount: 0n,
             pay_to: "StealthPublicKey",
             attach_sender_address: false,
             output_memo: memo ? { Message: memo } : null,
