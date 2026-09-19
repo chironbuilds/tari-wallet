@@ -41,21 +41,37 @@ interface DappTokenBalance {
 }
 
 interface WalletCapabilities {
-  exactInputSelection: boolean;    // always true today
-  stealthWithdraw: boolean;        // withdrawStealthAndExecute -- local accounts only
-  htlcFund: boolean;               // htlcFund -- local accounts only
-  scriptPathSpend: boolean;        // htlcClaim / htlcRefund -- local accounts only
-  privateSpend: boolean;           // shield / unshield / sendPrivately -- local accounts only
-  minimumValuePromise: boolean;    // proof-of-funds outputs -- local accounts only
-  privateBalanceView: boolean;     // can this account serve confidential reads at all
-  privateViewGranted: boolean;     // has *this site* been granted them
-  transactionResultLookup: boolean; // always true today
-  transactionRequests: boolean;    // create/approve/submit flow -- always true today
-  walletAddress: boolean;          // tari_getWalletAddress -- always true today
-  supportsPrivateFees: boolean;    // feeType: "private" on a transaction request -- local accounts only
-  dryRunIsLocal: boolean;          // always false today -- dry runs round-trip to the indexer
+  exactInputSelection: boolean;      // always true today
+  stealthWithdraw: boolean;          // withdrawStealthAndExecute -- local accounts only
+  stealthRedeem: boolean;            // redeemStealthOutputAndExecute -- local accounts only
+  stealthRedeemPrivateFee: boolean;  // redeemStealthOutputWithPrivateFee -- local accounts only
+  htlcFund: boolean;                 // htlcFund -- local accounts only
+  scriptPathSpend: boolean;          // htlcClaim / htlcRefund -- local accounts only
+  privateSpend: boolean;             // unshield / sendPrivately -- local AND daemon-relayed accounts
+  shieldFunds: boolean;              // shield -- local AND daemon-relayed accounts
+  privateBalanceView: boolean;       // tari_getPrivateBalances / tari_getShieldedOutputs -- both account kinds
+  privateScan: boolean;              // tari_scanForPrivatePayments / tari_scanForResourceUtxos / tari_claimPrivatePayment -- local accounts only
+  privateViewGranted: boolean;       // has *this site* been granted view access
+  transactionResultLookup: boolean;  // always true today
+  transactionRequests: boolean;      // create/approve/submit flow -- always true today
+  walletAddress: boolean;            // tari_getWalletAddress -- always true today
+  minimumValuePromise: boolean;      // proof-of-funds outputs on shield/sendPrivately -- local accounts only
+  ownershipProof: boolean;           // tari_signOwnershipChallenge -- local accounts only
+  walletOwnershipProof: boolean;     // tari_signWalletOwnershipChallenge -- local accounts only
+  confidentialDeposit: boolean;      // depositConfidential -- local accounts only
+  supportsPrivateFees: boolean;      // feeType: "private" on a transaction request -- local accounts only
+  dryRunIsLocal: boolean;            // always false today -- dry runs round-trip to the indexer
 }
 ```
+
+A daemon-relayed account (connected to a running `tari_ootle_walletd` rather than holding its own
+seed) can perform a growing but still partial subset of the private surface: it can create new
+stealth outputs (`shieldFunds`) and spend existing ones (`privateSpend`, covering `unshield` and
+`sendPrivately`), and read its own private balances (`privateBalanceView`) -- all done server-side
+by the daemon, which holds the view secret and signing keys this extension never sees. Everything
+else marked "local accounts only" above genuinely needs the account's own key material inside the
+browser and has no daemon-relayed equivalent yet. Always branch on the specific capability flag,
+never on "is this a daemon account" -- the split changes as daemon support grows.
 
 > **`confidentialAmount: "0"` is not a balance.** Without view access the field is withheld, not
 > measured. Always branch on `privateVisible` first — treating a withheld value as "this account
@@ -80,21 +96,28 @@ connection does **not** restore it. Call `tari_getViewAccess` (or read
 `capabilities.privateViewGranted`) rather than assuming a grant from earlier in the session still
 holds.
 
-`capabilities.privateBalanceView` is false for a daemon-relayed account — it never exposes a view
-secret, so the grant could not be honoured even if the user said yes. Check it before offering the
-prompt, so a user on that account gets an explanation instead of a dead end.
+`capabilities.privateBalanceView` is true for both a seed-derived local account and a
+daemon-relayed one — the daemon serves `tari_getPrivateBalances`/`tari_getShieldedOutputs` from its
+own server-side view-key access, never handing that key to this extension. It is
+`capabilities.privateScan` that stays local-only (see below): trial-decrypting *candidate* incoming
+payments and producing a claim's ownership proof both need the view secret client-side, which a
+daemon-relayed account never has. Check the specific flag you need before offering the prompt, so a
+user on an account missing it gets an explanation instead of a dead end.
 
 ## Reading private state
 
-All four require the view grant above and a seed-derived local account. Without the grant they
-throw `"This site doesn't have private view access. Call tari_requestViewAccess first."`
+All four require the view grant above. `tari_getPrivateBalances`/`tari_getShieldedOutputs` work for
+both a seed-derived local account and a daemon-relayed one (`capabilities.privateBalanceView`);
+`tari_scanForPrivatePayments`/`tari_claimPrivatePayment` need a seed-derived local account
+(`capabilities.privateScan`). Without the grant, all four throw `"This site doesn't have private
+view access. Call tari_requestViewAccess first."`
 
 | Method | Params | Returns | Notes |
 |---|---|---|---|
 | `tari_getPrivateBalances` | none | `PrivateBalance[]` | Per-resource totals over the account's unspent stealth outputs. |
 | `tari_getShieldedOutputs` | `{ resourceAddress? }` | `ShieldedOutputSummary[]` | The individual UTXOs behind those totals, newest first. |
-| `tari_scanForPrivatePayments` | `{ maxPages? }` | `{ claimed, found }` | View-key scan for incoming payments. Real network cost — user-initiated refresh, not a poll. |
-| `tari_claimPrivatePayment` | `{ resourceAddress, commitment }` | `{ amount, memo? }` | Claims a payment by commitment shared out of band. Local bookkeeping only — submits nothing. |
+| `tari_scanForPrivatePayments` | `{ maxPages? }` | `{ claimed, found }` | View-key scan for incoming payments. Real network cost — user-initiated refresh, not a poll. Local accounts only. |
+| `tari_claimPrivatePayment` | `{ resourceAddress, commitment }` | `{ amount, memo? }` | Claims a payment by commitment shared out of band. Local bookkeeping only — submits nothing. Local accounts only. |
 
 ```ts
 interface PrivateBalance {
@@ -220,14 +243,14 @@ The six kinds that move value in or out of, or between, stealth outputs (`htlcFu
 same create → approval → submit flow as any other transaction; the approval screen shows a
 plain-language note describing which direction value moves and whether it becomes publicly visible.
 
-| Kind | Moves | Result |
-|---|---|---|
-| `shield` | public → private, same account | `{ transactionId, commitment, substateId, minimumValuePromise }` |
-| `unshield` | private → public, same account | `{ transactionId }` |
-| `sendPrivately` | private → private, to another wallet address | `{ transactionId, recipientCommitment, recipientSubstateId, minimumValuePromise }` |
-| `htlcFund` | public → HTLC-locked private output | `{ transactionId, conditions, ownCommitment, outputMask }` |
-| `htlcClaim` | HTLC-locked → your private balance (reveals the preimage) | `{ transactionId }` |
-| `htlcRefund` | HTLC you funded → back to your private balance (after `refundEpoch`) | `{ transactionId }` |
+| Kind | Moves | Result | Daemon-relayed account |
+|---|---|---|---|
+| `shield` | public → private, same account | `{ transactionId, commitment, substateId, minimumValuePromise }` | Yes (`capabilities.shieldFunds`) |
+| `unshield` | private → public, same account | `{ transactionId }` | Yes (`capabilities.privateSpend`) |
+| `sendPrivately` | private → private, to another wallet address | `{ transactionId, recipientCommitment, recipientSubstateId, minimumValuePromise }` | Yes (`capabilities.privateSpend`), but only with `minimumValuePromise: "0"` (the default) — see note below |
+| `htlcFund` | public → HTLC-locked private output | `{ transactionId, conditions, ownCommitment, outputMask }` | No (`capabilities.htlcFund`) |
+| `htlcClaim` | HTLC-locked → your private balance (reveals the preimage) | `{ transactionId }` | No (`capabilities.scriptPathSpend`) |
+| `htlcRefund` | HTLC you funded → back to your private balance (after `refundEpoch`) | `{ transactionId }` | No (`capabilities.scriptPathSpend`) |
 
 Notes that matter for getting these right:
 
@@ -247,8 +270,22 @@ Notes that matter for getting these right:
 - **`htlcClaim`/`htlcRefund` need the full `conditions` tree** the funding side produced. Only its
   root is committed on-chain, so it cannot be recovered from the chain alone — pass it through
   unchanged.
-- All six require `capabilities.privateSpend` (or `capabilities.scriptPathSpend` for the two HTLC
-  spends): a daemon-relayed account has no view secret and cannot sign stealth inputs.
+- `shield`, `unshield`, and `sendPrivately` (with `minimumValuePromise: "0"`, the default) also work
+  for a daemon-relayed account — the daemon builds and signs the stealth statement server-side, via
+  its own `accounts.stealth_transfer`/`accounts.create_stealth_transfer_statement` RPCs, so this
+  extension never needs the view secret client-side for them. `htlcFund`/`htlcClaim`/`htlcRefund`
+  do not: they need `capabilities.htlcFund`/`scriptPathSpend`, which stay local-account-only, since
+  building a `PayTo::Conditions` output witness (or spending one) is done entirely client-side.
+  Check the specific kind's capability flag (see the table above), not a blanket "is this account
+  local" test.
+- **`sendPrivately`'s `minimumValuePromise` is local-accounts-only, even though the rest of the
+  kind isn't.** A nonzero promise partially reveals the *recipient's* output, which needs depositing
+  the revealed portion into their own account component — not yet built for a daemon-relayed
+  account. It throws a clear error rather than silently ignoring the value; pass `"0"` (or omit it)
+  against a daemon-relayed account.
+- A daemon-relayed account cannot pay any of these six privately either way —
+  `capabilities.supportsPrivateFees` is false for one, so `feeType: "private"` on any of them
+  (or on `enforceFeeType: true`) throws. Use `feeType: "transparent"` (the default) against one.
 - Private view access is **not** required for any of them, and holding it does **not** waive the
   per-transaction approval. Reads and spends are separate permissions in both directions.
 

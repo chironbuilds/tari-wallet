@@ -86,5 +86,11 @@ if (!caps.htlcFund) {
   missing and why it wasn't hand-rolled around the gap.
 - **No local (no-egress) dry-run execution.** `dryRunIsLocal` is `false`; every dry run reaches the
   indexer.
-- **Daemon-relayed accounts can't do anything stealth-related** — `tari_withdrawStealthAndExecute`
-  and `tari_htlcFund` both require a local account.
+- **Daemon-relayed accounts can shield, unshield, send privately, and read their own private
+  balances** — the daemon does it server-side (`capabilities.shieldFunds`/`privateSpend`/
+  `privateBalanceView`). They still can't do the rest of the stealth surface:
+  `tari_withdrawStealthAndExecute`, `tari_htlcFund`, HTLC claim/refund, or the
+  `tari_scanForPrivatePayments`/`tari_scanForResourceUtxos`/`tari_claimPrivatePayment` reads — all of
+  those need this account's own view secret or one-time stealth signing client-side, and a
+  daemon-relayed account's keys never leave the daemon. Nor can a daemon-relayed account pay any
+  operation's fee privately (`capabilities.supportsPrivateFees` is false for one).

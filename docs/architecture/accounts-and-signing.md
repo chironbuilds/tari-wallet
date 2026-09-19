@@ -54,10 +54,19 @@ Connects to a locally- or remotely-running wallet daemon and relays every operat
 daemon holds the real key material; this class never signs or derives anything itself. Two
 consequences that make it a genuinely different code path, not just a swapped-in signer:
 
-- **No client-side retry loop.** The daemon's `transactions.submit` JRPC method takes a
-  `detect_inputs: true` flag that does the same substate-dependency discovery `OotleAccount.execute()`
-  has to do reactively (see [Transaction Lifecycle](transaction-lifecycle.md)) — server-side, in one
-  round trip. `DaemonAccount.execute()` just builds the unsigned transaction and submits it once.
+- **Mostly no client-side retry loop, with one narrow exception.** The daemon's `transactions.submit`
+  JRPC method takes a `detect_inputs: true` flag that does the same substate-dependency discovery
+  `OotleAccount.execute()` has to do reactively (see
+  [Transaction Lifecycle](transaction-lifecycle.md)) — server-side, in one round trip, for
+  everything a plain instruction touches directly. Confirmed live that it still can't discover a
+  substate that only becomes reachable once a *nested* cross-template call actually runs (e.g. a
+  marketplace escrow template's own internal `deposit` into a seller's vault, one level below the
+  instruction this class submits) — that fails on-chain as `AcceptFeeRejectRest`. So
+  `DaemonAccount.execute()` does carry a small, bounded retry loop for exactly that one case: parse
+  the missing substate id out of the rejection, pin it as an explicit input, and resubmit (a real
+  new transaction each attempt, capped at a few retries) — reusing the same
+  `extractMissingSubstateAddress`/`resolveInputsWithRetry` building blocks `OotleAccount.execute()`'s
+  own (much larger) retry loop already exports.
 - **Authenticates with a long-lived API key, not a session.** The daemon's normal browser login
   flow relies on an `HttpOnly`, `SameSite=Strict` cookie a `chrome-extension://` origin can never
   hold, and its WebAuthn default locks its origin to `http://localhost:{port}`, which an extension
@@ -66,13 +75,21 @@ consequences that make it a genuinely different code path, not just a swapped-in
   the `admin` permission — checked at connect time, since a narrower key is rejected by this
   wallet's own daemon-relayed testnet-XTR claim regardless.
 
-**Known limitation**: stealth/confidential operations aren't wired up for daemon accounts.
-Everything this wallet actually does with a Stealth-typed resource (claim, send, swap) for a local
-account moves it through revealed `withdraw`/`deposit`, which needs no stealth signing — the
-daemon's own stealth JRPC exists but isn't called here. HTLC funding
-([Stealth Balances and HTLCs](stealth-and-htlc.md)) is local-account-only for the same reason:
-building a `PayTo::Conditions` stealth output witness needs the account's own stealth crypto, which
-only `OotleAccount` has.
+**Stealth support**: a daemon-relayed account can create new stealth outputs (`shield()`, via the
+daemon's own `accounts.stealth_transfer` RPC) and spend existing ones (`unshield()`/
+`sendPrivately()`, via the lower-level `accounts.create_stealth_transfer_statement` RPC — not
+present in the currently-published `@tari-project/wallet_jrpc_client` npm bindings, so called
+through `WalletDaemonClient.sendRequest()`'s raw escape hatch), plus read its own private balances
+(`getPrivateBalances()`/`listUnspentShieldedOutputs()`, via `stealth_utxos.list`) — all server-side,
+never seeing the daemon's view secret or signing keys. `sendPrivately()`'s `minimumValuePromise` is
+the one gap left in that surface: a nonzero promise partially reveals the *recipient's* output,
+which needs depositing that revealed portion into their own account component (creating it first if
+it doesn't exist), not yet built for the daemon path — it throws rather than silently ignoring the
+value. **Known limitation** beyond that: `withdrawStealthAndExecute`/`redeemStealthOutputAndExecute`,
+HTLC funding/spending ([Stealth Balances and HTLCs](stealth-and-htlc.md)), the
+`tari_scanForPrivatePayments`/`tari_scanForResourceUtxos`/`tari_claimPrivatePayment` reads, and
+paying any operation's fee privately are all still local-account-only — each needs this account's
+own view secret or one-time stealth signing client-side, which only `OotleAccount` has.
 
 ## Account resolution and caching
 
