@@ -201,6 +201,12 @@ export interface WalletState {
    * `popup-auto-scan-private-payments` to decide whether the very first scan needs the deep,
    * many-page lookback or can use the same shallow window every later scan uses. */
   walletOrigin: "created" | "imported" | null;
+  /** Mirrors WalletStatus.updateAvailable -- the version chrome.runtime.onUpdateAvailable last
+   * reported, persisted so it survives a service-worker restart between the update landing and the
+   * user next opening the popup. Cleared back to null once the user actually reloads. */
+  pendingUpdateVersion: string | null;
+  /** The popup's display language -- see src/lib/i18n/index.ts. */
+  language: "en" | "zh";
 }
 
 const DEFAULTS: WalletState = {
@@ -218,6 +224,8 @@ const DEFAULTS: WalletState = {
   lastKnownAddress: null,
   transactionRequests: [],
   walletOrigin: null,
+  pendingUpdateVersion: null,
+  language: "en",
 };
 
 export function daemonAccountId(connectionId: string, componentAddress: string): string {

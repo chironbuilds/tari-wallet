@@ -17,6 +17,7 @@ import type {
   IndexerGetTransactionResultResponse,
   Instruction,
   KeyId,
+  Memo,
   StealthTransferStatement,
   SubstateRequirement,
   TransactionResult,
@@ -48,6 +49,12 @@ const DAEMON_TIMEOUT_MS = 15_000;
 // boundary just for one string) -- see that file's own comment for why every project in this
 // ecosystem independently declares it rather than sharing one source.
 const TARI_RESOURCE_ADDRESS = "resource_0101010101010101010101010101010101010101010101010101010101010101";
+
+/** Shared by every stealth output this class creates (`shield`/`unshield`/`sendPrivately`) --
+ * a plain-text memo is always the `Message` variant of the daemon's `Memo` union. */
+function toMemo(memo?: string): Memo | null {
+  return memo ? { Message: memo } : null;
+}
 
 /**
  * A plain `fetch()` failure (connection refused, DNS failure, or — on some platforms — a hang that
@@ -172,7 +179,7 @@ export class DaemonAccount implements WalletAccountApi {
     await daemonCall(url, client.accountsList({ offset: 0, limit: 1 }), "connecting to the daemon");
 
     // This wallet needs Admin specifically, not just read access — confirmed empirically that
-    // accounts.create_free_test_coins (the daemon-relayed "Claim testnet XTR" feature) rejects a
+    // accounts.create_free_test_coins (the daemon-relayed "Claim testnet TARI" feature) rejects a
     // narrowly-scoped key with "Insufficient permissions. Required 'Admin'" verbatim, not a finer
     // per-resource grant, and transaction submission needs write access this class has no way to
     // probe more surgically. There's no direct "what does this key grant" introspection available
@@ -312,11 +319,11 @@ export class DaemonAccount implements WalletAccountApi {
     }));
   }
 
-  /** Daemon-relayed counterpart to `OotleAccount.getPrivateBalances()`. Scoped to XTR only (unlike
+  /** Daemon-relayed counterpart to `OotleAccount.getPrivateBalances()`. Scoped to TARI only (unlike
    * the local implementation, which can total any resource it has records for): the daemon has no
    * "list every resource this account has stealth activity in" RPC, only a per-resource
    * `stealthUtxosList`, so there is no way to discover which other resources to even ask about
-   * without the caller already naming one. XTR is the one resource every account in this ecosystem
+   * without the caller already naming one. TARI is the one resource every account in this ecosystem
    * is guaranteed to have touched (fees, `claimTestnetXtr()`), so it is the only one queried here. */
   async getPrivateBalances(): Promise<PrivateBalance[]> {
     const resourceAddress = TARI_RESOURCE_ADDRESS;
@@ -381,7 +388,7 @@ export class DaemonAccount implements WalletAccountApi {
             revealed_output_amount: 0n,
             pay_to: "StealthPublicKey",
             attach_sender_address: false,
-            output_memo: memo ? { Message: memo } : null,
+            output_memo: toMemo(memo),
           },
         ],
         max_fee: maxFee.toString(),
@@ -503,7 +510,7 @@ export class DaemonAccount implements WalletAccountApi {
         address: this.address,
         revealed_amount: revealedOutAmount.toString(),
         blinded_amount: remainder.toString(),
-        memo: memo ? { Message: memo } : null,
+        memo: toMemo(memo),
         pay_to: "StealthPublicKey",
       },
     ]);
@@ -567,7 +574,7 @@ export class DaemonAccount implements WalletAccountApi {
         address: recipientWalletAddress,
         revealed_amount: "0",
         blinded_amount: amount.toString(),
-        memo: memo ? { Message: memo } : null,
+        memo: toMemo(memo),
         pay_to: "StealthPublicKey",
       },
     ];
@@ -745,7 +752,7 @@ export class DaemonAccount implements WalletAccountApi {
     return daemonCall(
       this.url,
       this.client.createFreeTestCoins({ account: { ComponentAddress: this.account.component_address }, max_fee: 5000n }),
-      "claiming testnet XTR"
+      "claiming testnet TARI"
     );
   }
 }

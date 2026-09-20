@@ -65,7 +65,7 @@ export type TransactionRequestOperation =
       enforceFeeType?: boolean;
     }
   // See `OotleAccount.withdrawStealthAndExecute`'s doc comment: the only way for a dApp to move
-  // Stealth-typed funds (e.g. XTR) into its own contract call in one transaction.
+  // Stealth-typed funds (e.g. TARI) into its own contract call in one transaction.
   | {
       kind: "withdrawStealthAndExecute";
       resourceAddress: string;
@@ -732,6 +732,8 @@ export interface AccountsChangedBroadcast {
 
 export type PopupRequest =
   | { kind: "popup-get-status" }
+  | { kind: "popup-reload-extension" }
+  | { kind: "popup-set-language"; language: "en" | "zh" }
   | { kind: "popup-create-wallet"; password: string }
   | { kind: "popup-import-wallet"; password: string; mnemonic: string }
   | { kind: "popup-unlock"; password: string }
@@ -810,6 +812,13 @@ export interface WalletStatus {
   addressBook: { id: string; label: string; address: string }[];
   autoLockMinutes: number;
   feePrivacyDefault: "private" | "transparent";
+  /** Set to the newer version string once Chrome has downloaded an update and is waiting for the
+   * extension to reload to apply it (chrome.runtime.onUpdateAvailable) -- null the rest of the
+   * time. Chrome won't swap the update in on its own while the popup/service worker are in use, so
+   * without surfacing this, an install can sit on a downloaded-but-unapplied update indefinitely. */
+  updateAvailable: string | null;
+  /** The popup's display language -- see src/lib/i18n/index.ts. */
+  language: "en" | "zh";
 }
 
 /** Mirrors storage.ts's `TransactionHistoryEntry` — see its doc comment for scope. Declared

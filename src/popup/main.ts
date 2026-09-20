@@ -1,5 +1,6 @@
 import "./styles.css";
 import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest, TransactionHistoryEntry, WalletStatus } from "../lib/messages";
+import { LANGUAGE_LABELS, getLanguage, setLanguage, t, type Language } from "../lib/i18n";
 import { isPlausibleMnemonic } from "../lib/cipherSeed";
 import { AUTO_LOCK_OPTIONS, formatAutoLockOption } from "../lib/autoLock";
 import { summarizeArgs, summarizeInstruction } from "../lib/instructionSummary";
@@ -35,7 +36,7 @@ function sendOnce<T>(message: PopupRequest): Promise<T> {
         reject(new Error(chrome.runtime.lastError.message));
         return;
       }
-      if (!response?.ok) reject(new Error(response?.error ?? "Unknown error"));
+      if (!response?.ok) reject(new Error(response?.error ?? t("common.unknownError")));
       else resolve(response.result as T);
     });
   });
@@ -56,6 +57,16 @@ async function send<T = unknown>(message: PopupRequest, retries = 3): Promise<T>
       await sleep(200 * (attempt + 1));
     }
   }
+}
+
+/** Every screen that fetches wallet status goes through this instead of calling `send` directly --
+ * the popup's display language lives in `WalletStatus.language`, and `t()` (see src/lib/i18n) reads
+ * a module-level "current language" that has no other natural way to stay in sync across every
+ * render function down the call stack. */
+async function getStatus(): Promise<WalletStatus> {
+  const status = await send<WalletStatus>({ kind: "popup-get-status" });
+  setLanguage(status.language);
+  return status;
 }
 
 // Feather Icons (MIT) path data, inlined as raw SVG markup — `h()` can't build real SVG elements
@@ -192,9 +203,9 @@ async function copyToClipboard(text: string, label: HTMLElement) {
   let message: string;
   try {
     await navigator.clipboard.writeText(text);
-    message = "Copied!";
+    message = t("common.copied");
   } catch {
-    message = "Couldn't copy";
+    message = t("common.copyFailed");
   }
   const original = label.textContent;
   label.textContent = message;
@@ -207,11 +218,22 @@ async function copyToClipboard(text: string, label: HTMLElement) {
   }, 1200);
 }
 
+/** Binds a `(msg, cls) => void` status-line setter to `statusEl` -- the exact 3-line body
+ * (`display`/`className`/`textContent`) was hand-repeated as its own `showStatus` closure in every
+ * screen with a status line; this is the one place that shape lives now. */
+function bindStatus(statusEl: HTMLElement): (msg: string, cls: "err" | "ok") => void {
+  return (msg, cls) => {
+    statusEl.style.display = "block";
+    statusEl.className = `status ${cls}`;
+    statusEl.textContent = msg;
+  };
+}
+
 /** Swaps a submit button's own label to `busyLabel` and disables it while an async action runs,
  * restoring the original label after -- previously every submit button just grayed out while a
  * separate status line below said "Submitting…", so the button itself looked inert rather than
  * busy. Assumes a plain-text button (no icon children) -- every submit button this is used on is. */
-function setBusy(btn: HTMLButtonElement, busy: boolean, busyLabel = "Working…") {
+function setBusy(btn: HTMLButtonElement, busy: boolean, busyLabel = t("common.working")) {
   if (busy) {
     btn.dataset.label ??= btn.textContent ?? "";
     btn.disabled = true;
@@ -231,7 +253,7 @@ function setBusy(btn: HTMLButtonElement, busy: boolean, busyLabel = "Working…"
 function confirmThenRun(button: HTMLButtonElement, message: string, confirmLabel: string, action: () => void | Promise<void>) {
   button.addEventListener("click", () => {
     const yes = h("button", { class: "primary btn-compact" }, [confirmLabel]);
-    const no = h("button", { class: "secondary btn-compact" }, ["Cancel"]);
+    const no = h("button", { class: "secondary btn-compact" }, [t("common.cancel")]);
     const prompt = h("div", { class: "inline-confirm" }, [
       h("div", { class: "muted", style: "margin-bottom:6px" }, [message]),
       h("div", { class: "row", style: "gap:8px" }, [yes, no]),
@@ -279,7 +301,7 @@ async function main() {
   }
 
   renderLoading();
-  const status = await send<WalletStatus>({ kind: "popup-get-status" });
+  const status = await getStatus();
   if (!status.hasWallet) renderWelcome();
   else if (!status.isUnlocked) renderUnlock(undefined, status.lastKnownAddress);
   else await renderHome(status);
@@ -294,45 +316,43 @@ function renderWelcome() {
     h("div", { class: "welcome-hero" }, [
       h("img", { src: "icons/icon128.png", width: "56", height: "56", alt: "" }),
       h("h1", {}, ["Sapient", h("span", {}, [" Wallet"])]),
-      h("p", { class: "muted" }, [
-        "A self-custody wallet for Tari Ootle. Your seed never leaves this browser and no wallet daemon is required.",
-      ]),
+      h("p", { class: "muted" }, [t("welcome.description")]),
     ]),
-    h("button", { class: "primary", id: "create" }, ["Create New Wallet"]),
-    h("button", { class: "secondary", id: "import" }, ["Import Existing Wallet"])
+    h("button", { class: "primary", id: "create" }, [t("welcome.createButton")]),
+    h("button", { class: "secondary", id: "import" }, [t("welcome.importButton")])
   );
   document.getElementById("create")!.addEventListener("click", () => renderSetPassword("create"));
   document.getElementById("import")!.addEventListener("click", () => renderSetPassword("import"));
 }
 
 function renderSetPassword(mode: "create" | "import") {
-  const title = mode === "create" ? "Create a password" : "Import wallet";
+  const title = mode === "create" ? t("setPassword.titleCreate") : t("setPassword.titleImport");
   const wrap = h("div", {}, [
     h("h1", {}, [title]),
-    h("p", { class: "muted" }, ["This password encrypts your seed on this device. There is no way to recover it if you forget it."]),
+    h("p", { class: "muted" }, [t("setPassword.description")]),
   ]);
 
   let mnemonicTextarea: HTMLTextAreaElement | null = null;
   const mnemonicField =
     mode === "import"
       ? (() => {
-          const label = h("label", {}, ["24-word recovery phrase"]);
-          const ta = h("textarea", { id: "mnemonic", placeholder: "word1 word2 word3 ...", maxlength: "1000" }) as HTMLTextAreaElement;
+          const label = h("label", {}, [t("setPassword.mnemonicLabel")]);
+          const ta = h("textarea", { id: "mnemonic", placeholder: t("setPassword.mnemonicPlaceholder"), maxlength: "1000" }) as HTMLTextAreaElement;
           mnemonicTextarea = ta;
           return [label, ta];
         })()
       : [];
 
-  const pwLabel = h("label", {}, ["Password"]);
+  const pwLabel = h("label", {}, [t("common.password")]);
   const pw = h("input", { type: "password", id: "pw", maxlength: "256" });
   const meterBar = h("div", { class: "strength-meter-fill" }, []);
   const meterLabel = h("div", { class: "muted", style: "font-size:12px;margin-top:2px" }, [""]);
   const meter = h("div", { class: "strength-meter", style: "display:none" }, [meterBar]);
-  const pw2Label = h("label", {}, ["Confirm password"]);
+  const pw2Label = h("label", {}, [t("setPassword.confirmPasswordLabel")]);
   const pw2 = h("input", { type: "password", id: "pw2", maxlength: "256" });
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
-  const submit = h("button", { class: "primary", id: "submit" }, [mode === "create" ? "Create Wallet" : "Import Wallet"]);
-  const back = h("button", { class: "secondary", id: "back" }, ["Back"]);
+  const submit = h("button", { class: "primary", id: "submit" }, [mode === "create" ? t("setPassword.submitCreate") : t("setPassword.submitImport")]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.back")]);
 
   wrap.append(...mnemonicField, pwLabel, pw, meter, meterLabel, pw2Label, pw2, statusEl, submit, back);
   render(wrap);
@@ -372,15 +392,15 @@ function renderSetPassword(mode: "create" | "import") {
       statusEl.className = "status err";
       statusEl.style.display = "block";
     };
-    if (password.length < 8) return showStatus("Password must be at least 8 characters.");
+    if (password.length < 8) return showStatus(t("setPassword.errTooShort"));
     // PBKDF2's cost scales with iteration count, not input length, but hashing a pathologically
     // long input (e.g. an accidentally-pasted file) still means a real multi-second UI stall for no
     // security benefit past a reasonable length — 256 chars is generous for an actual passphrase.
-    if (password.length > 256) return showStatus("Password must be 256 characters or fewer.");
+    if (password.length > 256) return showStatus(t("setPassword.errTooLong"));
     if (isBlockedPassword(password)) {
-      return showStatus("This password is too common or predictable — choose something a stranger couldn't guess in a few tries.");
+      return showStatus(t("setPassword.errCommon"));
     }
-    if (password !== password2) return showStatus("Passwords do not match.");
+    if (password !== password2) return showStatus(t("setPassword.errMismatch"));
 
     try {
       if (mode === "create") {
@@ -388,10 +408,10 @@ function renderSetPassword(mode: "create" | "import") {
         renderBackupMnemonic(mnemonic);
       } else {
         const mnemonic = (document.getElementById("mnemonic") as HTMLTextAreaElement).value.trim();
-        if (!isPlausibleMnemonic(mnemonic)) return showStatus("That recovery phrase doesn't look valid — check spelling and word count.");
+        if (!isPlausibleMnemonic(mnemonic)) return showStatus(t("setPassword.errInvalidMnemonic"));
         await send({ kind: "popup-import-wallet", password, mnemonic });
-        renderLoading("Deriving your account…");
-        const status = await send<WalletStatus>({ kind: "popup-get-status" });
+        renderLoading(t("common.derivingAccount"));
+        const status = await getStatus();
         await renderHome(status);
       }
     } catch (e) {
@@ -407,15 +427,8 @@ function renderBackupMnemonic(mnemonic: string) {
     { class: "mnemonic-grid" },
     words.map((w, i) => h("div", { class: "mnemonic-word" }, [h("span", {}, [String(i + 1)]), w]))
   );
-  const confirm = h("button", { class: "primary", id: "confirm" }, ["I've saved my recovery phrase"]);
-  render(
-    h("h1", {}, ["Save your recovery phrase"]),
-    h("p", { class: "muted" }, [
-      "Write down these 24 words in order and store them somewhere safe. Anyone with this phrase can spend your funds. It will not be shown again.",
-    ]),
-    grid,
-    confirm
-  );
+  const confirm = h("button", { class: "primary", id: "confirm" }, [t("backupMnemonic.confirmButton")]);
+  render(h("h1", {}, [t("backupMnemonic.title")]), h("p", { class: "muted" }, [t("backupMnemonic.description")]), grid, confirm);
   document.getElementById("confirm")!.addEventListener("click", () => renderVerifyMnemonic(mnemonic));
 }
 
@@ -437,13 +450,13 @@ function renderVerifyMnemonic(mnemonic: string) {
   }));
 
   const statusEl = h("div", { class: "status err", id: "status", style: "display:none" });
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back to recovery phrase"]);
-  const confirm = h("button", { class: "primary", id: "confirm" }, ["Confirm"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("verifyMnemonic.backButton")]);
+  const confirm = h("button", { class: "primary", id: "confirm" }, [t("common.confirm")]);
 
   render(
-    h("h1", {}, ["Verify your recovery phrase"]),
-    h("p", { class: "muted" }, ["Enter the requested words below to confirm you've saved them correctly."]),
-    ...fields.flatMap(({ index, input }) => [h("label", {}, [`Word #${index + 1}`]), input]),
+    h("h1", {}, [t("verifyMnemonic.title")]),
+    h("p", { class: "muted" }, [t("verifyMnemonic.description")]),
+    ...fields.flatMap(({ index, input }) => [h("label", {}, [t("verifyMnemonic.wordLabel", { n: index + 1 })]), input]),
     statusEl,
     confirm,
     back
@@ -453,13 +466,13 @@ function renderVerifyMnemonic(mnemonic: string) {
   document.getElementById("confirm")!.addEventListener("click", async () => {
     const allCorrect = fields.every(({ index, input }) => input.value.trim().toLowerCase() === words[index]!.toLowerCase());
     if (!allCorrect) {
-      statusEl.textContent = "One or more words don't match — double check what you wrote down, or go back to view the phrase again.";
+      statusEl.textContent = t("verifyMnemonic.errMismatch");
       statusEl.style.display = "block";
       return;
     }
-    renderLoading("Deriving your account…");
+    renderLoading(t("common.derivingAccount"));
     try {
-      const status = await send<WalletStatus>({ kind: "popup-get-status" });
+      const status = await getStatus();
       await renderHome(status);
     } catch (e) {
       render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
@@ -473,7 +486,7 @@ function renderVerifyMnemonic(mnemonic: string) {
 
 function renderUnlock(onUnlocked?: () => void, lastKnownAddress?: string | null) {
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
-  const forgotLink = h("button", { class: "link-btn", id: "forgot" }, ["Forgot password?"]);
+  const forgotLink = h("button", { class: "link-btn", id: "forgot" }, [t("unlock.forgotPassword")]);
   render(
     // The real per-account identicon when known (cached in plaintext from the last unlock -- see
     // WalletState.lastKnownAddress's doc comment), so a returning user can spot "wrong
@@ -481,11 +494,11 @@ function renderUnlock(onUnlocked?: () => void, lastKnownAddress?: string | null)
     // placeholder, since the address genuinely can't be known before the seed is decrypted (a
     // fresh install, or a wallet that's never been unlocked in this browser instance yet).
     h("div", { class: "hero" }, [accountAvatar(lastKnownAddress ?? null)]),
-    h("h1", { style: "text-align:center" }, ["Welcome back"]),
-    h("label", {}, ["Password"]),
+    h("h1", { style: "text-align:center" }, [t("unlock.title")]),
+    h("label", {}, [t("common.password")]),
     h("input", { type: "password", id: "pw", maxlength: "256", autofocus: "true" }),
     statusEl,
-    h("button", { class: "primary", id: "unlock" }, ["Unlock"]),
+    h("button", { class: "primary", id: "unlock" }, [t("unlock.unlockButton")]),
     forgotLink
   );
   const pw = document.getElementById("pw") as HTMLInputElement;
@@ -504,12 +517,12 @@ function renderUnlock(onUnlocked?: () => void, lastKnownAddress?: string | null)
     }
     // Past this point the password was correct, so failures are no longer about this form —
     // `statusEl` is about to be replaced by renderLoading() and can't show them anymore.
-    renderLoading("Deriving your account…");
+    renderLoading(t("common.derivingAccount"));
     try {
       if (onUnlocked) {
         onUnlocked();
       } else {
-        const status = await send<WalletStatus>({ kind: "popup-get-status" });
+        const status = await getStatus();
         await renderHome(status);
       }
     } catch (e) {
@@ -525,19 +538,19 @@ function renderUnlock(onUnlocked?: () => void, lastKnownAddress?: string | null)
 // wiping. This is the escape hatch, gated behind a typed confirmation (not just a click) since
 // it's irreversible and destroys the local seed if it isn't backed up elsewhere.
 function renderForgotPassword() {
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
   const confirmInput = h("input", { type: "text", id: "confirm", placeholder: "RESET", maxlength: "16" });
-  const resetBtn = h("button", { class: "danger", id: "reset", disabled: "true" }, ["Erase this wallet"]);
+  const resetBtn = h("button", { class: "danger", id: "reset", disabled: "true" }, [t("forgotPassword.eraseButton")]);
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
 
   render(
-    h("h1", {}, ["Forgot password?"]),
+    h("h1", {}, [t("unlock.forgotPassword")]),
     h("p", { class: "muted" }, [
-      "There's no password recovery for a self-custody wallet — resetting ",
-      h("b", {}, ["permanently erases this wallet from this device"]),
-      ", including every local account. You can only get back in afterward by importing your 24-word recovery phrase, so make sure you have it before continuing.",
+      t("forgotPassword.desc1"),
+      h("b", {}, [t("forgotPassword.descBold")]),
+      t("forgotPassword.desc2"),
     ]),
-    h("label", {}, ['Type "RESET" to confirm']),
+    h("label", {}, [t("forgotPassword.typeResetLabel", { word: "RESET" })]),
     confirmInput,
     statusEl,
     resetBtn,
@@ -569,15 +582,34 @@ function activeAccountSummary(status: WalletStatus): AccountSummary | undefined 
   return status.accounts.find((a) => a.id === status.activeAccountId);
 }
 
+/**
+ * The common "Back"/"Done" action after a screen finishes: refetch status and go home. Pulled out
+ * once since several screens repeated this exact two-line block with no error handling at all --
+ * a refetch failure there made the button look broken (no visible error, no way to retry, just a
+ * click that silently did nothing). On failure, shows the error with a retry button instead.
+ */
+function goHome(): void {
+  void (async () => {
+    try {
+      const status = await getStatus();
+      await renderHome(status);
+    } catch (e) {
+      const retryBtn = h("button", { class: "primary" }, [t("common.tryAgain")]);
+      retryBtn.addEventListener("click", goHome);
+      render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]), retryBtn);
+    }
+  })();
+}
+
 async function renderHome(status: WalletStatus) {
-  const activeLabel = activeAccountSummary(status)?.label ?? "Account";
-  const accountPill = h("button", { class: "account-pill", "aria-label": `Switch account (current: ${activeLabel})` }, [
+  const activeLabel = activeAccountSummary(status)?.label ?? t("home.accountFallback");
+  const accountPill = h("button", { class: "account-pill", "aria-label": t("home.switchAccountAria", { label: activeLabel }) }, [
     activeLabel,
     icon(ICON_CHEVRON_DOWN),
   ]);
   const settingsBtn = h(
     "button",
-    { class: "secondary", id: "settingsBtn", style: "width:auto;padding:6px 10px;margin-top:0", "aria-label": "Settings" },
+    { class: "secondary", id: "settingsBtn", style: "width:auto;padding:6px 10px;margin-top:0", "aria-label": t("home.settingsAria") },
     [icon(ICON_SETTINGS)]
   );
   const nav = h("div", { class: "top-nav" }, [
@@ -587,13 +619,22 @@ async function renderHome(status: WalletStatus) {
   accountPill.addEventListener("click", () => renderAccountSwitcher(status));
   settingsBtn.addEventListener("click", () => renderSettings(status));
 
+  // Chrome has a newer version downloaded and waiting -- see background/index.ts's
+  // onUpdateAvailable listener. Reloading is the user's call (it interrupts anything in progress
+  // in this popup), so this only ever informs; it never reloads on its own.
+  let updateBanner: HTMLElement | null = null;
+  if (status.updateAvailable) {
+    const reloadBtn = h("button", { class: "secondary" }, [t("home.reload")]);
+    reloadBtn.addEventListener("click", () => void send({ kind: "popup-reload-extension" }));
+    updateBanner = h("div", { class: "update-banner" }, [h("span", {}, [t("home.updateReady", { version: status.updateAvailable })]), reloadBtn]);
+  }
+
   if (status.activeAccountError) {
-    const switchBtn = h("button", { class: "primary", id: "switchAccount" }, ["Switch account"]);
+    const switchBtn = h("button", { class: "primary", id: "switchAccount" }, [t("home.switchAccount")]);
     render(
       nav,
-      h("div", { class: "status err" }, [
-        `Couldn't reach "${activeLabel}": ${status.activeAccountError}`,
-      ]),
+      ...(updateBanner ? [updateBanner] : []),
+      h("div", { class: "status err" }, [t("home.couldntReach", { label: activeLabel, error: status.activeAccountError })]),
       switchBtn
     );
     switchBtn.addEventListener("click", () => renderAccountSwitcher(status));
@@ -606,42 +647,42 @@ async function renderHome(status: WalletStatus) {
   // componentAddressFromWalletAddress). The component address stays reachable from Receive's
   // "Advanced" disclosure for anything that still needs it.
   const copyLabel = h("span", {}, [shortAddr(status.receiveAddress ?? "", 8)]);
-  const addrPill = h("button", { class: "addr-pill", id: "addrPill", "aria-label": "Copy wallet address" }, [
+  const addrPill = h("button", { class: "addr-pill", id: "addrPill", "aria-label": t("home.copyAddressAria") }, [
     copyLabel,
     h("span", { class: "icon", "aria-hidden": "true" }, [icon(ICON_COPY)]),
   ]);
   addrPill.addEventListener("click", () => copyToClipboard(status.receiveAddress ?? "", copyLabel));
-  const heroBalanceAmount = h("span", { class: "hero-balance-amount skeleton", style: "display:inline-block;width:90px;height:26px" }, [""]);
-  const heroBalance = h("div", { class: "hero-balance" }, [heroBalanceAmount, h("span", { class: "hero-balance-unit" }, ["XTR"])]);
+  const heroBalanceAmount = h("span", { class: "hero-balance-amount skeleton", style: "display:inline-block;width:96px;height:30px" }, [""]);
+  const heroBalance = h("div", { class: "hero-balance" }, [heroBalanceAmount, h("span", { class: "hero-balance-unit" }, ["TARI"])]);
   // Hidden until updateHeroBalance() knows whether there's actually a private balance to show --
   // a permanent "Private: 0" line under every account would just be noise for one that's never
   // shielded anything.
   const heroPrivateBalance = h("div", { class: "private-balance", style: "display:none;margin-top:2px" }, [""]);
   const summaryHead = h("div", { class: "summary-head" }, [accountAvatar(status.address, 32), addrPill]);
-  // Not "Total Balance" -- heroBalance below is only ever the public/revealed XTR amount
+  // Not "Total Balance" -- heroBalance below is only ever the public/revealed TARI amount
   // (updateHeroBalance() reads xtr.amount, never confidentialAmount), and heroPrivateBalance is a
   // separate figure shown underneath, not summed into it. Calling that a "total" reads as "this is
   // everything," which for an account holding shielded funds is actively wrong -- an asset row or
   // hero number that's really "public only" needs to say so.
   const summaryBalance = h("div", { class: "summary-balance" }, [
-    h("div", { class: "summary-label" }, ["Public Balance"]),
+    h("div", { class: "summary-label" }, [t("home.publicBalance")]),
     heroBalance,
     heroPrivateBalance,
   ]);
   const hero = h("div", { class: "account-summary card" }, [summaryHead, summaryBalance]);
 
-  const sendActionBtn = h("button", { class: "action-btn", id: "sendAction" }, [h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_ARROW_UP)]), "Send"]);
+  const sendActionBtn = h("button", { class: "action-btn", id: "sendAction" }, [h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_ARROW_UP)]), t("home.send")]);
   const receiveActionBtn = h("button", { class: "action-btn", id: "receiveAction" }, [
     h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_ARROW_DOWN)]),
-    "Receive",
+    t("home.receive"),
   ]);
   const claimActionBtn = h("button", { class: "action-btn", id: "claimAction" }, [
     h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_PLUS)]),
-    "Claim XTR",
+    t("home.claimXtr"),
   ]);
   const historyActionBtn = h("button", { class: "action-btn", id: "historyAction" }, [
     h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_CLOCK)]),
-    "History",
+    t("home.history"),
   ]);
   const actionRow = h("div", { class: "action-row" }, [sendActionBtn, receiveActionBtn, claimActionBtn, historyActionBtn]);
 
@@ -652,13 +693,14 @@ async function renderHome(status: WalletStatus) {
   const isLocalAccount = activeAccountSummary(status)?.kind === "local";
   const rescanControl = isLocalAccount ? buildRescanControl() : null;
   const balancesTitleRow = h("div", { class: "row", style: "justify-content:space-between;align-items:center;margin:2px 0 0" }, [
-    h("div", { class: "section-title", style: "margin:0" }, ["Assets"]),
+    h("div", { class: "section-title", style: "margin:0" }, [t("home.assets")]),
     ...(rescanControl ? [rescanControl.button] : []),
   ]);
   const balancesCard = h("div", { class: "card balances-card" }, [skeletonBalanceRow(), skeletonBalanceRow()]);
 
   render(
     nav,
+    ...(updateBanner ? [updateBanner] : []),
     hero,
     actionRow,
     homeStatusEl,
@@ -675,8 +717,11 @@ async function renderHome(status: WalletStatus) {
 
     const privateAmount = BigInt(xtr?.confidentialAmount ?? "0");
     if (privateAmount > 0n) {
-      heroPrivateBalance.style.display = "block";
-      heroPrivateBalance.textContent = `${formatBalanceAmountGrouped(privateAmount.toString(), xtr?.divisibility ?? 6)} XTR private`;
+      heroPrivateBalance.style.display = "inline-flex";
+      heroPrivateBalance.textContent = t("home.privateSuffix", {
+        amount: formatBalanceAmountGrouped(privateAmount.toString(), xtr?.divisibility ?? 6),
+        symbol: "TARI",
+      });
     } else {
       heroPrivateBalance.style.display = "none";
     }
@@ -698,15 +743,15 @@ async function renderHome(status: WalletStatus) {
     claimActionBtn.setAttribute("disabled", "true");
     homeStatusEl.style.display = "block";
     homeStatusEl.className = "status";
-    homeStatusEl.textContent = "Claiming from the testnet faucet — this submits a real transaction, usually takes a few seconds…";
+    homeStatusEl.textContent = t("home.claiming");
     try {
       await send({ kind: "popup-claim-testnet-xtr" });
       homeStatusEl.className = "status ok";
-      homeStatusEl.textContent = "Claimed! Refreshing balances…";
+      homeStatusEl.textContent = t("home.claimedRefreshing");
       const balances = await send<Balance[]>({ kind: "popup-get-balances" });
       renderBalances(balancesCard, balances, status);
       updateHeroBalance(balances);
-      homeStatusEl.textContent = "Claimed testnet XTR.";
+      homeStatusEl.textContent = t("home.claimed");
       // Success is transient (matches Send/Shield/Unshield fading back to Home) -- an error stays
       // put below since the user may still need to act on it.
       setTimeout(() => {
@@ -732,7 +777,7 @@ async function renderHome(status: WalletStatus) {
         const { claimed } = await send<{ claimed: number }>({ kind: "popup-auto-scan-private-payments" });
         if (claimed > 0) {
           rescanControl.statusEl.style.display = "block";
-          rescanControl.statusEl.textContent = `Found ${claimed} new private ${claimed === 1 ? "payment" : "payments"}!`;
+          rescanControl.statusEl.textContent = t("rescan.found", { count: claimed, word: claimed === 1 ? "payment" : "payments" });
           const balances = await send<Balance[]>({ kind: "popup-get-balances" });
           renderBalances(balancesCard, balances, status);
           updateHeroBalance(balances);
@@ -767,18 +812,18 @@ function settingsRow(id: string, label: string, leadingIcon: string, trailing?: 
 }
 
 function renderSettings(status: WalletStatus) {
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
-  const addAccountBtn = settingsRow("addAccount", "Add account", ICON_USER_PLUS);
-  const connectDaemonBtn = settingsRow("connectDaemon", "Connect daemon wallet", ICON_SERVER);
-  const daemonsBtn = settingsRow("daemons", "Daemon connections", ICON_SERVER, String(status.daemonConnections.length));
-  const sitesBtn = settingsRow("sites", "Connected sites", ICON_GLOBE);
-  const addressBookBtn = settingsRow("addressBook", "Address book", ICON_BOOK, String(status.addressBook.length));
-  const backupBtn = settingsRow("backup", "Reveal recovery phrase", ICON_KEY);
-  const lockBtn = h("button", { class: "danger", id: "lock" }, ["Lock wallet"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
+  const addAccountBtn = settingsRow("addAccount", t("settings.addAccount"), ICON_USER_PLUS);
+  const connectDaemonBtn = settingsRow("connectDaemon", t("settings.connectDaemon"), ICON_SERVER);
+  const daemonsBtn = settingsRow("daemons", t("settings.daemonConnections"), ICON_SERVER, String(status.daemonConnections.length));
+  const sitesBtn = settingsRow("sites", t("settings.connectedSites"), ICON_GLOBE);
+  const addressBookBtn = settingsRow("addressBook", t("settings.addressBook"), ICON_BOOK, String(status.addressBook.length));
+  const backupBtn = settingsRow("backup", t("settings.revealMnemonic"), ICON_KEY);
+  const lockBtn = h("button", { class: "danger", id: "lock" }, [t("settings.lockWallet")]);
 
   const autoLockSelect = h(
     "select",
-    { id: "autoLock", class: "settings-row-select", "aria-label": "Auto-lock after" },
+    { id: "autoLock", class: "settings-row-select", "aria-label": t("settings.autoLockAfter") },
     AUTO_LOCK_OPTIONS.map((minutes) =>
       h("option", { value: String(minutes), ...(minutes === status.autoLockMinutes ? { selected: "true" } : {}) }, [
         formatAutoLockOption(minutes),
@@ -786,7 +831,7 @@ function renderSettings(status: WalletStatus) {
     )
   );
   const autoLockRow = h("div", { class: "settings-row settings-row-static" }, [
-    h("span", {}, ["Auto-lock after"]),
+    h("span", {}, [t("settings.autoLockAfter")]),
     autoLockSelect,
   ]);
 
@@ -796,22 +841,39 @@ function renderSettings(status: WalletStatus) {
   ];
   const networkSelect = h(
     "select",
-    { id: "network", class: "settings-row-select", "aria-label": "Network" },
+    { id: "network", class: "settings-row-select", "aria-label": t("settings.network") },
     NETWORK_OPTIONS.map((opt) =>
       h("option", { value: opt.value, ...(opt.value === status.network ? { selected: "true" } : {}) }, [opt.label])
     )
   );
-  const networkRow = h("div", { class: "settings-row settings-row-static" }, [h("span", {}, ["Network"]), networkSelect]);
+  const networkRow = h("div", { class: "settings-row settings-row-static" }, [h("span", {}, [t("settings.network")]), networkSelect]);
   const networkConfirmEl = h("div", { class: "status", style: "display:none" });
 
-  const feePrivacySwitch = switchControl("feePrivacyDefault", status.feePrivacyDefault === "private", "Transparent", "Private");
+  // Language names are never translated -- "English"/"中文" always shows its own name regardless
+  // of which language is currently active, matching every other app's language picker (a Chinese
+  // reader who accidentally lands on English still needs to recognize "中文" to get back).
+  const languageSelect = h(
+    "select",
+    { id: "language", class: "settings-row-select", "aria-label": t("settings.language") },
+    (Object.entries(LANGUAGE_LABELS) as [Language, string][]).map(([value, label]) =>
+      h("option", { value, ...(value === getLanguage() ? { selected: "true" } : {}) }, [label])
+    )
+  );
+  const languageRow = h("div", { class: "settings-row settings-row-static" }, [h("span", {}, [t("settings.language")]), languageSelect]);
+
+  const feePrivacySwitch = switchControl(
+    "feePrivacyDefault",
+    status.feePrivacyDefault === "private",
+    t("settings.feePrivacyTransparent"),
+    t("settings.feePrivacyPrivate")
+  );
   const feePrivacyRow = h("div", { class: "settings-row settings-row-static" }, [
-    h("span", {}, ["Default fee privacy (Ootle)"]),
+    h("span", {}, [t("settings.defaultFeePrivacy")]),
     feePrivacySwitch,
   ]);
 
   render(
-    h("h1", {}, ["Settings"]),
+    h("h1", {}, [t("settings.title")]),
     back,
     h("div", { class: "card settings-card" }, [
       addAccountBtn,
@@ -822,6 +884,7 @@ function renderSettings(status: WalletStatus) {
       backupBtn,
       autoLockRow,
       networkRow,
+      languageRow,
       feePrivacyRow,
     ]),
     networkConfirmEl,
@@ -830,8 +893,23 @@ function renderSettings(status: WalletStatus) {
 
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
   document.getElementById("lock")!.addEventListener("click", async () => {
-    await send({ kind: "popup-lock" });
-    renderUnlock(undefined, status.address);
+    try {
+      await send({ kind: "popup-lock" });
+      renderUnlock(undefined, status.address);
+    } catch (e) {
+      render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]), h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]));
+      document.getElementById("back")!.addEventListener("click", () => renderSettings(status));
+    }
+  });
+  languageSelect.addEventListener("change", async () => {
+    const chosen = (languageSelect as HTMLSelectElement).value as Language;
+    setLanguage(chosen);
+    await send({ kind: "popup-set-language", language: chosen });
+    // Full re-render (not just swapping visible text) -- the settings screen the user is looking
+    // at right now is itself full of strings that need to flip languages too, and re-fetching
+    // status is cheap enough that a bespoke "just relabel these nodes" path isn't worth the extra
+    // code path only this one control would ever use.
+    renderSettings({ ...status, language: chosen });
   });
   autoLockSelect.addEventListener("change", () => {
     void send({ kind: "popup-set-auto-lock-minutes", minutes: Number((autoLockSelect as HTMLSelectElement).value) });
@@ -848,14 +926,12 @@ function renderSettings(status: WalletStatus) {
     }
     // .primary, not .danger -- switching networks is a reversible settings change, not a
     // destructive action (unlike Lock/Reset, which genuinely warrant the red danger styling).
-    const confirmBtn = h("button", { class: "primary btn-compact", style: "margin-right:8px" }, ["Switch"]);
-    const cancelBtn = h("button", { class: "secondary btn-compact" }, ["Cancel"]);
+    const confirmBtn = h("button", { class: "primary btn-compact", style: "margin-right:8px" }, [t("settings.switchButton")]);
+    const cancelBtn = h("button", { class: "secondary btn-compact" }, [t("common.cancel")]);
     networkConfirmEl.className = "status";
     networkConfirmEl.style.display = "block";
     networkConfirmEl.replaceChildren(
-      h("p", { style: "margin:0 0 8px" }, [
-        `Switching from ${status.network} to ${chosen} changes which chain your balances and transactions are read from. Your accounts and recovery phrase stay the same.`,
-      ]),
+      h("p", { style: "margin:0 0 8px" }, [t("settings.networkSwitchWarning", { from: status.network, to: chosen })]),
       confirmBtn,
       cancelBtn
     );
@@ -866,20 +942,49 @@ function renderSettings(status: WalletStatus) {
     confirmBtn.addEventListener("click", async () => {
       confirmBtn.setAttribute("disabled", "true");
       cancelBtn.setAttribute("disabled", "true");
-      await send({ kind: "popup-set-network", network: chosen });
-      renderLoading("Switching network…");
-      const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
-      renderSettings(newStatus);
+      try {
+        await send({ kind: "popup-set-network", network: chosen });
+      } catch (e) {
+        // Still on this screen (renderLoading hasn't fired yet) -- re-enable rather than leaving
+        // both buttons permanently disabled with no way to retry or cancel.
+        networkConfirmEl.className = "status err";
+        networkConfirmEl.textContent = e instanceof Error ? e.message : String(e);
+        confirmBtn.removeAttribute("disabled");
+        cancelBtn.removeAttribute("disabled");
+        return;
+      }
+      renderLoading(t("settings.switchingNetwork"));
+      try {
+        const newStatus = await getStatus();
+        renderSettings(newStatus);
+      } catch (e) {
+        // The network switch itself already succeeded server-side -- only the status refetch
+        // failed. Offer a retry rather than stranding the user on a loading screen forever.
+        const retryBtn = h("button", { class: "primary" }, [t("common.tryAgain")]);
+        retryBtn.addEventListener("click", async () => {
+          try {
+            const newStatus = await getStatus();
+            renderSettings(newStatus);
+          } catch (e2) {
+            render(h("div", { class: "status err" }, [e2 instanceof Error ? e2.message : String(e2)]), retryBtn);
+          }
+        });
+        render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]), retryBtn);
+      }
     });
   });
   document.getElementById("addAccount")!.addEventListener("click", async () => {
-    await send({ kind: "popup-add-account" });
-    renderLoading("Deriving your account…");
+    renderLoading(t("common.derivingAccount"));
     try {
-      const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
+      await send({ kind: "popup-add-account" });
+      const newStatus = await getStatus();
       await renderHome(newStatus);
     } catch (e) {
-      render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
+      render(
+        h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]),
+        h("button", { class: "secondary", id: "back" }, [t("common.backArrow")])
+      );
+      document.getElementById("back")!.addEventListener("click", () => renderSettings(status));
     }
   });
   document.getElementById("connectDaemon")!.addEventListener("click", () => renderConnectDaemon(status));
@@ -894,7 +999,7 @@ function renderSettings(status: WalletStatus) {
 // ---------------------------------------------------------------------------
 
 function renderReceive(status: WalletStatus) {
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
 
   // The wallet address (otl_...) is the one to hand out: any sender can derive this account's
   // component address from it for a plain send (see componentAddressFromWalletAddress), AND it's
@@ -905,7 +1010,7 @@ function renderReceive(status: WalletStatus) {
   // reason to publish the raw component_ address instead -- it buys nothing a sender using this
   // wallet (or anything doing the same otl_-address derivation) needs, and it actively costs
   // privacy for plain sends, which record it on-chain exactly as given.
-  const walletLabel = h("span", {}, ["Copy"]);
+  const walletLabel = h("span", {}, [t("common.copy")]);
   const walletCopyBtn = h("button", { class: "icon-btn" }, [icon(ICON_COPY), walletLabel]);
   const walletRow = h("div", { class: "copy-row" }, [h("div", { class: "addr" }, [status.receiveAddress ?? "—"]), walletCopyBtn]);
   walletCopyBtn.addEventListener("click", () => copyToClipboard(status.receiveAddress ?? "", walletLabel));
@@ -915,19 +1020,17 @@ function renderReceive(status: WalletStatus) {
     qrCard.innerHTML = qrCodeSvg(status.receiveAddress);
     qrCard.classList.add("qr-card-filled");
   } else {
-    qrCard.textContent = "No address available";
+    qrCard.textContent = t("receive.noAddress");
   }
 
-  const componentLabel = h("span", {}, ["Copy"]);
+  const componentLabel = h("span", {}, [t("common.copy")]);
   const componentCopyBtn = h("button", { class: "icon-btn" }, [icon(ICON_COPY), componentLabel]);
   const componentRow = h("div", { class: "copy-row" }, [h("div", { class: "addr" }, [status.address ?? "—"]), componentCopyBtn]);
   componentCopyBtn.addEventListener("click", () => copyToClipboard(status.address ?? "", componentLabel));
   const componentDetails = h("div", { class: "card" }, [
     h("details", { class: "raw-details" }, [
-      h("summary", {}, ["Advanced: component address"]),
-      h("p", { class: "muted", style: "margin:6px 0 10px" }, [
-        "Only needed for a tool that can't accept an otl_ address directly. Every payment sent here is a permanent, publicly linkable on-chain record — sharing it undoes the privacy your wallet address already gives you for free.",
-      ]),
+      h("summary", {}, [t("receive.advancedComponentAddress")]),
+      h("p", { class: "muted", style: "margin:6px 0 10px" }, [t("receive.advancedComponentDescription")]),
       componentRow,
     ]),
   ]);
@@ -936,13 +1039,11 @@ function renderReceive(status: WalletStatus) {
   const claimCard = isLocalAccount ? buildClaimPrivatePaymentCard(status) : null;
 
   render(
-    h("h1", {}, ["Receive"]),
-    h("p", { class: "muted" }, [
-      "Share this address to receive any token on Tari Ootle. It's safe to publish and reuse for every payment — private (stealth) transfers derive a fresh one-time key on-chain each time, so they can never be linked to you or to each other.",
-    ]),
+    h("h1", {}, [t("receive.title")]),
+    h("p", { class: "muted" }, [t("receive.description")]),
     h("div", { class: "hero" }, [accountAvatar(status.address)]),
     qrCard,
-    h("div", { class: "card" }, [h("div", { class: "muted", style: "margin-bottom:8px" }, ["Wallet address"]), walletRow]),
+    h("div", { class: "card" }, [h("div", { class: "muted", style: "margin-bottom:8px" }, [t("receive.walletAddressLabel")]), walletRow]),
     componentDetails,
     ...(claimCard ? [claimCard] : []),
     back
@@ -968,7 +1069,7 @@ function renderReceive(status: WalletStatus) {
  * caller can lay both out next to the title and under it respectively.
  */
 function buildRescanControl(): { button: HTMLElement; statusEl: HTMLElement } {
-  const button = h("button", { class: "icon-btn", "aria-label": "Rescan for private payments", title: "Rescan for private payments" }, [
+  const button = h("button", { class: "icon-btn", "aria-label": t("rescan.ariaLabel"), title: t("rescan.ariaLabel") }, [
     icon(ICON_REFRESH),
   ]);
   const statusEl = h("div", { class: "muted", style: "display:none;font-size:12px;margin:-4px 0 8px" }, [""]);
@@ -979,10 +1080,10 @@ function buildRescanControl(): { button: HTMLElement; statusEl: HTMLElement } {
 
   button.addEventListener("click", async () => {
     button.setAttribute("disabled", "true");
-    showStatus("Scanning recent transactions…");
+    showStatus(t("rescan.scanning"));
     try {
       const { claimed } = await send<{ claimed: number }>({ kind: "popup-rescan-private-payments" });
-      showStatus(claimed === 0 ? "No new private payments found." : `Found ${claimed} new private ${claimed === 1 ? "payment" : "payments"}!`);
+      showStatus(claimed === 0 ? t("rescan.noneFound") : t("rescan.found", { count: claimed, word: claimed === 1 ? "payment" : "payments" }));
     } catch (e) {
       showStatus(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1006,26 +1107,22 @@ function buildClaimPrivatePaymentCard(status: WalletStatus) {
   const resourceInput = h("input", { type: "text", placeholder: "resource_…", maxlength: "80" }) as HTMLInputElement;
   resourceInput.value = TARI_RESOURCE_ADDRESS;
   const commitmentInput = h("input", { type: "text", placeholder: "64 hex characters", maxlength: "64" });
-  const claimBtn = h("button", { class: "secondary" }, ["Claim"]);
+  const claimBtn = h("button", { class: "secondary" }, [t("claimPrivate.claimButton")]);
   const statusEl = h("div", { class: "status", style: "display:none" });
-  const showStatus = (msg: string, cls: "err" | "ok") => {
-    statusEl.style.display = "block";
-    statusEl.className = `status ${cls}`;
-    statusEl.textContent = msg;
-  };
+  const showStatus = bindStatus(statusEl);
 
   claimBtn.addEventListener("click", async () => {
     const resourceAddress = resourceInput.value.trim();
     const commitment = (commitmentInput as HTMLInputElement).value.trim();
     if (!/^[0-9a-f]{64}$/i.test(commitment)) {
-      showStatus("Enter a valid 32-byte commitment (64 hex characters).", "err");
+      showStatus(t("claimPrivate.errInvalidCommitment"), "err");
       return;
     }
-    setBusy(claimBtn as HTMLButtonElement, true, "Checking…");
-    showStatus("Checking…", "ok");
+    setBusy(claimBtn as HTMLButtonElement, true, t("claimPrivate.checking"));
+    showStatus(t("claimPrivate.checking"), "ok");
     try {
       await send({ kind: "popup-claim-private-payment", resourceAddress, commitment });
-      showStatus("Claimed! It's now part of your private balance.", "ok");
+      showStatus(t("claimPrivate.claimedSuccess"), "ok");
       (commitmentInput as HTMLInputElement).value = "";
     } catch (e) {
       showStatus(e instanceof Error ? e.message : String(e), "err");
@@ -1035,28 +1132,32 @@ function buildClaimPrivatePaymentCard(status: WalletStatus) {
   });
 
   return h("div", { class: "card" }, [
-    h("div", { class: "muted", style: "margin-bottom:8px" }, ["Claim a private payment"]),
-    h("p", { class: "muted", style: "margin:0 0 8px" }, [
-      "If someone sent you a private payment, ask them for the resulting commitment and paste it below — there's no way to discover it automatically.",
-    ]),
-    h("label", {}, ["Resource address"]),
+    h("div", { class: "muted", style: "margin-bottom:8px" }, [t("claimPrivate.title")]),
+    h("p", { class: "muted", style: "margin:0 0 8px" }, [t("claimPrivate.description")]),
+    h("label", {}, [t("claimPrivate.resourceAddressLabel")]),
     resourceInput,
-    h("label", {}, ["Commitment (hex)"]),
+    h("label", {}, [t("claimPrivate.commitmentLabel")]),
     commitmentInput,
     statusEl,
     claimBtn,
   ]);
 }
 
-const HISTORY_KIND_LABEL: Record<TransactionHistoryEntry["kind"], string> = {
-  send: "Sent",
-  shield: "Shielded",
-  unshield: "Unshielded",
-  "send-privately": "Sent privately",
-  claim: "Claimed testnet XTR",
-  "private-payment-received": "Received privately",
-  "dapp-transaction": "App transaction",
-};
+// A function, not a module-level Record built once -- the labels have to reflect whichever
+// language is active *at render time* (the user can switch languages mid-session), not whichever
+// was current when this module first evaluated.
+function historyKindLabel(kind: TransactionHistoryEntry["kind"]): string {
+  const KEYS: Record<TransactionHistoryEntry["kind"], Parameters<typeof t>[0]> = {
+    send: "history.kindSend",
+    shield: "history.kindShield",
+    unshield: "history.kindUnshield",
+    "send-privately": "history.kindSendPrivately",
+    claim: "history.kindClaim",
+    "private-payment-received": "history.kindPrivatePaymentReceived",
+    "dapp-transaction": "history.kindDappTransaction",
+  };
+  return t(KEYS[kind]);
+}
 
 // Lock/unlock for shield/unshield (a state change in privacy, not a transfer direction) and for
 // send-privately/private-payment-received (reinforces which entries are private at a glance,
@@ -1080,9 +1181,9 @@ const HISTORY_KIND_ICON: Record<TransactionHistoryEntry["kind"], string> = {
  * a resource this account no longer holds still renders, just without those niceties.
  */
 async function renderHistory(status: WalletStatus) {
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
   const skeleton = h("div", { class: "card history-list" }, [skeletonListRow(), skeletonListRow(), skeletonListRow()]);
-  render(h("h1", {}, ["History"]), skeleton, back);
+  render(h("h1", {}, [t("history.title")]), skeleton, back);
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
 
   const [entries, balances] = await Promise.all([
@@ -1093,7 +1194,7 @@ async function renderHistory(status: WalletStatus) {
 
   const list =
     entries.length === 0
-      ? emptyState("No transactions yet.", ICON_CLOCK)
+      ? emptyState(t("history.empty"), ICON_CLOCK)
       : h(
           "div",
           { class: "card history-list" },
@@ -1124,7 +1225,7 @@ async function renderHistory(status: WalletStatus) {
             return h("div", { class: `balance-row${entry.status === "failed" ? " status-failed" : ""}` }, [
               h("div", { class: "history-icon", "aria-hidden": "true" }, [icon(HISTORY_KIND_ICON[entry.kind])]),
               h("div", { class: "list-row-info" }, [
-                h("div", {}, [HISTORY_KIND_LABEL[entry.kind], entry.status === "failed" ? " (failed)" : ""]),
+                h("div", {}, [historyKindLabel(entry.kind), entry.status === "failed" ? t("history.failedSuffix") : ""]),
                 h("div", { class: "muted" }, [amountText ? `${amountText} · ${when}` : when]),
                 counterpartyText ? h("div", { class: "list-row-subtitle", title: entry.counterparty ?? "" }, [counterpartyText]) : "",
                 entry.memo ? h("div", { class: "list-row-subtitle" }, [`"${entry.memo}"`]) : "",
@@ -1133,7 +1234,7 @@ async function renderHistory(status: WalletStatus) {
           })
         );
 
-  render(h("h1", {}, ["History"]), list, back);
+  render(h("h1", {}, [t("history.title")]), list, back);
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
 }
 
@@ -1150,10 +1251,10 @@ function renderSend(
   options?: { initialTab?: "public" | "private"; initialResourceAddress?: string; onBack?: () => void }
 ) {
   const onBack = options?.onBack ?? (() => renderHome(status));
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
 
   if (balances.length === 0) {
-    render(h("h1", {}, ["Send"]), h("p", { class: "muted" }, ["You don't hold any tokens yet — claim some testnet XTR first."]), back);
+    render(h("h1", {}, [t("send.title")]), h("p", { class: "muted" }, [t("send.noTokensYet")]), back);
     document.getElementById("back")!.addEventListener("click", onBack);
     return;
   }
@@ -1166,14 +1267,14 @@ function renderSend(
   const privateSection = h("div", { style: "display:none" });
 
   if (!isLocalAccount && !isDaemonAccount) {
-    render(h("h1", {}, ["Send"]), publicSection, back);
+    render(h("h1", {}, [t("send.title")]), publicSection, back);
     document.getElementById("back")!.addEventListener("click", onBack);
     buildPublicSendForm(publicSection, balances, status.addressBook);
     return;
   }
 
-  const publicTabBtn = h("button", { class: "tab-btn", role: "tab", "aria-selected": "true" }, ["Send"]);
-  const privateTabBtn = h("button", { class: "tab-btn", role: "tab", "aria-selected": "false" }, ["Send privately"]);
+  const publicTabBtn = h("button", { class: "tab-btn", role: "tab", "aria-selected": "true" }, [t("send.tabSend")]);
+  const privateTabBtn = h("button", { class: "tab-btn", role: "tab", "aria-selected": "false" }, [t("send.tabSendPrivately")]);
   const tabRow = h("div", { class: "tab-row", role: "tablist" }, [publicTabBtn, privateTabBtn]);
 
   const setTab = (tab: "public" | "private") => {
@@ -1187,7 +1288,7 @@ function renderSend(
   publicTabBtn.addEventListener("click", () => setTab("public"));
   privateTabBtn.addEventListener("click", () => setTab("private"));
 
-  render(h("h1", {}, ["Send"]), tabRow, publicSection, privateSection, back);
+  render(h("h1", {}, [t("send.title")]), tabRow, publicSection, privateSection, back);
   document.getElementById("back")!.addEventListener("click", onBack);
 
   buildPublicSendForm(publicSection, balances, status.addressBook);
@@ -1205,8 +1306,8 @@ function buildAddressPicker(
 ): HTMLElement | null {
   const matching = entries.filter((e) => isMatch(e.address));
   if (matching.length === 0) return null;
-  const select = h("select", { class: "settings-row-select", style: "margin-bottom:8px", "aria-label": "Choose from address book" }, [
-    h("option", { value: "" }, ["Choose from address book…"]),
+  const select = h("select", { class: "settings-row-select", style: "margin-bottom:8px", "aria-label": t("send.chooseFromAddressBookAria") }, [
+    h("option", { value: "" }, [t("send.chooseFromAddressBook")]),
     ...matching.map((e) => h("option", { value: e.address }, [`${e.label} (${shortAddr(e.address)})`])),
   ]);
   select.addEventListener("change", () => {
@@ -1226,7 +1327,7 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
   // build a `<select>` with zero `<option>`s and then crash the first time `selected()` (the
   // `!`-asserted `.find()` below) actually ran against it, since there was nothing left to select.
   if (balances_.length === 0) {
-    container.replaceChildren(emptyState("You only hold NFTs right now -- sending an NFT isn't supported here yet.", ICON_INBOX));
+    container.replaceChildren(emptyState(t("send.onlyNftsYet"), ICON_INBOX));
     return;
   }
   const tokenSelect = h(
@@ -1240,20 +1341,20 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
   wireLiveValidation(toInput as HTMLInputElement, isValidOotleWalletAddress);
   const addressPicker = buildAddressPicker(addressBook, isValidOotleWalletAddress, toInput);
   const amountInput = h("input", { type: "text", placeholder: "0.0", maxlength: "40", inputmode: "decimal" });
-  const maxBtn = h("button", { class: "max-btn" }, ["MAX"]);
+  const maxBtn = h("button", { class: "max-btn" }, [t("send.max")]);
   const amountField = h("div", { class: "amount-field" }, [amountInput, maxBtn]);
 
   const statusEl = h("div", { class: "status", style: "display:none" });
-  const sendBtn = h("button", { class: "primary" }, ["Review & Send"]);
+  const sendBtn = h("button", { class: "primary" }, [t("send.reviewAndSend")]);
 
   container.replaceChildren(
-    h("label", {}, ["Asset"]),
+    h("label", {}, [t("send.assetLabel")]),
     tokenSelect,
     balanceHint,
-    h("label", {}, ["Recipient address"]),
+    h("label", {}, [t("send.recipientAddressLabel")]),
     ...(addressPicker ? [addressPicker] : []),
     toInput,
-    h("label", {}, ["Amount"]),
+    h("label", {}, [t("send.amountLabel")]),
     amountField,
     statusEl,
     sendBtn
@@ -1262,7 +1363,10 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
   const selected = () => balances_.find((b) => b.resourceAddress === (tokenSelect as HTMLSelectElement).value)!;
   const updateHint = () => {
     const b = selected();
-    balanceHint.textContent = `Available: ${formatBalanceAmountGrouped(b.amount, b.divisibility)} ${resourceLabel(b.resourceAddress, b.symbol)}`;
+    balanceHint.textContent = t("send.available", {
+      amount: formatBalanceAmountGrouped(b.amount, b.divisibility),
+      symbol: resourceLabel(b.resourceAddress, b.symbol),
+    });
   };
   updateHint();
   tokenSelect.addEventListener("change", updateHint);
@@ -1272,17 +1376,13 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
     (amountInput as HTMLInputElement).value = formatBalanceAmount(b.amount, b.divisibility);
   });
 
-  const showStatus = (msg: string, cls: "err" | "ok") => {
-    statusEl.style.display = "block";
-    statusEl.className = `status ${cls}`;
-    statusEl.textContent = msg;
-  };
+  const showStatus = bindStatus(statusEl);
 
   sendBtn.addEventListener("click", async () => {
     const b = selected();
     const toAddress = (toInput as HTMLInputElement).value.trim();
     if (!isValidOotleWalletAddress(toAddress)) {
-      showStatus("Enter a valid Ootle wallet address (starts with otl_).", "err");
+      showStatus(t("send.errInvalidAddress"), "err");
       return;
     }
     let raw: bigint;
@@ -1293,17 +1393,17 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
       return;
     }
     if (raw > BigInt(b.amount)) {
-      showStatus("Amount exceeds your available balance.", "err");
+      showStatus(t("send.errExceedsBalance"), "err");
       return;
     }
 
-    setBusy(sendBtn as HTMLButtonElement, true, "Sending…");
-    showStatus("Submitting — this usually takes a few seconds…", "ok");
+    setBusy(sendBtn as HTMLButtonElement, true, t("send.sending"));
+    showStatus(t("send.submitting"), "ok");
     try {
       await send({ kind: "popup-send", recipientWalletAddress: toAddress, resourceAddress: b.resourceAddress, amount: raw.toString() });
-      showStatus("Sent!", "ok");
+      showStatus(t("send.sent"), "ok");
       setTimeout(async () => {
-        const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
+        const newStatus = await getStatus();
         await renderHome(newStatus);
       }, 700);
     } catch (e) {
@@ -1337,7 +1437,7 @@ function buildPrivateSendForm(
 ) {
   const privateBalances = balances.filter((b) => b.kind === "Stealth" && BigInt(b.confidentialAmount) > 0n);
   if (privateBalances.length === 0) {
-    container.replaceChildren(h("p", { class: "muted" }, ["You don't have a private balance yet — shield some first."]));
+    container.replaceChildren(h("p", { class: "muted" }, [t("send.noPrivateBalanceYet")]));
     return;
   }
 
@@ -1352,50 +1452,41 @@ function buildPrivateSendForm(
 
   const formSection = h("div", { style: "margin-top:10px" });
   const statusEl = h("div", { class: "status", style: "display:none" });
-  const showStatus = (msg: string, cls: "err" | "ok") => {
-    statusEl.style.display = "block";
-    statusEl.className = `status ${cls}`;
-    statusEl.textContent = msg;
-  };
+  const showStatus = bindStatus(statusEl);
 
   // There's no scan-by-view-key API, so the recipient has no way to notice this payment on their
   // own -- surface the new output's commitment so it can be handed to them out of band (they
   // paste it into their own wallet's Receive -> "Claim a private payment" card).
   const showResultSection = (recipientCommitment: string) => {
     statusEl.style.display = "none";
-    const copyLabel = h("span", {}, ["Copy"]);
+    const copyLabel = h("span", {}, [t("common.copy")]);
     const copyBtn = h("button", { class: "icon-btn" }, [icon(ICON_COPY), copyLabel]);
     copyBtn.addEventListener("click", () => copyToClipboard(recipientCommitment, copyLabel));
-    const doneBtn = h("button", { class: "primary" }, ["Done"]);
-    doneBtn.addEventListener("click", async () => {
-      const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
-      await renderHome(newStatus);
-    });
+    const doneBtn = h("button", { class: "primary" }, [t("send.done")]);
+    doneBtn.addEventListener("click", goHome);
     formSection.replaceChildren(
-      h("div", { class: "status ok" }, ["Sent privately!"]),
-      h("p", { class: "muted" }, [
-        "The recipient can't discover this on their own -- share the commitment below with them directly.",
-      ]),
-      h("label", {}, ["Commitment"]),
+      h("div", { class: "status ok" }, [t("send.sentPrivately")]),
+      h("p", { class: "muted" }, [t("send.recipientCannotDiscover")]),
+      h("label", {}, [t("send.commitmentLabel")]),
       h("div", { class: "copy-row" }, [h("div", { class: "addr" }, [recipientCommitment]), copyBtn]),
       doneBtn
     );
   };
 
-  container.replaceChildren(h("label", {}, ["Asset"]), resourceSelect, formSection, statusEl);
+  container.replaceChildren(h("label", {}, [t("send.assetLabel")]), resourceSelect, formSection, statusEl);
 
   const buildForm = (balance: Balance, label: string, maxAmount: bigint) => {
     const recipientInput = h("input", { type: "text", placeholder: "otl_…", maxlength: "200" });
     wireLiveValidation(recipientInput as HTMLInputElement, isValidOotleWalletAddress);
     const addressPicker = buildAddressPicker(addressBook, isValidOotleWalletAddress, recipientInput);
     const amountInput = h("input", { type: "text", placeholder: "0.0", maxlength: "40", inputmode: "decimal" });
-    const maxBtn = h("button", { class: "max-btn" }, ["MAX"]);
+    const maxBtn = h("button", { class: "max-btn" }, [t("send.max")]);
     const amountField = h("div", { class: "amount-field" }, [amountInput, maxBtn]);
     const hint = h("div", { class: "muted", style: "margin-top:6px" }, [
-      `Private balance: ${formatBalanceAmountGrouped(maxAmount.toString(), balance.divisibility)} ${label}`,
+      t("send.privateBalanceHint", { amount: formatBalanceAmountGrouped(maxAmount.toString(), balance.divisibility), symbol: label }),
     ]);
     const memoInput = h("input", { type: "text", placeholder: "e.g. Payment for invoice #42", maxlength: "200" });
-    const submitBtn = h("button", { class: "primary" }, [`Send ${label} privately`]);
+    const submitBtn = h("button", { class: "primary" }, [t("send.sendPrivatelyButton", { symbol: label })]);
 
     maxBtn.addEventListener("click", () => {
       (amountInput as HTMLInputElement).value = formatBalanceAmount(maxAmount.toString(), balance.divisibility);
@@ -1404,7 +1495,7 @@ function buildPrivateSendForm(
     submitBtn.addEventListener("click", async () => {
       const recipientWalletAddress = (recipientInput as HTMLInputElement).value.trim();
       if (!isValidOotleWalletAddress(recipientWalletAddress)) {
-        showStatus("Enter a valid Ootle wallet address (starts with otl_).", "err");
+        showStatus(t("send.errInvalidAddress"), "err");
         return;
       }
       let raw: bigint;
@@ -1415,15 +1506,15 @@ function buildPrivateSendForm(
         return;
       }
       if (raw <= 0n) {
-        showStatus("Enter an amount greater than zero.", "err");
+        showStatus(t("send.errZeroAmount"), "err");
         return;
       }
       if (raw > maxAmount) {
-        showStatus("Amount exceeds your private balance.", "err");
+        showStatus(t("send.errExceedsPrivateBalance"), "err");
         return;
       }
-      setBusy(submitBtn as HTMLButtonElement, true, "Sending…");
-      showStatus("Submitting — this usually takes a few seconds…", "ok");
+      setBusy(submitBtn as HTMLButtonElement, true, t("send.sending"));
+      showStatus(t("send.submitting"), "ok");
       const memo = (memoInput as HTMLInputElement).value.trim();
       try {
         const { recipientCommitment } = await send<{ transactionId: string; recipientCommitment: string }>({
@@ -1441,17 +1532,15 @@ function buildPrivateSendForm(
     });
 
     return [
-      h("label", {}, ["Recipient's Ootle wallet address"]),
+      h("label", {}, [t("send.recipientWalletAddressLabel")]),
       ...(addressPicker ? [addressPicker] : []),
       recipientInput,
-      h("label", {}, ["Amount"]),
+      h("label", {}, [t("send.amountLabel")]),
       amountField,
       hint,
-      h("label", {}, ["Memo (optional)"]),
+      h("label", {}, [t("send.memoLabel")]),
       memoInput,
-      h("p", { class: "muted", style: "margin:4px 0 0" }, [
-        "Only the recipient can decrypt this — but it's stored on-chain (encrypted), so keep it short.",
-      ]),
+      h("p", { class: "muted", style: "margin:4px 0 0" }, [t("send.memoHint")]),
       submitBtn,
     ];
   };
@@ -1474,33 +1563,29 @@ function buildPrivateSendForm(
  * local account's token detail.
  */
 function renderShield(status: WalletStatus, balance: Balance) {
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
   const label = resourceLabel(balance.resourceAddress, balance.symbol);
 
   const amountInput = h("input", { type: "text", id: "amount", placeholder: "0.0", maxlength: "40", inputmode: "decimal" });
-  const maxBtn = h("button", { class: "max-btn", id: "max" }, ["MAX"]);
+  const maxBtn = h("button", { class: "max-btn", id: "max" }, [t("send.max")]);
   const amountField = h("div", { class: "amount-field" }, [amountInput, maxBtn]);
   const balanceHint = h("div", { class: "muted", style: "margin-top:6px" }, [
-    `Revealed balance: ${formatBalanceAmountGrouped(balance.amount, balance.divisibility)} ${label}`,
+    t("shield.revealedBalance", { amount: formatBalanceAmountGrouped(balance.amount, balance.divisibility), symbol: label }),
   ]);
   const memoInput = h("input", { type: "text", id: "memo", placeholder: "e.g. Savings", maxlength: "200" });
 
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
-  const shieldBtn = h("button", { class: "primary", id: "submit" }, [`Shield ${label}`]);
+  const shieldBtn = h("button", { class: "primary", id: "submit" }, [t("shield.submitButton", { symbol: label })]);
 
   render(
-    h("h1", {}, ["Shield"]),
-    h("p", { class: "muted" }, [
-      `Moves some of your revealed (public) ${label} balance into a new private output only you can see. The transaction fee is still paid from your revealed balance.`,
-    ]),
-    h("label", {}, ["Amount"]),
+    h("h1", {}, [t("shield.title")]),
+    h("p", { class: "muted" }, [t("shield.description", { symbol: label })]),
+    h("label", {}, [t("send.amountLabel")]),
     amountField,
     balanceHint,
-    h("label", {}, ["Memo (optional)"]),
+    h("label", {}, [t("send.memoLabel")]),
     memoInput,
-    h("p", { class: "muted", style: "margin:4px 0 0" }, [
-      "A private note attached to this output — encrypted, but stored on-chain, so keep it short.",
-    ]),
+    h("p", { class: "muted", style: "margin:4px 0 0" }, [t("shield.memoNote")]),
     statusEl,
     shieldBtn,
     back
@@ -1512,11 +1597,7 @@ function renderShield(status: WalletStatus, balance: Balance) {
     (amountInput as HTMLInputElement).value = formatBalanceAmount(balance.amount, balance.divisibility);
   });
 
-  const showStatus = (msg: string, cls: "err" | "ok") => {
-    statusEl.style.display = "block";
-    statusEl.className = `status ${cls}`;
-    statusEl.textContent = msg;
-  };
+  const showStatus = bindStatus(statusEl);
 
   shieldBtn.addEventListener("click", async () => {
     let raw: bigint;
@@ -1527,22 +1608,22 @@ function renderShield(status: WalletStatus, balance: Balance) {
       return;
     }
     if (raw <= 0n) {
-      showStatus("Enter an amount greater than zero.", "err");
+      showStatus(t("send.errZeroAmount"), "err");
       return;
     }
     if (raw > BigInt(balance.amount)) {
-      showStatus("Amount exceeds your revealed balance.", "err");
+      showStatus(t("shield.errExceedsRevealed"), "err");
       return;
     }
 
-    setBusy(shieldBtn as HTMLButtonElement, true, "Shielding…");
-    showStatus("Submitting — this usually takes a few seconds…", "ok");
+    setBusy(shieldBtn as HTMLButtonElement, true, t("shield.shielding"));
+    showStatus(t("send.submitting"), "ok");
     const memo = (memoInput as HTMLInputElement).value.trim();
     try {
       await send({ kind: "popup-shield", resourceAddress: balance.resourceAddress, amount: raw.toString(), memo: memo || undefined });
-      showStatus("Shielded!", "ok");
+      showStatus(t("shield.shielded"), "ok");
       setTimeout(async () => {
-        const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
+        const newStatus = await getStatus();
         await renderHome(newStatus);
       }, 700);
     } catch (e) {
@@ -1564,34 +1645,30 @@ function renderShield(status: WalletStatus, balance: Balance) {
  * least the smallest unit must remain private as change, so MAX caps just under the full balance.
  */
 function renderUnshield(status: WalletStatus, balance: Balance) {
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
   const label = resourceLabel(balance.resourceAddress, balance.symbol);
   const maxAmount = BigInt(balance.confidentialAmount);
 
   const amountInput = h("input", { type: "text", id: "amount", placeholder: "0.0", maxlength: "40", inputmode: "decimal" });
-  const maxBtn = h("button", { class: "max-btn", id: "max" }, ["MAX"]);
+  const maxBtn = h("button", { class: "max-btn", id: "max" }, [t("send.max")]);
   const amountField = h("div", { class: "amount-field" }, [amountInput, maxBtn]);
   const balanceHint = h("div", { class: "muted", style: "margin-top:6px" }, [
-    `Private balance: ${formatBalanceAmountGrouped(maxAmount.toString(), balance.divisibility)} ${label}`,
+    t("send.privateBalanceHint", { amount: formatBalanceAmountGrouped(maxAmount.toString(), balance.divisibility), symbol: label }),
   ]);
   const memoInput = h("input", { type: "text", id: "memo", placeholder: "e.g. Remaining savings", maxlength: "200" });
 
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
-  const submitBtn = h("button", { class: "primary", id: "submit" }, [`Unshield ${label}`]);
+  const submitBtn = h("button", { class: "primary", id: "submit" }, [t("unshield.submitButton", { symbol: label })]);
 
   render(
-    h("h1", {}, ["Unshield"]),
-    h("p", { class: "muted" }, [
-      `Moves some of your private ${label} back to your revealed (public) balance. At least the smallest unit must always stay private as change, and the fee is paid from your revealed balance.`,
-    ]),
-    h("label", {}, ["Amount to reveal"]),
+    h("h1", {}, [t("unshield.title")]),
+    h("p", { class: "muted" }, [t("unshield.description", { symbol: label })]),
+    h("label", {}, [t("unshield.amountToRevealLabel")]),
     amountField,
     balanceHint,
-    h("label", {}, ["Memo for the remaining private balance (optional)"]),
+    h("label", {}, [t("unshield.memoLabel")]),
     memoInput,
-    h("p", { class: "muted", style: "margin:4px 0 0" }, [
-      "A private note attached to the remaining private output — encrypted, but stored on-chain, so keep it short.",
-    ]),
+    h("p", { class: "muted", style: "margin:4px 0 0" }, [t("unshield.memoNote")]),
     statusEl,
     submitBtn,
     back
@@ -1604,11 +1681,7 @@ function renderUnshield(status: WalletStatus, balance: Balance) {
     (amountInput as HTMLInputElement).value = revealMax > 0n ? formatBalanceAmount(revealMax.toString(), balance.divisibility) : "";
   });
 
-  const showStatus = (msg: string, cls: "err" | "ok") => {
-    statusEl.style.display = "block";
-    statusEl.className = `status ${cls}`;
-    statusEl.textContent = msg;
-  };
+  const showStatus = bindStatus(statusEl);
 
   submitBtn.addEventListener("click", async () => {
     let raw: bigint;
@@ -1619,15 +1692,15 @@ function renderUnshield(status: WalletStatus, balance: Balance) {
       return;
     }
     if (raw <= 0n) {
-      showStatus("Enter an amount greater than zero.", "err");
+      showStatus(t("send.errZeroAmount"), "err");
       return;
     }
     if (raw >= maxAmount) {
-      showStatus("At least the smallest unit must stay private — enter a smaller amount.", "err");
+      showStatus(t("unshield.errMustStayPrivate"), "err");
       return;
     }
-    setBusy(submitBtn as HTMLButtonElement, true, "Unshielding…");
-    showStatus("Submitting — this usually takes a few seconds…", "ok");
+    setBusy(submitBtn as HTMLButtonElement, true, t("unshield.unshielding"));
+    showStatus(t("send.submitting"), "ok");
     const memo = (memoInput as HTMLInputElement).value.trim();
     try {
       await send({
@@ -1636,9 +1709,9 @@ function renderUnshield(status: WalletStatus, balance: Balance) {
         revealedAmount: raw.toString(),
         memo: memo || undefined,
       });
-      showStatus("Unshielded!", "ok");
+      showStatus(t("unshield.unshielded"), "ok");
       setTimeout(async () => {
-        const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
+        const newStatus = await getStatus();
         await renderHome(newStatus);
       }, 700);
     } catch (e) {
@@ -1650,9 +1723,7 @@ function renderUnshield(status: WalletStatus, balance: Balance) {
 
 function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: WalletStatus) {
   if (balances.length === 0) {
-    balancesCard.replaceChildren(
-      emptyState("No tokens yet — claim some testnet XTR above to get started.", ICON_INBOX)
-    );
+    balancesCard.replaceChildren(emptyState(t("balances.empty"), ICON_INBOX));
   } else {
     balancesCard.replaceChildren(
       ...balances.map((b) => {
@@ -1660,7 +1731,10 @@ function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: 
         // Indivisible by definition -- the raw token count, never run through
         // formatBalanceAmountGrouped()'s divisibility math (that produced "0" here before this
         // vault kind was handled: NonFungible has no `.amount`/`.revealed_amount` field at all).
-        const amountText = b.kind === "NonFungible" ? `${b.amount} ${BigInt(b.amount) === 1n ? "NFT" : "NFTs"}` : formatBalanceAmountGrouped(b.amount, b.divisibility);
+        const amountText =
+          b.kind === "NonFungible"
+            ? `${b.amount} ${BigInt(b.amount) === 1n ? t("balances.nft") : t("balances.nfts")}`
+            : formatBalanceAmountGrouped(b.amount, b.divisibility);
         // A Stealth resource held entirely as shielded funds has `amount === "0"` (nothing
         // revealed) -- without this, the row reads as an empty balance instead of "everything
         // here is private," the exact gap renderTokenDetail() already handles one screen deeper.
@@ -1668,14 +1742,24 @@ function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: 
         const amountCol = h("span", { class: "token-amount-col" }, [
           h("span", { class: "token-amount" }, [amountText]),
           ...(hasPrivate
-            ? [h("span", { class: "token-amount-private" }, [`+${formatBalanceAmountGrouped(b.confidentialAmount, b.divisibility)} private`])]
+            ? [
+                h("span", { class: "token-amount-private" }, [
+                  t("balances.plusPrivate", { amount: formatBalanceAmountGrouped(b.confidentialAmount, b.divisibility) }),
+                ]),
+              ]
             : []),
         ]);
         const row = h(
           "button",
           {
             class: "balance-row clickable",
-            "aria-label": `${label}, ${amountText}${hasPrivate ? ` public, plus ${formatBalanceAmountGrouped(b.confidentialAmount, b.divisibility)} private` : ""} — view details`,
+            "aria-label": t("balances.rowAria", {
+              label,
+              amount: amountText,
+              privateAria: hasPrivate
+                ? t("balances.rowAriaPrivateSuffix", { amount: formatBalanceAmountGrouped(b.confidentialAmount, b.divisibility) })
+                : "",
+            }),
           },
           [
             h("div", { class: "balance-left" }, [
@@ -1693,15 +1777,15 @@ function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: 
 }
 
 function renderTokenDetail(status: WalletStatus, balance: Balance) {
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
 
-  const addrLabel = h("span", {}, ["Copy"]);
+  const addrLabel = h("span", {}, [t("common.copy")]);
   const addrCopyBtn = h("button", { class: "icon-btn" }, [icon(ICON_COPY), addrLabel]);
   const addrRow = h("div", { class: "copy-row" }, [h("div", { class: "addr" }, [balance.resourceAddress]), addrCopyBtn]);
   addrCopyBtn.addEventListener("click", () => copyToClipboard(balance.resourceAddress, addrLabel));
 
   const isXtr = balance.resourceAddress === TARI_RESOURCE_ADDRESS;
-  const displayName = isXtr ? "Tari" : (balance.name ?? "—");
+  const displayName = isXtr ? t("tokenDetail.tariDisplayName") : (balance.name ?? "—");
   const displaySymbol = resourceLabel(balance.resourceAddress, balance.symbol);
 
   // Whether to show the private-balance row/Unshield button: NOT `balance.kind === "Confidential"`
@@ -1727,15 +1811,19 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
   const isStealthResource = balance.kind === "Stealth";
 
   const shieldBtn =
-    hasPrivacyActions && isStealthResource ? h("button", { class: "secondary" }, [`Shield ${displaySymbol}`]) : null;
+    hasPrivacyActions && isStealthResource ? h("button", { class: "secondary" }, [t("tokenDetail.shieldButton", { symbol: displaySymbol })]) : null;
   if (shieldBtn) shieldBtn.addEventListener("click", () => renderShield(status, balance));
 
   const unshieldBtn =
-    hasPrivacyActions && isConfidential && isStealthResource ? h("button", { class: "secondary" }, [`Unshield ${displaySymbol}`]) : null;
+    hasPrivacyActions && isConfidential && isStealthResource
+      ? h("button", { class: "secondary" }, [t("tokenDetail.unshieldButton", { symbol: displaySymbol })])
+      : null;
   if (unshieldBtn) unshieldBtn.addEventListener("click", () => renderUnshield(status, balance));
 
   const sendPrivatelyBtn =
-    hasPrivacyActions && isConfidential && isStealthResource ? h("button", { class: "secondary" }, [`Send ${displaySymbol} privately`]) : null;
+    hasPrivacyActions && isConfidential && isStealthResource
+      ? h("button", { class: "secondary" }, [t("tokenDetail.sendPrivatelyButton", { symbol: displaySymbol })])
+      : null;
 
   // A real Confidential-vault resource (distinct from Stealth -- see above) can genuinely carry a
   // nonzero confidential balance that this wallet correctly *displays* (sumConfidentialCommitments
@@ -1745,38 +1833,48 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
   // is shown.
   const noPrivacyActionsNote =
     hasPrivacyActions && !isStealthResource && isConfidential
-      ? h("div", { class: "muted", style: "margin-top:10px;font-size:13px" }, [
-          "This token's private balance uses a format this wallet doesn't support sending or unshielding for yet.",
-        ])
+      ? h("div", { class: "muted", style: "margin-top:10px;font-size:13px" }, [t("tokenDetail.noPrivacyActionsNote")])
       : null;
   if (sendPrivatelyBtn) {
     sendPrivatelyBtn.addEventListener("click", async () => {
-      const balances = await send<Balance[]>({ kind: "popup-get-balances" });
-      renderSend(status, balances, {
-        initialTab: "private",
-        initialResourceAddress: balance.resourceAddress,
-        onBack: () => renderTokenDetail(status, balance),
-      });
+      sendPrivatelyBtn.setAttribute("disabled", "true");
+      try {
+        const balances = await send<Balance[]>({ kind: "popup-get-balances" });
+        renderSend(status, balances, {
+          initialTab: "private",
+          initialResourceAddress: balance.resourceAddress,
+          onBack: () => renderTokenDetail(status, balance),
+        });
+      } catch (e) {
+        // Otherwise a failed fetch here (e.g. a daemon connection that just dropped) makes this
+        // button look broken -- it visibly does nothing at all, with no error anywhere on screen.
+        sendPrivatelyBtn.removeAttribute("disabled");
+        const original = sendPrivatelyBtn.textContent;
+        sendPrivatelyBtn.textContent = e instanceof Error ? e.message : String(e);
+        setTimeout(() => {
+          sendPrivatelyBtn.textContent = original;
+        }, 2500);
+      }
     });
   }
 
   render(
-    h("h1", {}, ["Token"]),
+    h("h1", {}, [t("tokenDetail.title")]),
     h("div", { class: "hero" }, [h("div", { class: "avatar" }, [tokenInitial(balance.resourceAddress, balance.symbol)])]),
     h("div", { class: "card" }, [
-      h("div", { class: "muted" }, ["Name"]),
+      h("div", { class: "muted" }, [t("tokenDetail.name")]),
       h("div", { class: "detail-value" }, [displayName]),
-      h("div", { class: "muted" }, ["Symbol"]),
+      h("div", { class: "muted" }, [t("tokenDetail.symbol")]),
       h("div", { class: "detail-value" }, [displaySymbol]),
-      h("div", { class: "muted" }, [isConfidential ? "Revealed balance" : "Balance"]),
+      h("div", { class: "muted" }, [isConfidential ? t("tokenDetail.revealedBalanceLabel") : t("tokenDetail.balanceLabel")]),
       h("div", { class: "detail-value" }, [
         balance.kind === "NonFungible"
-          ? `${balance.amount} ${BigInt(balance.amount) === 1n ? "NFT" : "NFTs"}`
+          ? `${balance.amount} ${BigInt(balance.amount) === 1n ? t("balances.nft") : t("balances.nfts")}`
           : formatBalanceAmountGrouped(balance.amount, balance.divisibility),
       ]),
       ...(balance.kind === "NonFungible" && balance.nonFungibleTokenIds && balance.nonFungibleTokenIds.length > 0
         ? [
-            h("div", { class: "muted" }, ["Token IDs"]),
+            h("div", { class: "muted" }, [t("tokenDetail.tokenIds")]),
             h("div", { class: "detail-value", style: "font-size:12px;word-break:break-all" }, [
               balance.nonFungibleTokenIds.join(", "),
             ]),
@@ -1784,20 +1882,20 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
         : []),
       ...(isConfidential
         ? [
-            h("div", { class: "muted private-label" }, [icon(ICON_LOCK), "Private balance"]),
+            h("div", { class: "muted private-label" }, [icon(ICON_LOCK), t("tokenDetail.privateBalanceLabel")]),
             h("div", { class: "detail-value", style: "color:var(--highlight)" }, [
               formatBalanceAmountGrouped(balance.confidentialAmount, balance.divisibility),
             ]),
             ...(failures > 0
               ? [
                   h("div", { class: "muted", style: "color:var(--bad)" }, [
-                    `${failures} private ${failures === 1 ? "output" : "outputs"} couldn't be decrypted with this account's key.`,
+                    t("tokenDetail.decryptFailures", { count: failures, word: failures === 1 ? "output" : "outputs" }),
                   ]),
                 ]
               : []),
           ]
         : []),
-      h("div", { class: "muted" }, ["Resource address"]),
+      h("div", { class: "muted" }, [t("tokenDetail.resourceAddressLabel")]),
       h("div", { style: "margin-top:4px" }, [addrRow]),
     ]),
     ...(shieldBtn ? [shieldBtn] : []),
@@ -1820,17 +1918,17 @@ function renderAccountSwitcher(status: WalletStatus) {
         accountAvatar(account.address, 28),
         h("div", {}, [
           h("div", { style: "font-weight:600;font-size:13.5px" }, [account.label]),
-          account.kind === "daemon" ? h("div", { class: "muted", style: "font-size:11px" }, ["daemon"]) : "",
+          account.kind === "daemon" ? h("div", { class: "muted", style: "font-size:11px" }, [t("accountSwitcher.daemonTag")]) : "",
         ]),
       ]),
-      isActive ? h("span", { class: "settings-row-right" }, ["Current"]) : "",
+      isActive ? h("span", { class: "settings-row-right" }, [t("accountSwitcher.current")]) : "",
     ]);
     row.addEventListener("click", async () => {
       if (isActive) return;
       await send({ kind: "popup-set-active-account", accountId: account.id });
-      renderLoading("Switching account…");
+      renderLoading(t("accountSwitcher.switchingAccount"));
       try {
-        const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
+        const newStatus = await getStatus();
         await renderHome(newStatus);
       } catch (e) {
         render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
@@ -1838,21 +1936,21 @@ function renderAccountSwitcher(status: WalletStatus) {
     });
     return row;
   });
-  const connectDaemonBtn = h("button", { class: "secondary", id: "connectDaemon" }, ["+ Connect daemon wallet"]);
-  const back = h("button", { class: "secondary", id: "back" }, ["Back"]);
+  const connectDaemonBtn = h("button", { class: "secondary", id: "connectDaemon" }, [t("accountSwitcher.connectDaemonButton")]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.back")]);
   // .account-switch-list bounds a long account list to a scrollable max-height (same convention
   // as .balances-card/.history-list) instead of growing the popup unboundedly.
   const list = h("div", { class: "card settings-card account-switch-list" }, rows);
-  render(h("h1", {}, ["Switch account"]), list, connectDaemonBtn, back);
+  render(h("h1", {}, [t("accountSwitcher.title")]), list, connectDaemonBtn, back);
   connectDaemonBtn.addEventListener("click", () => renderConnectDaemon(status));
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
 }
 
 function renderDaemonConnections(status: WalletStatus) {
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
   const list =
     status.daemonConnections.length === 0
-      ? emptyState("No daemon connections yet.", ICON_SERVER)
+      ? emptyState(t("daemonConnections.empty"), ICON_SERVER)
       : h(
           "div",
           {},
@@ -1861,25 +1959,30 @@ function renderDaemonConnections(status: WalletStatus) {
               h("div", { class: "list-row-title" }, [c.label]),
               h("div", { class: "list-row-subtitle", title: c.url }, [c.url]),
             ]);
-            const removeBtn = h("button", { class: "secondary btn-compact" }, ["Disconnect"]) as HTMLButtonElement;
-            confirmThenRun(removeBtn, `Disconnect "${c.label}"? Its accounts will no longer be reachable from this wallet.`, "Disconnect", async () => {
-              await send({ kind: "popup-remove-daemon-connection", connectionId: c.id });
-              renderLoading("Removing…");
-              const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
-              // Switching away is only necessary if the removed connection owned the active
-              // account — `popup-get-status` already reflects accounts being gone either way.
-              if (!newStatus.accounts.some((a) => a.id === newStatus.activeAccountId)) {
-                await send({ kind: "popup-set-active-account", accountId: "local:0" });
-                await renderHome(await send<WalletStatus>({ kind: "popup-get-status" }));
-              } else {
-                renderDaemonConnections(newStatus);
+            const removeBtn = h("button", { class: "secondary btn-compact" }, [t("daemonConnections.disconnectButton")]) as HTMLButtonElement;
+            confirmThenRun(
+              removeBtn,
+              t("daemonConnections.disconnectConfirm", { label: c.label }),
+              t("daemonConnections.disconnectButton"),
+              async () => {
+                await send({ kind: "popup-remove-daemon-connection", connectionId: c.id });
+                renderLoading(t("daemonConnections.removing"));
+                const newStatus = await getStatus();
+                // Switching away is only necessary if the removed connection owned the active
+                // account — `popup-get-status` already reflects accounts being gone either way.
+                if (!newStatus.accounts.some((a) => a.id === newStatus.activeAccountId)) {
+                  await send({ kind: "popup-set-active-account", accountId: "local:0" });
+                  await renderHome(await getStatus());
+                } else {
+                  renderDaemonConnections(newStatus);
+                }
               }
-            });
+            );
             const row = h("div", { class: "balance-row" }, [info, removeBtn]);
             return row;
           })
         );
-  render(h("h1", {}, ["Daemon connections"]), list, back);
+  render(h("h1", {}, [t("daemonConnections.title")]), list, back);
   document.getElementById("back")!.addEventListener("click", () => renderSettings(status));
 }
 
@@ -1888,10 +1991,10 @@ function renderDaemonConnections(status: WalletStatus) {
 // ---------------------------------------------------------------------------
 
 function renderAddressBook(status: WalletStatus) {
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
   const list =
     status.addressBook.length === 0
-      ? emptyState("No saved addresses yet.", ICON_BOOK)
+      ? emptyState(t("addressBook.empty"), ICON_BOOK)
       : h(
           "div",
           {},
@@ -1900,10 +2003,10 @@ function renderAddressBook(status: WalletStatus) {
               h("div", { class: "list-row-title" }, [entry.label]),
               h("div", { class: "list-row-subtitle", title: entry.address }, [entry.address]),
             ]);
-            const removeBtn = h("button", { class: "secondary btn-compact" }, ["Remove"]) as HTMLButtonElement;
-            confirmThenRun(removeBtn, `Remove "${entry.label}" from your address book?`, "Remove", async () => {
+            const removeBtn = h("button", { class: "secondary btn-compact" }, [t("addressBook.removeButton")]) as HTMLButtonElement;
+            confirmThenRun(removeBtn, t("addressBook.removeConfirm", { label: entry.label }), t("addressBook.removeButton"), async () => {
               await send({ kind: "popup-remove-address-book-entry", id: entry.id });
-              renderAddressBook(await send<WalletStatus>({ kind: "popup-get-status" }));
+              renderAddressBook(await getStatus());
             });
             return h("div", { class: "balance-row" }, [info, removeBtn]);
           })
@@ -1913,27 +2016,23 @@ function renderAddressBook(status: WalletStatus) {
   const addressInput = h("input", { type: "text", placeholder: "component_… or otl_…", maxlength: "200" });
   wireLiveValidation(addressInput as HTMLInputElement, (v) => isValidComponentAddress(v) || isValidOotleWalletAddress(v));
   const statusEl = h("div", { class: "status", style: "display:none" });
-  const addBtn = h("button", { class: "primary" }, ["Save address"]);
-  const showStatus = (msg: string, cls: "err" | "ok") => {
-    statusEl.style.display = "block";
-    statusEl.className = `status ${cls}`;
-    statusEl.textContent = msg;
-  };
+  const addBtn = h("button", { class: "primary" }, [t("addressBook.saveButton")]);
+  const showStatus = bindStatus(statusEl);
   addBtn.addEventListener("click", async () => {
     const label = (labelInput as HTMLInputElement).value.trim();
     const address = (addressInput as HTMLInputElement).value.trim();
     if (!label) {
-      showStatus("Enter a label.", "err");
+      showStatus(t("addressBook.errEnterLabel"), "err");
       return;
     }
     if (!isValidComponentAddress(address) && !isValidOotleWalletAddress(address)) {
-      showStatus("Enter a valid component_… (public) or otl_… (private) address.", "err");
+      showStatus(t("addressBook.errInvalidAddress"), "err");
       return;
     }
-    setBusy(addBtn as HTMLButtonElement, true, "Saving…");
+    setBusy(addBtn as HTMLButtonElement, true, t("addressBook.saving"));
     try {
       await send({ kind: "popup-add-address-book-entry", label, address });
-      renderAddressBook(await send<WalletStatus>({ kind: "popup-get-status" }));
+      renderAddressBook(await getStatus());
     } catch (e) {
       showStatus(e instanceof Error ? e.message : String(e), "err");
       setBusy(addBtn as HTMLButtonElement, false);
@@ -1941,11 +2040,11 @@ function renderAddressBook(status: WalletStatus) {
   });
 
   render(
-    h("h1", {}, ["Address book"]),
+    h("h1", {}, [t("addressBook.title")]),
     list,
-    h("label", {}, ["Label"]),
+    h("label", {}, [t("addressBook.labelField")]),
     labelInput,
-    h("label", {}, ["Address"]),
+    h("label", {}, [t("addressBook.addressField")]),
     addressInput,
     statusEl,
     addBtn,
@@ -1981,10 +2080,10 @@ function clearDaemonConnectDraft(): void {
 
 async function renderConnectDaemon(status: WalletStatus) {
   const draft = await loadDaemonConnectDraft();
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
   const urlInput = h("input", { type: "text", id: "url", placeholder: "http://127.0.0.1:5100", maxlength: "512" }) as HTMLInputElement;
   urlInput.value = draft.url;
-  const keyInput = h("input", { type: "password", id: "apiKey", placeholder: "Paste the API key here", maxlength: "4096" });
+  const keyInput = h("input", { type: "password", id: "apiKey", placeholder: t("connectDaemon.apiKeyPlaceholder"), maxlength: "4096" });
   const labelInput = h("input", {
     type: "text",
     id: "label",
@@ -1993,29 +2092,23 @@ async function renderConnectDaemon(status: WalletStatus) {
   }) as HTMLInputElement;
   labelInput.value = draft.label;
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
-  const openWebUiBtn = h("button", { class: "secondary", id: "openWebUi", style: "margin-top:8px" }, ["Open API Keys page ↗"]);
-  const connectBtn = h("button", { class: "primary", id: "connect" }, ["Connect"]);
+  const openWebUiBtn = h("button", { class: "secondary", id: "openWebUi", style: "margin-top:8px" }, [t("connectDaemon.openWebUiButton")]);
+  const connectBtn = h("button", { class: "primary", id: "connect" }, [t("connectDaemon.connectButton")]);
 
   render(
-    h("h1", {}, ["Connect daemon wallet"]),
+    h("h1", {}, [t("connectDaemon.title")]),
+    h("p", { class: "muted" }, [t("connectDaemon.description1")]),
     h("p", { class: "muted" }, [
-      "Connect to a running tari_ootle_walletd — this extension will relay reads and transactions to it instead of signing locally, like a hardware wallet.",
+      t("connectDaemon.description2a"),
+      h("b", {}, [t("connectDaemon.description2Bold")]),
+      t("connectDaemon.description2b"),
     ]),
-    h("p", { class: "muted" }, [
-      "This extension can't log into the daemon's own browser session (WebAuthn is locked to the ",
-      "daemon's own localhost origin, and a browser extension can never hold that session's cookie ",
-      "either way) — mint an ",
-      h("b", {}, ["API key with the \"admin\" permission"]),
-      " from the daemon's web UI instead (requires an Admin login there once) and paste it below. ",
-      "A narrower key will be rejected — this wallet needs admin access to submit transactions and ",
-      "claim testnet funds.",
-    ]),
-    h("label", {}, ["Daemon URL"]),
+    h("label", {}, [t("connectDaemon.daemonUrlLabel")]),
     urlInput,
     openWebUiBtn,
-    h("label", {}, ["API key"]),
+    h("label", {}, [t("connectDaemon.apiKeyLabel")]),
     keyInput,
-    h("label", {}, ["Label"]),
+    h("label", {}, [t("addressBook.labelField")]),
     labelInput,
     statusEl,
     connectBtn,
@@ -2032,11 +2125,7 @@ async function renderConnectDaemon(status: WalletStatus) {
     window.open(deriveWebUiApiKeysUrl(urlInput.value), "_blank");
   });
 
-  const showStatus = (msg: string, cls: "err" | "ok") => {
-    statusEl.style.display = "block";
-    statusEl.className = `status ${cls}`;
-    statusEl.textContent = msg;
-  };
+  const showStatus = bindStatus(statusEl);
 
   connectBtn.addEventListener("click", async () => {
     let url: string;
@@ -2046,10 +2135,10 @@ async function renderConnectDaemon(status: WalletStatus) {
       return showStatus(e instanceof Error ? e.message : String(e), "err");
     }
     const apiKey = (keyInput as HTMLInputElement).value.trim();
-    if (!apiKey) return showStatus("Paste the API key you minted from the daemon's web UI.", "err");
+    if (!apiKey) return showStatus(t("connectDaemon.errPasteApiKey"), "err");
     const label = labelInput.value.trim() || url;
     if (label.length > MAX_DAEMON_LABEL_LENGTH) {
-      return showStatus(`Label must be ${MAX_DAEMON_LABEL_LENGTH} characters or fewer.`, "err");
+      return showStatus(t("connectDaemon.errLabelTooLong", { max: MAX_DAEMON_LABEL_LENGTH }), "err");
     }
 
     // manifest.json's `host_permissions` only covers localhost/127.0.0.1 -- a remote daemon (a
@@ -2063,14 +2152,17 @@ async function renderConnectDaemon(status: WalletStatus) {
     try {
       granted = await chrome.permissions.request({ origins: [origin] });
     } catch (e) {
-      return showStatus(`Couldn't request permission for ${origin}: ${e instanceof Error ? e.message : String(e)}`, "err");
+      return showStatus(
+        t("connectDaemon.errPermissionRequestFailed", { origin, error: e instanceof Error ? e.message : String(e) }),
+        "err"
+      );
     }
     if (!granted) {
-      return showStatus(`This wallet needs permission to reach ${new URL(url).origin} to connect to that daemon.`, "err");
+      return showStatus(t("connectDaemon.errPermissionDenied", { origin: new URL(url).origin }), "err");
     }
 
-    setBusy(connectBtn as HTMLButtonElement, true, "Connecting…");
-    showStatus("Connecting…", "ok");
+    setBusy(connectBtn as HTMLButtonElement, true, t("connectDaemon.connecting"));
+    showStatus(t("connectDaemon.connecting"), "ok");
     try {
       const result = await send<{ connectionId: string; accounts: DaemonAccountOption[] }>({
         kind: "popup-connect-daemon",
@@ -2088,10 +2180,14 @@ async function renderConnectDaemon(status: WalletStatus) {
 }
 
 function renderDaemonAccountPicker(status: WalletStatus, connectionId: string, accounts: DaemonAccountOption[]) {
-  const back = h("button", { class: "secondary", id: "back" }, ["← Back"]);
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
 
   if (accounts.length === 0) {
-    render(h("h1", {}, ["No accounts found"]), h("p", { class: "muted" }, ["This daemon has no accounts yet."]), back);
+    render(
+      h("h1", {}, [t("daemonAccountPicker.noAccountsTitle")]),
+      h("p", { class: "muted" }, [t("daemonAccountPicker.noAccountsDescription")]),
+      back
+    );
     document.getElementById("back")!.addEventListener("click", () => renderAccountSwitcher(status));
     return;
   }
@@ -2104,11 +2200,11 @@ function renderDaemonAccountPicker(status: WalletStatus, connectionId: string, a
   });
 
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
-  const addBtn = h("button", { class: "primary", id: "add" }, ["Add selected accounts"]);
+  const addBtn = h("button", { class: "primary", id: "add" }, [t("daemonAccountPicker.addSelectedButton")]);
 
   render(
-    h("h1", {}, ["Choose accounts"]),
-    h("p", { class: "muted" }, ["Pick which of this daemon's accounts to add to your wallet."]),
+    h("h1", {}, [t("daemonAccountPicker.title")]),
+    h("p", { class: "muted" }, [t("daemonAccountPicker.description")]),
     h("div", { class: "card" }, checkboxes.map((c) => c.row)),
     statusEl,
     addBtn,
@@ -2121,18 +2217,18 @@ function renderDaemonAccountPicker(status: WalletStatus, connectionId: string, a
     if (selected.length === 0) {
       statusEl.style.display = "block";
       statusEl.className = "status err";
-      statusEl.textContent = "Select at least one account.";
+      statusEl.textContent = t("daemonAccountPicker.errSelectAtLeastOne");
       return;
     }
-    setBusy(addBtn as HTMLButtonElement, true, "Adding…");
+    setBusy(addBtn as HTMLButtonElement, true, t("daemonAccountPicker.adding"));
     try {
       await send({
         kind: "popup-add-daemon-accounts",
         connectionId,
         accounts: selected.map((a) => ({ componentAddress: a.componentAddress, label: a.label })),
       });
-      renderLoading("Switching to the new account…");
-      const newStatus = await send<WalletStatus>({ kind: "popup-get-status" });
+      renderLoading(t("daemonAccountPicker.switchingToNewAccount"));
+      const newStatus = await getStatus();
       await renderHome(newStatus);
     } catch (e) {
       statusEl.style.display = "block";
@@ -2146,24 +2242,21 @@ function renderDaemonAccountPicker(status: WalletStatus, connectionId: string, a
 function renderRevealMnemonic() {
   const statusEl = h("div", { class: "status", id: "status", style: "display:none" });
   render(
-    h("h1", {}, ["Reveal recovery phrase"]),
-    h("p", { class: "muted" }, ["Enter your password to display your 24-word recovery phrase."]),
-    h("label", {}, ["Password"]),
+    h("h1", {}, [t("revealMnemonic.title")]),
+    h("p", { class: "muted" }, [t("revealMnemonic.description")]),
+    h("label", {}, [t("common.password")]),
     h("input", { type: "password", id: "pw", maxlength: "256" }),
     statusEl,
     h("div", { class: "row" }, [
-      h("button", { class: "secondary", id: "cancel" }, ["Cancel"]),
-      h("button", { class: "primary", id: "reveal" }, ["Reveal"]),
+      h("button", { class: "secondary", id: "cancel" }, [t("common.cancel")]),
+      h("button", { class: "primary", id: "reveal" }, [t("revealMnemonic.revealButton")]),
     ])
   );
   const pw = document.getElementById("pw") as HTMLInputElement;
   pw.addEventListener("keydown", (e) => {
     if (e.key === "Enter") document.getElementById("reveal")!.click();
   });
-  document.getElementById("cancel")!.addEventListener("click", async () => {
-    const status = await send<WalletStatus>({ kind: "popup-get-status" });
-    await renderHome(status);
-  });
+  document.getElementById("cancel")!.addEventListener("click", goHome);
   document.getElementById("reveal")!.addEventListener("click", async () => {
     try {
       const { mnemonic } = await send<{ mnemonic: string }>({ kind: "popup-reveal-mnemonic", password: pw.value });
@@ -2183,31 +2276,20 @@ function renderMnemonicDisplay(mnemonic: string) {
     { class: "mnemonic-grid" },
     words.map((w, i) => h("div", { class: "mnemonic-word" }, [h("span", {}, [String(i + 1)]), w]))
   );
-  const back = h("button", { class: "primary", id: "back" }, ["Back"]);
-  render(
-    h("h1", {}, ["Your recovery phrase"]),
-    h("p", { class: "muted" }, ["Anyone with this phrase can spend your funds. Keep it secret."]),
-    grid,
-    back
-  );
-  document.getElementById("back")!.addEventListener("click", async () => {
-    const status = await send<WalletStatus>({ kind: "popup-get-status" });
-    await renderHome(status);
-  });
+  const back = h("button", { class: "primary", id: "back" }, [t("common.back")]);
+  render(h("h1", {}, [t("mnemonicDisplay.title")]), h("p", { class: "muted" }, [t("mnemonicDisplay.description")]), grid, back);
+  document.getElementById("back")!.addEventListener("click", goHome);
 }
 
 async function renderConnectedSites() {
-  const backEarly = h("button", { class: "secondary", id: "back" }, ["Back"]);
-  render(h("h1", {}, ["Connected sites"]), h("div", { class: "card" }, [skeletonListRow(), skeletonListRow()]), backEarly);
-  backEarly.addEventListener("click", async () => {
-    const status = await send<WalletStatus>({ kind: "popup-get-status" });
-    await renderHome(status);
-  });
+  const backEarly = h("button", { class: "secondary", id: "back" }, [t("common.back")]);
+  render(h("h1", {}, [t("connectedSites.title")]), h("div", { class: "card" }, [skeletonListRow(), skeletonListRow()]), backEarly);
+  backEarly.addEventListener("click", goHome);
 
   const sites = await send<{ origin: string; viewAccessGrantedAt?: number }[]>({ kind: "popup-get-connected-sites" });
   const list =
     sites.length === 0
-      ? emptyState("No connected sites.", ICON_GLOBE)
+      ? emptyState(t("connectedSites.empty"), ICON_GLOBE)
       : h(
           "div",
           {},
@@ -2222,23 +2304,28 @@ async function renderConnectedSites() {
               // needs no label; a site that can read the user's confidential balance is exactly the
               // thing this screen exists to make visible, so it says so in the row itself rather
               // than hiding behind a detail view.
-              hasView ? h("div", { class: "list-row-subtitle view-access-note" }, ["Can see your private balance"]) : "",
+              hasView ? h("div", { class: "list-row-subtitle view-access-note" }, [t("connectedSites.canSeePrivateBalance")]) : "",
             ]);
-            const removeBtn = h("button", { class: "secondary btn-compact" }, ["Disconnect"]) as HTMLButtonElement;
-            confirmThenRun(removeBtn, `Disconnect ${s.origin}? It will need to request access again to reconnect.`, "Disconnect", async () => {
-              await send({ kind: "popup-disconnect-site", origin: s.origin });
-              await renderConnectedSites();
-            });
+            const removeBtn = h("button", { class: "secondary btn-compact" }, [t("connectedSites.disconnectButton")]) as HTMLButtonElement;
+            confirmThenRun(
+              removeBtn,
+              t("connectedSites.disconnectConfirm", { origin: s.origin }),
+              t("connectedSites.disconnectButton"),
+              async () => {
+                await send({ kind: "popup-disconnect-site", origin: s.origin });
+                await renderConnectedSites();
+              }
+            );
             const row = h("div", { class: "balance-row" }, [info, removeBtn]);
             if (!hasView) return [row];
             // Revoking view access is offered as its own action, on its own row, rather than only
             // via Disconnect: a user who wants a dApp to keep working but stop reading their
             // private position shouldn't have to tear down the connection to get it.
-            const revokeBtn = h("button", { class: "secondary btn-compact" }, ["Revoke view access"]) as HTMLButtonElement;
+            const revokeBtn = h("button", { class: "secondary btn-compact" }, [t("connectedSites.revokeViewAccessButton")]) as HTMLButtonElement;
             confirmThenRun(
               revokeBtn,
-              `Stop ${s.origin} from seeing your private balance? It stays connected and can still ask again.`,
-              "Revoke",
+              t("connectedSites.revokeConfirm", { origin: s.origin }),
+              t("connectedSites.revokeButton"),
               async () => {
                 await send({ kind: "popup-revoke-site-view-access", origin: s.origin });
                 await renderConnectedSites();
@@ -2247,12 +2334,9 @@ async function renderConnectedSites() {
             return [row, h("div", { class: "balance-row view-access-row" }, [h("div", { class: "list-row-info" }, []), revokeBtn])];
           })
         );
-  const back = h("button", { class: "secondary", id: "back" }, ["Back"]);
-  render(h("h1", {}, ["Connected sites"]), list, back);
-  document.getElementById("back")!.addEventListener("click", async () => {
-    const status = await send<WalletStatus>({ kind: "popup-get-status" });
-    await renderHome(status);
-  });
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.back")]);
+  render(h("h1", {}, [t("connectedSites.title")]), list, back);
+  document.getElementById("back")!.addEventListener("click", goHome);
 }
 
 // ---------------------------------------------------------------------------
@@ -2260,15 +2344,15 @@ async function renderConnectedSites() {
 // ---------------------------------------------------------------------------
 
 async function renderApprovalFlow(approvalId: string) {
-  const status = await send<WalletStatus>({ kind: "popup-get-status" });
+  const status = await getStatus();
   if (!status.hasWallet) {
-    render(h("div", { class: "status err" }, ["No wallet set up — open the extension normally first."]));
+    render(h("div", { class: "status err" }, [t("approval.noWallet")]));
     return;
   }
   if (!status.isUnlocked) {
     renderUnlock(
       () =>
-        void send<WalletStatus>({ kind: "popup-get-status" }).then((freshStatus) => renderApprovalDetails(approvalId, freshStatus)),
+        void getStatus().then((freshStatus) => renderApprovalDetails(approvalId, freshStatus)),
       status.lastKnownAddress
     );
     return;
@@ -2287,7 +2371,7 @@ function approvalAccountChip(status: WalletStatus, accountId: string | undefined
   return h("div", { class: "approval-account-chip" }, [
     accountAvatar(account?.address ?? null, 26),
     h("div", {}, [
-      h("div", { style: "font-weight:600;font-size:13px" }, [account?.label ?? "An account"]),
+      h("div", { style: "font-weight:600;font-size:13px" }, [account?.label ?? t("approval.defaultAccountLabel")]),
       account?.address ? h("div", { class: "muted", style: "font-size:11px" }, [shortAddr(account.address)]) : "",
     ]),
   ]);
@@ -2296,7 +2380,7 @@ function approvalAccountChip(status: WalletStatus, accountId: string | undefined
 async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
   const approval = await send<PendingApproval | null>({ kind: "popup-get-pending-approval", approvalId });
   if (!approval) {
-    render(h("div", { class: "status err" }, ["This request has expired or was already handled."]));
+    render(h("div", { class: "status err" }, [t("approval.expired")]));
     return;
   }
 
@@ -2321,16 +2405,12 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
   // anything the user could see (confirmed live: switching to a private fee against a daemon
   // account "silently" did nothing).
   const statusEl = h("div", { class: "status", style: "display:none" });
-  const showApprovalStatus = (msg: string, cls: "err" | "ok") => {
-    statusEl.style.display = "block";
-    statusEl.className = `status ${cls}`;
-    statusEl.textContent = msg;
-  };
+  const showApprovalStatus = bindStatus(statusEl);
 
   const resolve = async (approve: boolean) => {
     const approveBtn = document.getElementById("approve") as HTMLButtonElement | null;
     const rejectBtn = document.getElementById("reject") as HTMLButtonElement | null;
-    if (approveBtn) setBusy(approveBtn, true, approve ? "Submitting…" : "Working…");
+    if (approveBtn) setBusy(approveBtn, true, approve ? t("approval.submitting") : t("approval.working"));
     if (rejectBtn) rejectBtn.disabled = true;
     try {
       const feeType = approve ? chosenFeeType : undefined;
@@ -2340,11 +2420,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
         // worker restart from some other cause (a browser update, the user quitting Chrome
         // mid-review) still leaves the page's own original request dead with it. Say so instead of
         // closing and letting the user believe it went through.
-        render(
-          h("div", { class: "status err" }, [
-            "This request expired before you responded (the connection to the site was lost). Nothing was sent — try again from the site.",
-          ])
-        );
+        render(h("div", { class: "status err" }, [t("approval.connectionLost")]));
         return;
       }
       window.close();
@@ -2357,12 +2433,12 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
 
   if (approval.kind === "connect") {
     render(
-      h("h1", {}, ["Connection request"]),
-      h("p", { class: "muted" }, [h("b", {}, [approval.origin]), " wants to connect to your wallet and view your address."]),
+      h("h1", {}, [t("approval.connectTitle")]),
+      h("p", { class: "muted" }, [h("b", {}, [approval.origin]), t("approval.connectDescriptionSuffix")]),
       approvalAccountChip(status, undefined),
       statusEl,
-      h("button", { class: "primary", id: "approve" }, ["Connect"]),
-      h("button", { class: "secondary", id: "reject" }, ["Cancel"])
+      h("button", { class: "primary", id: "approve" }, [t("approval.connectButton")]),
+      h("button", { class: "secondary", id: "reject" }, [t("approval.cancelButton")])
     );
   } else if (approval.kind === "viewAccess") {
     // Spelled out in both directions -- what it does grant and what it doesn't -- because "view
@@ -2371,70 +2447,70 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     // what nothing else on-chain can see. The "can't spend" half matters just as much: a user who
     // assumes it does authorize spending would refuse grants they'd have been fine with.
     render(
-      h("h1", {}, ["Private view request"]),
+      h("h1", {}, [t("approval.viewAccessTitle")]),
       h("p", { class: "muted" }, [
         h("b", {}, [approval.origin]),
-        " wants to see your ",
-        h("b", {}, ["private balance"]),
-        " — the amounts you hold in shielded outputs, which are hidden from everyone else on-chain.",
+        t("approval.viewAccessPrefix"),
+        h("b", {}, [t("approval.viewAccessBold")]),
+        t("approval.viewAccessSuffix"),
       ]),
       approvalAccountChip(status, approval.accountId),
       h("div", { class: "view-access-grants" }, [
-        h("div", { class: "view-access-grant" }, ["It will be able to read your shielded balances and the individual outputs behind them."]),
-        h("div", { class: "view-access-grant" }, ["It will be able to scan for private payments sent to you."]),
-        h("div", { class: "view-access-grant deny" }, ["It will NOT be able to spend anything — every transaction still needs your approval."]),
-        h("div", { class: "view-access-grant deny" }, ["It will NOT receive your keys, and cannot read payments sent to anyone else."]),
+        h("div", { class: "view-access-grant" }, [t("approval.grant1")]),
+        h("div", { class: "view-access-grant" }, [t("approval.grant2")]),
+        h("div", { class: "view-access-grant deny" }, [t("approval.deny1")]),
+        h("div", { class: "view-access-grant deny" }, [t("approval.deny2")]),
       ]),
-      h("p", { class: "muted" }, ["You can revoke this any time from Connected sites, without disconnecting the site."]),
+      h("p", { class: "muted" }, [t("approval.revokeAnytime")]),
       statusEl,
-      h("button", { class: "primary", id: "approve" }, ["Grant view access"]),
-      h("button", { class: "secondary", id: "reject" }, ["Deny"])
+      h("button", { class: "primary", id: "approve" }, [t("approval.grantViewAccessButton")]),
+      h("button", { class: "secondary", id: "reject" }, [t("approval.denyButton")])
     );
   } else if (approval.kind === "signOwnershipProof") {
     // The challenge is shown verbatim and is the one thing the user is actually vouching for --
     // the wallet builds the domain-tagged bytes it actually signs itself (see ownershipProof.ts),
     // never from anything the site supplies, but that's not what a human is evaluating here.
     render(
-      h("h1", {}, ["Prove ownership"]),
+      h("h1", {}, [t("approval.ownershipTitle")]),
       h("p", { class: "muted" }, [
         h("b", {}, [approval.origin]),
-        " wants you to prove you control this output — ",
-        h("b", {}, ["this does not spend or move anything"]),
-        ".",
+        t("approval.ownershipPrefix"),
+        h("b", {}, [t("approval.noSpendBold")]),
+        t("approval.periodSuffix"),
       ]),
       approvalAccountChip(status, approval.accountId),
-      h("p", { class: "muted" }, ["It's asking you to sign exactly this text:"]),
+      h("p", { class: "muted" }, [t("approval.signPrompt")]),
       h("div", { class: "raw-details", style: "padding:10px;white-space:pre-wrap;word-break:break-word" }, [approval.challenge]),
-      h("p", { class: "muted" }, [`Resource: ${approval.resourceAddress}`]),
-      h("p", { class: "muted" }, [`Output: ${approval.substateId}`]),
+      h("p", { class: "muted" }, [t("approval.resourceLine", { resource: approval.resourceAddress })]),
+      h("p", { class: "muted" }, [t("approval.outputLine", { output: approval.substateId })]),
       h("div", { class: "view-access-grants" }, [
-        h("div", { class: "view-access-grant deny" }, ["It will NOT be able to spend this output or any other funds."]),
-        h("div", { class: "view-access-grant deny" }, ["It will NOT receive your keys."]),
+        h("div", { class: "view-access-grant deny" }, [t("approval.ownershipDeny1")]),
+        h("div", { class: "view-access-grant deny" }, [t("approval.ownershipDeny2")]),
       ]),
       statusEl,
-      h("button", { class: "primary", id: "approve" }, ["Sign"]),
-      h("button", { class: "secondary", id: "reject" }, ["Reject"])
+      h("button", { class: "primary", id: "approve" }, [t("approval.signButton")]),
+      h("button", { class: "secondary", id: "reject" }, [t("approval.rejectButton")])
     );
   } else if (approval.kind === "signWalletOwnershipProof") {
     render(
-      h("h1", {}, ["Prove wallet ownership"]),
+      h("h1", {}, [t("approval.walletOwnershipTitle")]),
       h("p", { class: "muted" }, [
         h("b", {}, [approval.origin]),
-        " wants you to prove you hold this wallet address — ",
-        h("b", {}, ["this does not spend or move anything"]),
-        ".",
+        t("approval.walletOwnershipPrefix"),
+        h("b", {}, [t("approval.noSpendBold")]),
+        t("approval.periodSuffix"),
       ]),
       approvalAccountChip(status, approval.accountId),
-      h("p", { class: "muted" }, ["It's asking you to sign exactly this text:"]),
+      h("p", { class: "muted" }, [t("approval.signPrompt")]),
       h("div", { class: "raw-details", style: "padding:10px;white-space:pre-wrap;word-break:break-word" }, [approval.challenge]),
-      h("p", { class: "muted" }, [`Wallet address: ${approval.walletAddress}`]),
+      h("p", { class: "muted" }, [t("approval.walletAddressLine", { address: approval.walletAddress })]),
       h("div", { class: "view-access-grants" }, [
-        h("div", { class: "view-access-grant deny" }, ["It will NOT be able to spend anything."]),
-        h("div", { class: "view-access-grant deny" }, ["It will NOT receive your keys."]),
+        h("div", { class: "view-access-grant deny" }, [t("approval.walletDeny1")]),
+        h("div", { class: "view-access-grant deny" }, [t("approval.ownershipDeny2")]),
       ]),
       statusEl,
-      h("button", { class: "primary", id: "approve" }, ["Sign"]),
-      h("button", { class: "secondary", id: "reject" }, ["Reject"])
+      h("button", { class: "primary", id: "approve" }, [t("approval.signButton")]),
+      h("button", { class: "secondary", id: "reject" }, [t("approval.rejectButton")])
     );
   } else {
     const instructionCards = approval.instructions.map((instr, i) => {
@@ -2446,16 +2522,14 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
         h("div", { class: "instruction-body" }, [
           h("div", { class: "instruction-title" }, [title]),
           detail ? h("div", { class: "instruction-detail" }, [detail]) : "",
-          args.length > 0
-            ? h("div", { class: "instruction-args" }, [`with ${args.length} argument${args.length === 1 ? "" : "s"}`])
-            : "",
+          args.length > 0 ? h("div", { class: "instruction-args" }, [t("approval.argumentCount", { count: args.length, plural: args.length === 1 ? "" : "s" })]) : "",
         ]),
       ]);
     });
 
     const rawJson = JSON.stringify(approval.instructions, null, 2);
     const rawDetails = h("details", { class: "raw-details" }, [
-      h("summary", {}, ["View raw instruction data"]),
+      h("summary", {}, [t("approval.viewRawInstructionData")]),
       h("div", { class: "instruction-list" }, [rawJson]),
     ]);
 
@@ -2466,13 +2540,18 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     const feeChoiceBlock = approval.feeChoice
       ? approval.feeChoice.enforced
         ? h("p", { class: "muted" }, [
-            "This site requires a ",
-            h("b", {}, [approval.feeChoice.initial]),
-            " fee for this request — it can't be changed here. Reject if you don't want that.",
+            t("approval.feeEnforcedNote", {
+              feeType: approval.feeChoice.initial === "private" ? t("settings.feePrivacyPrivate") : t("settings.feePrivacyTransparent"),
+            }),
           ])
         : h("div", { class: "fee-choice" }, [
-            h("label", { class: "muted", style: "display:block;margin-bottom:6px" }, ["Fee payment"]),
-            switchControl("fee-type-switch", approval.feeChoice.initial === "private", "Transparent", "Private"),
+            h("label", { class: "muted", style: "display:block;margin-bottom:6px" }, [t("approval.feePaymentLabel")]),
+            switchControl(
+              "fee-type-switch",
+              approval.feeChoice.initial === "private",
+              t("settings.feePrivacyTransparent"),
+              t("settings.feePrivacyPrivate")
+            ),
           ])
       : "";
 
@@ -2491,19 +2570,19 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     const hasInstructions = approval.instructions.length > 0;
 
     render(
-      h("h1", {}, ["Transaction request"]),
-      h("p", { class: "muted" }, [h("b", {}, [approval.origin]), " wants you to sign and submit a transaction."]),
+      h("h1", {}, [t("approval.transactionTitle")]),
+      h("p", { class: "muted" }, [h("b", {}, [approval.origin]), t("approval.transactionDescriptionSuffix")]),
       approvalAccountChip(status, approval.accountId),
       stepsBlock,
       warningBlock,
-      approval.maxFee ? h("p", { class: "muted" }, [`Max fee: ${approval.maxFee}`]) : "",
-      approval.dryRun ? h("p", { class: "muted" }, ["This is a dry run — nothing will be spent."]) : "",
+      approval.maxFee ? h("p", { class: "muted" }, [t("approval.maxFeeLine", { fee: approval.maxFee })]) : "",
+      approval.dryRun ? h("p", { class: "muted" }, [t("approval.dryRunNote")]) : "",
       feeChoiceBlock,
       hasInstructions ? h("div", { class: "instruction-cards" }, instructionCards) : "",
       hasInstructions ? rawDetails : "",
       statusEl,
-      h("button", { class: "primary", id: "approve" }, [approval.dryRun ? "Simulate" : "Approve & Sign"]),
-      h("button", { class: "secondary", id: "reject" }, ["Reject"])
+      h("button", { class: "primary", id: "approve" }, [approval.dryRun ? t("approval.simulateButton") : t("approval.approveAndSignButton")]),
+      h("button", { class: "secondary", id: "reject" }, [t("approval.rejectButton")])
     );
     if (approval.feeChoice && !approval.feeChoice.enforced) {
       document.getElementById("fee-type-switch")!.addEventListener("change", (e) => {

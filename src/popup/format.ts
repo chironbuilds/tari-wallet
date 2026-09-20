@@ -44,12 +44,12 @@ export function parseDecimalToRaw(input: string, divisibility: number): bigint {
 }
 
 export function resourceLabel(resourceAddress: string, symbol: string | null): string {
-  if (resourceAddress === TARI_RESOURCE_ADDRESS) return "XTR";
+  if (resourceAddress === TARI_RESOURCE_ADDRESS) return "TARI";
   return symbol ?? shortAddr(resourceAddress);
 }
 
 // Each balance carries its resource's real on-chain `divisibility` (see OotleAccount.getBalances()
-// in wallet.ts) — not a guessed convention. Confirmed empirically to actually vary: XTR is 6, a
+// in wallet.ts) — not a guessed convention. Confirmed empirically to actually vary: TARI is 6, a
 // typical DemoToken-style test token defaults to 8; formatting everything as 6 would silently show
 // amounts two orders of magnitude too small for those.
 export function formatBalanceAmount(rawAmount: string, divisibility: number): string {

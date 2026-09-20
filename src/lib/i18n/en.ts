@@ -1,0 +1,381 @@
+/** The source-of-truth dictionary -- every other language (see zh.ts) is typed against this
+ * shape, so a missing translation is a compile error, not a silent English fallback discovered
+ * later by a Chinese-reading user. Keys are grouped by screen; a key shared verbatim across
+ * screens (e.g. "Password") lives under `common` instead of being duplicated per screen. */
+const en = {
+  common: {
+    password: "Password",
+    back: "Back",
+    backArrow: "← Back",
+    cancel: "Cancel",
+    confirm: "Confirm",
+    working: "Working…",
+    copied: "Copied!",
+    copyFailed: "Couldn't copy",
+    tryAgain: "Try again",
+    unknownError: "Unknown error",
+    derivingAccount: "Deriving your account…",
+    copy: "Copy",
+  },
+
+  welcome: {
+    description: "A self-custody wallet for Tari Ootle. Your seed never leaves this browser and no wallet daemon is required.",
+    createButton: "Create New Wallet",
+    importButton: "Import Existing Wallet",
+  },
+
+  setPassword: {
+    titleCreate: "Create a password",
+    titleImport: "Import wallet",
+    description: "This password encrypts your seed on this device. There is no way to recover it if you forget it.",
+    mnemonicLabel: "24-word recovery phrase",
+    mnemonicPlaceholder: "word1 word2 word3 ...",
+    confirmPasswordLabel: "Confirm password",
+    submitCreate: "Create Wallet",
+    submitImport: "Import Wallet",
+    errTooShort: "Password must be at least 8 characters.",
+    errTooLong: "Password must be 256 characters or fewer.",
+    errCommon: "This password is too common or predictable — choose something a stranger couldn't guess in a few tries.",
+    errMismatch: "Passwords do not match.",
+    errInvalidMnemonic: "That recovery phrase doesn't look valid — check spelling and word count.",
+  },
+
+  backupMnemonic: {
+    title: "Save your recovery phrase",
+    description:
+      "Write down these 24 words in order and store them somewhere safe. Anyone with this phrase can spend your funds. It will not be shown again.",
+    confirmButton: "I've saved my recovery phrase",
+  },
+
+  verifyMnemonic: {
+    title: "Verify your recovery phrase",
+    description: "Enter the requested words below to confirm you've saved them correctly.",
+    wordLabel: "Word #{n}",
+    backButton: "← Back to recovery phrase",
+    errMismatch: "One or more words don't match — double check what you wrote down, or go back to view the phrase again.",
+  },
+
+  unlock: {
+    title: "Welcome back",
+    forgotPassword: "Forgot password?",
+    unlockButton: "Unlock",
+  },
+
+  forgotPassword: {
+    desc1:
+      "There's no password recovery for a self-custody wallet — resetting ",
+    descBold: "permanently erases this wallet from this device",
+    desc2: ", including every local account. You can only get back in afterward by importing your 24-word recovery phrase, so make sure you have it before continuing.",
+    typeResetLabel: 'Type "{word}" to confirm',
+    eraseButton: "Erase this wallet",
+  },
+
+  home: {
+    accountFallback: "Account",
+    switchAccountAria: 'Switch account (current: {label})',
+    settingsAria: "Settings",
+    copyAddressAria: "Copy wallet address",
+    updateReady: "Update to v{version} ready",
+    reload: "Reload",
+    couldntReach: 'Couldn\'t reach "{label}": {error}',
+    switchAccount: "Switch account",
+    publicBalance: "Public Balance",
+    privateSuffix: "{amount} {symbol} private",
+    send: "Send",
+    receive: "Receive",
+    claimXtr: "Claim TARI",
+    history: "History",
+    assets: "Assets",
+    claiming: "Claiming from the testnet faucet — this submits a real transaction, usually takes a few seconds…",
+    claimedRefreshing: "Claimed! Refreshing balances…",
+    claimed: "Claimed testnet TARI.",
+  },
+
+  settings: {
+    title: "Settings",
+    addAccount: "Add account",
+    connectDaemon: "Connect daemon wallet",
+    daemonConnections: "Daemon connections",
+    connectedSites: "Connected sites",
+    addressBook: "Address book",
+    revealMnemonic: "Reveal recovery phrase",
+    lockWallet: "Lock wallet",
+    autoLockAfter: "Auto-lock after",
+    network: "Network",
+    language: "Language",
+    defaultFeePrivacy: "Default fee privacy (Ootle)",
+    feePrivacyTransparent: "Transparent",
+    feePrivacyPrivate: "Private",
+    networkSwitchWarning:
+      "Switching from {from} to {to} changes which chain your balances and transactions are read from. Your accounts and recovery phrase stay the same.",
+    switchButton: "Switch",
+    switchingNetwork: "Switching network…",
+  },
+
+  receive: {
+    title: "Receive",
+    description:
+      "Share this address to receive any token on Tari Ootle. It's safe to publish and reuse for every payment — private (stealth) transfers derive a fresh one-time key on-chain each time, so they can never be linked to you or to each other.",
+    walletAddressLabel: "Wallet address",
+    noAddress: "No address available",
+    advancedComponentAddress: "Advanced: component address",
+    advancedComponentDescription:
+      "Only needed for a tool that can't accept an otl_ address directly. Every payment sent here is a permanent, publicly linkable on-chain record — sharing it undoes the privacy your wallet address already gives you for free.",
+  },
+
+  rescan: {
+    ariaLabel: "Rescan for private payments",
+    scanning: "Scanning recent transactions…",
+    noneFound: "No new private payments found.",
+    found: "Found {count} new private {word}!",
+  },
+
+  claimPrivate: {
+    claimButton: "Claim",
+    errInvalidCommitment: "Enter a valid 32-byte commitment (64 hex characters).",
+    checking: "Checking…",
+    claimedSuccess: "Claimed! It's now part of your private balance.",
+    title: "Claim a private payment",
+    description: "If someone sent you a private payment, ask them for the resulting commitment and paste it below — there's no way to discover it automatically.",
+    resourceAddressLabel: "Resource address",
+    commitmentLabel: "Commitment (hex)",
+  },
+
+  history: {
+    title: "History",
+    empty: "No transactions yet.",
+    failedSuffix: " (failed)",
+    kindSend: "Sent",
+    kindShield: "Shielded",
+    kindUnshield: "Unshielded",
+    kindSendPrivately: "Sent privately",
+    kindClaim: "Claimed testnet TARI",
+    kindPrivatePaymentReceived: "Received privately",
+    kindDappTransaction: "App transaction",
+  },
+
+  send: {
+    title: "Send",
+    noTokensYet: "You don't hold any tokens yet — claim some testnet TARI first.",
+    tabSend: "Send",
+    tabSendPrivately: "Send privately",
+    onlyNftsYet: "You only hold NFTs right now -- sending an NFT isn't supported here yet.",
+    assetLabel: "Asset",
+    recipientAddressLabel: "Recipient address",
+    recipientWalletAddressLabel: "Recipient's Ootle wallet address",
+    amountLabel: "Amount",
+    memoLabel: "Memo (optional)",
+    memoHint: "Only the recipient can decrypt this — but it's stored on-chain (encrypted), so keep it short.",
+    max: "MAX",
+    reviewAndSend: "Review & Send",
+    available: "Available: {amount} {symbol}",
+    privateBalanceHint: "Private balance: {amount} {symbol}",
+    errInvalidAddress: "Enter a valid Ootle wallet address (starts with otl_).",
+    errExceedsBalance: "Amount exceeds your available balance.",
+    errExceedsPrivateBalance: "Amount exceeds your private balance.",
+    errZeroAmount: "Enter an amount greater than zero.",
+    sending: "Sending…",
+    submitting: "Submitting — this usually takes a few seconds…",
+    sent: "Sent!",
+    sentPrivately: "Sent privately!",
+    sendPrivatelyButton: "Send {symbol} privately",
+    noPrivateBalanceYet: "You don't have a private balance yet — shield some first.",
+    recipientCannotDiscover: "The recipient can't discover this on their own -- share the commitment below with them directly.",
+    commitmentLabel: "Commitment",
+    done: "Done",
+    chooseFromAddressBook: "Choose from address book…",
+    chooseFromAddressBookAria: "Choose from address book",
+  },
+
+  shield: {
+    title: "Shield",
+    description: "Moves some of your revealed (public) {symbol} balance into a new private output only you can see. The transaction fee is still paid from your revealed balance.",
+    revealedBalance: "Revealed balance: {amount} {symbol}",
+    memoNote: "A private note attached to this output — encrypted, but stored on-chain, so keep it short.",
+    submitButton: "Shield {symbol}",
+    shielding: "Shielding…",
+    shielded: "Shielded!",
+    errExceedsRevealed: "Amount exceeds your revealed balance.",
+  },
+
+  unshield: {
+    title: "Unshield",
+    description: "Moves some of your private {symbol} back to your revealed (public) balance. At least the smallest unit must always stay private as change, and the fee is paid from your revealed balance.",
+    amountToRevealLabel: "Amount to reveal",
+    memoLabel: "Memo for the remaining private balance (optional)",
+    memoNote: "A private note attached to the remaining private output — encrypted, but stored on-chain, so keep it short.",
+    submitButton: "Unshield {symbol}",
+    unshielding: "Unshielding…",
+    unshielded: "Unshielded!",
+    errMustStayPrivate: "At least the smallest unit must stay private — enter a smaller amount.",
+  },
+
+  balances: {
+    empty: "No tokens yet — claim some testnet TARI above to get started.",
+    nft: "NFT",
+    nfts: "NFTs",
+    plusPrivate: "+{amount} private",
+    rowAria: "{label}, {amount}{privateAria} — view details",
+    rowAriaPrivateSuffix: " public, plus {amount} private",
+  },
+
+  tokenDetail: {
+    title: "Token",
+    tariDisplayName: "Tari",
+    name: "Name",
+    symbol: "Symbol",
+    revealedBalanceLabel: "Revealed balance",
+    balanceLabel: "Balance",
+    tokenIds: "Token IDs",
+    privateBalanceLabel: "Private balance",
+    decryptFailures: "{count} private {word} couldn't be decrypted with this account's key.",
+    resourceAddressLabel: "Resource address",
+    shieldButton: "Shield {symbol}",
+    unshieldButton: "Unshield {symbol}",
+    sendPrivatelyButton: "Send {symbol} privately",
+    noPrivacyActionsNote: "This token's private balance uses a format this wallet doesn't support sending or unshielding for yet.",
+  },
+
+  accountSwitcher: {
+    title: "Switch account",
+    daemonTag: "daemon",
+    current: "Current",
+    switchingAccount: "Switching account…",
+    connectDaemonButton: "+ Connect daemon wallet",
+  },
+
+  daemonConnections: {
+    title: "Daemon connections",
+    empty: "No daemon connections yet.",
+    disconnectButton: "Disconnect",
+    disconnectConfirm: 'Disconnect "{label}"? Its accounts will no longer be reachable from this wallet.',
+    removing: "Removing…",
+  },
+
+  addressBook: {
+    title: "Address book",
+    empty: "No saved addresses yet.",
+    removeButton: "Remove",
+    removeConfirm: 'Remove "{label}" from your address book?',
+    labelField: "Label",
+    addressField: "Address",
+    saveButton: "Save address",
+    saving: "Saving…",
+    errEnterLabel: "Enter a label.",
+    errInvalidAddress: "Enter a valid component_… (public) or otl_… (private) address.",
+  },
+
+  connectDaemon: {
+    title: "Connect daemon wallet",
+    description1:
+      "Connect to a running tari_ootle_walletd — this extension will relay reads and transactions to it instead of signing locally, like a hardware wallet.",
+    description2a:
+      "This extension can't log into the daemon's own browser session (WebAuthn is locked to the daemon's own localhost origin, and a browser extension can never hold that session's cookie either way) — mint an ",
+    description2Bold: 'API key with the "admin" permission',
+    description2b:
+      " from the daemon's web UI instead (requires an Admin login there once) and paste it below. A narrower key will be rejected — this wallet needs admin access to submit transactions and claim testnet funds.",
+    daemonUrlLabel: "Daemon URL",
+    openWebUiButton: "Open API Keys page ↗",
+    apiKeyLabel: "API key",
+    apiKeyPlaceholder: "Paste the API key here",
+    connectButton: "Connect",
+    errPasteApiKey: "Paste the API key you minted from the daemon's web UI.",
+    errLabelTooLong: "Label must be {max} characters or fewer.",
+    errPermissionRequestFailed: "Couldn't request permission for {origin}: {error}",
+    errPermissionDenied: "This wallet needs permission to reach {origin} to connect to that daemon.",
+    connecting: "Connecting…",
+  },
+
+  daemonAccountPicker: {
+    noAccountsTitle: "No accounts found",
+    noAccountsDescription: "This daemon has no accounts yet.",
+    title: "Choose accounts",
+    description: "Pick which of this daemon's accounts to add to your wallet.",
+    addSelectedButton: "Add selected accounts",
+    errSelectAtLeastOne: "Select at least one account.",
+    adding: "Adding…",
+    switchingToNewAccount: "Switching to the new account…",
+  },
+
+  revealMnemonic: {
+    title: "Reveal recovery phrase",
+    description: "Enter your password to display your 24-word recovery phrase.",
+    revealButton: "Reveal",
+  },
+
+  mnemonicDisplay: {
+    title: "Your recovery phrase",
+    description: "Anyone with this phrase can spend your funds. Keep it secret.",
+  },
+
+  connectedSites: {
+    title: "Connected sites",
+    empty: "No connected sites.",
+    canSeePrivateBalance: "Can see your private balance",
+    disconnectButton: "Disconnect",
+    disconnectConfirm: "Disconnect {origin}? It will need to request access again to reconnect.",
+    revokeViewAccessButton: "Revoke view access",
+    revokeConfirm: "Stop {origin} from seeing your private balance? It stays connected and can still ask again.",
+    revokeButton: "Revoke",
+  },
+
+  approval: {
+    noWallet: "No wallet set up — open the extension normally first.",
+    expired: "This request has expired or was already handled.",
+    defaultAccountLabel: "An account",
+    submitting: "Submitting…",
+    working: "Working…",
+    connectionLost: "This request expired before you responded (the connection to the site was lost). Nothing was sent — try again from the site.",
+
+    connectTitle: "Connection request",
+    // These render as a text fragment right after a bolded site origin (e.g. `<b>example.com</b>
+    // wants to connect...`) -- the leading space is deliberate, matching the sibling-text-node
+    // concatenation in main.ts, not a typo.
+    connectDescriptionSuffix: " wants to connect to your wallet and view your address.",
+    connectButton: "Connect",
+    cancelButton: "Cancel",
+
+    viewAccessTitle: "Private view request",
+    viewAccessPrefix: " wants to see your ",
+    viewAccessBold: "private balance",
+    viewAccessSuffix: " — the amounts you hold in shielded outputs, which are hidden from everyone else on-chain.",
+    grant1: "It will be able to read your shielded balances and the individual outputs behind them.",
+    grant2: "It will be able to scan for private payments sent to you.",
+    deny1: "It will NOT be able to spend anything — every transaction still needs your approval.",
+    deny2: "It will NOT receive your keys, and cannot read payments sent to anyone else.",
+    revokeAnytime: "You can revoke this any time from Connected sites, without disconnecting the site.",
+    grantViewAccessButton: "Grant view access",
+    denyButton: "Deny",
+
+    ownershipTitle: "Prove ownership",
+    ownershipPrefix: " wants you to prove you control this output — ",
+    noSpendBold: "this does not spend or move anything",
+    periodSuffix: ".",
+    signPrompt: "It's asking you to sign exactly this text:",
+    resourceLine: "Resource: {resource}",
+    outputLine: "Output: {output}",
+    ownershipDeny1: "It will NOT be able to spend this output or any other funds.",
+    ownershipDeny2: "It will NOT receive your keys.",
+    signButton: "Sign",
+    rejectButton: "Reject",
+
+    walletOwnershipTitle: "Prove wallet ownership",
+    walletOwnershipPrefix: " wants you to prove you hold this wallet address — ",
+    walletAddressLine: "Wallet address: {address}",
+    walletDeny1: "It will NOT be able to spend anything.",
+
+    transactionTitle: "Transaction request",
+    transactionDescriptionSuffix: " wants you to sign and submit a transaction.",
+    argumentCount: "with {count} argument{plural}",
+    viewRawInstructionData: "View raw instruction data",
+    feeEnforcedNote: "This site requires a {feeType} fee for this request — it can't be changed here. Reject if you don't want that.",
+    feePaymentLabel: "Fee payment",
+    maxFeeLine: "Max fee: {fee}",
+    dryRunNote: "This is a dry run — nothing will be spent.",
+    simulateButton: "Simulate",
+    approveAndSignButton: "Approve & Sign",
+  },
+} as const;
+
+export default en;
+export type TranslationTree = typeof en;

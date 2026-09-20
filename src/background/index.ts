@@ -110,6 +110,16 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onDisconnect.addListener(() => {});
 });
 
+// Chrome downloads an available update in the background but won't swap it in while the extension
+// is in active use (an open popup counts) -- it waits for a natural idle reload, which for a
+// wallet extension a user might open daily without ever fully quitting Chrome could be a long
+// wait. Persisting the version lets the popup surface "update available, reload to apply" instead
+// of the update silently sitting downloaded-but-inert; see buildStatus()'s updateAvailable field
+// and popup-reload-extension's handler for the other two ends of this.
+chrome.runtime.onUpdateAvailable.addListener((details) => {
+  void setState({ pendingUpdateVersion: details.version });
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.kind === "tari-page-request") {
     handlePageRequest(message as PageRequestMessage, sender)
@@ -522,7 +532,7 @@ async function handlePageRequest(message: PageRequestMessage, _sender: chrome.ru
     }
 
     // Deprecated (see messages.ts). The only way for a connected dApp to move Stealth-typed funds
-    // (e.g. XTR) into its own contract call — `tari_signAndSubmitTransaction`'s `account.execute()`
+    // (e.g. TARI) into its own contract call — `tari_signAndSubmitTransaction`'s `account.execute()`
     // cannot: a plain `CallMethod withdraw` on a Stealth vault is not a standalone-valid instruction
     // (confirmed: fails client-side with a generic `TransactionInput` deserialization error, even
     // alone with no other instructions). See `OotleAccount.withdrawStealthAndExecute`'s own doc
@@ -679,12 +689,12 @@ async function requireViewAccessAnyAccount(origin: string): Promise<OotleAccount
  * showed before they became wrappers over this shared flow. */
 /** The well-known native-token resource -- engine-special-cased on-chain (see chain.mjs-style
  * comments elsewhere in this codebase), so worth a real ticker instead of 64 hex characters. */
-const XTR_RESOURCE_ADDRESS = "resource_0101010101010101010101010101010101010101010101010101010101010101";
+const TARI_RESOURCE_ADDRESS = "resource_0101010101010101010101010101010101010101010101010101010101010101";
 
 /** A short, readable label for a resource address -- the one thing that shows up in nearly every
  * approval fact below and is otherwise the least readable part of it. */
 function resourceLabel(address: string): string {
-  if (address === XTR_RESOURCE_ADDRESS) return "XTR";
+  if (address === TARI_RESOURCE_ADDRESS) return "TARI";
   return shortId(address);
 }
 
@@ -983,19 +993,19 @@ function rejectPrivateFeeForDaemon(feeType: "private" | "transparent" | undefine
  * reused here so both give the same style of error naming what needs a local account.
  *
  * "private" needs a `feeResourceAddress` the dApp never supplies (only the wallet's own fee
- * resource is meaningful here, almost always XTR) — found the same way the wallet's own send UI
- * does: the balance whose `symbol` is `"XTR"`.
+ * resource is meaningful here, almost always TARI) — found the same way the wallet's own send UI
+ * does: the balance whose `symbol` is `"TARI"`.
  */
 async function resolveFeeType(account: WalletAccountApi, feeType: "private" | "transparent" | undefined): Promise<FeeType> {
   if (feeType !== "private") return { kind: "transparent" };
   requireLocalAccount(account, "Paying a private fee");
-  // XTR_RESOURCE_ADDRESS is a fixed, well-known constant -- no balance lookup needed, and
+  // TARI_RESOURCE_ADDRESS is a fixed, well-known constant -- no balance lookup needed, and
   // `getBalances()` (revealed/vault balances) would be the wrong thing to check anyway: it can
-  // come back with no XTR entry at all for an account holding XTR purely as shielded UTXOs (no
+  // come back with no TARI entry at all for an account holding TARI purely as shielded UTXOs (no
   // revealed vault ever touched), which is exactly the kind of account most likely to want a
   // private fee. Whether there's actually a shielded UTXO big enough to pay from is
   // ootle-sdk-ts's own concern (`selectPrivateFeeUtxo`, surfaced as its own clear error if not).
-  return { kind: "private", feeResourceAddress: XTR_RESOURCE_ADDRESS };
+  return { kind: "private", feeResourceAddress: TARI_RESOURCE_ADDRESS };
 }
 
 /**
@@ -1346,6 +1356,8 @@ async function buildStatus(): Promise<WalletStatus> {
     addressBook: state.addressBook,
     autoLockMinutes: state.autoLockMinutes,
     feePrivacyDefault: state.feePrivacyDefault,
+    updateAvailable: state.pendingUpdateVersion,
+    language: state.language,
   };
 }
 
@@ -1445,6 +1457,17 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
   switch (message.kind) {
     case "popup-get-status":
       return buildStatus();
+
+    case "popup-set-language":
+      await setState({ language: message.language });
+      return {};
+
+    case "popup-reload-extension":
+      // Fire-and-forget on purpose: reload() tears down this service worker (and every page using
+      // it, popup included) essentially immediately, before a response could reliably arrive back
+      // at the popup's `send()` anyway.
+      chrome.runtime.reload();
+      return {};
 
     case "popup-create-wallet": {
       const { seed, mnemonic } = await createWalletSeed();

@@ -160,8 +160,8 @@ describe("isValidComponentAddress", () => {
 });
 
 describe("resourceLabel", () => {
-  it("labels the native XTR resource specially, ignoring any symbol", () => {
-    expect(resourceLabel(TARI_RESOURCE_ADDRESS, "should be ignored")).toBe("XTR");
+  it("labels the native TARI resource specially, ignoring any symbol", () => {
+    expect(resourceLabel(TARI_RESOURCE_ADDRESS, "should be ignored")).toBe("TARI");
   });
 
   it("uses the symbol when present", () => {
@@ -233,7 +233,7 @@ describe("tokenInitial", () => {
     expect(tokenInitial("resource_abc", "dusd")).toBe("D");
   });
 
-  it("uses X for the native XTR resource", () => {
-    expect(tokenInitial(TARI_RESOURCE_ADDRESS, null)).toBe("X");
+  it("uses T for the native TARI resource", () => {
+    expect(tokenInitial(TARI_RESOURCE_ADDRESS, null)).toBe("T");
   });
 });
