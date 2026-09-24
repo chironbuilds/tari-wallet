@@ -82,6 +82,7 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     send: "发送",
     receive: "接收",
     claimXtr: "领取 TARI",
+    claimL1Burn: "领取 L1 销毁",
     history: "历史记录",
     assets: "资产",
     claiming: "正在从测试网水龙头领取——这将提交一笔真实交易，通常需要几秒钟…",
@@ -136,6 +137,18 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     commitmentLabel: "承诺值（十六进制）",
   },
 
+  claimBurn: {
+    title: "领取 L1 销毁",
+    description: "在 Tari L1 上将 XTM 销毁至此账户的领取公钥，然后使用销毁证明文件在此领取。L1 销毁充分确认后验证者才会接受领取——在 Esmeralda 上通常一小时内。",
+    claimKeyLabel: "领取公钥",
+    proofLabel: "销毁证明（JSON）",
+    claimButton: "领取销毁",
+    claiming: "正在领取…",
+    claimedSuccess: "领取成功，资金已计入您的隐私余额。",
+    errNoProof: "请先粘贴或上传销毁证明。",
+    notYetObserved: "暂不可领取：Ootle 尚未观察到该 L1 区块，请几分钟后重试。",
+  },
+
   history: {
     title: "历史记录",
     empty: "暂无交易记录。",
@@ -146,6 +159,7 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     kindSendPrivately: "已隐私发送",
     kindClaim: "已领取测试网 TARI",
     kindPrivatePaymentReceived: "已隐私接收",
+    kindBurnClaim: "已领取 L1 销毁",
     kindDappTransaction: "应用交易",
   },
 

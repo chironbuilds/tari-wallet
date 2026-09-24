@@ -86,7 +86,7 @@ export interface AddressBookEntry {
 export interface TransactionHistoryEntry {
   id: string;
   accountId: string;
-  kind: "send" | "shield" | "unshield" | "send-privately" | "claim" | "private-payment-received" | "dapp-transaction";
+  kind: "send" | "shield" | "unshield" | "send-privately" | "claim" | "private-payment-received" | "burn-claim" | "dapp-transaction";
   resourceAddress?: string;
   /** Raw, resource-native units (matches ShieldedOutputRecord.amount's convention). */
   amount?: string;

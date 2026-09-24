@@ -753,6 +753,10 @@ export type PopupRequest =
       memo?: string;
     }
   | { kind: "popup-claim-private-payment"; resourceAddress: string; commitment: string }
+  /** The active local account's public key -- the claim key a Minotari (L1) burn is addressed to. */
+  | { kind: "popup-get-burn-claim-key" }
+  /** Claims an L1 burn from its proof file (minotari_console_wallet or wallet-daemon JSON). */
+  | { kind: "popup-claim-burn"; proofJson: string }
   | { kind: "popup-rescan-private-payments" }
   /** The popup's own opportunistic scan -- triggered once the home screen has already rendered
    * (see renderHome()), not blocking on it the way buildStatus() used to. */
@@ -827,7 +831,7 @@ export interface WalletStatus {
 export interface TransactionHistoryEntry {
   id: string;
   accountId: string;
-  kind: "send" | "shield" | "unshield" | "send-privately" | "claim" | "private-payment-received" | "dapp-transaction";
+  kind: "send" | "shield" | "unshield" | "send-privately" | "claim" | "private-payment-received" | "burn-claim" | "dapp-transaction";
   resourceAddress?: string;
   amount?: string;
   counterparty?: string;

@@ -84,6 +84,7 @@ const en = {
     send: "Send",
     receive: "Receive",
     claimXtr: "Claim TARI",
+    claimL1Burn: "Claim L1 burn",
     history: "History",
     assets: "Assets",
     claiming: "Claiming from the testnet faucet — this submits a real transaction, usually takes a few seconds…",
@@ -141,6 +142,19 @@ const en = {
     commitmentLabel: "Commitment (hex)",
   },
 
+  claimBurn: {
+    title: "Claim L1 burn",
+    description:
+      "Burn XTM on Tari L1 to this account's claim key, then claim it here with the burn's proof file. Validators accept a claim once the L1 burn is well confirmed — typically within an hour on Esmeralda.",
+    claimKeyLabel: "Claim public key",
+    proofLabel: "Burn proof (JSON)",
+    claimButton: "Claim burn",
+    claiming: "Claiming…",
+    claimedSuccess: "Claimed. The funds are in your private balance.",
+    errNoProof: "Paste or upload a burn proof first.",
+    notYetObserved: "Not claimable yet: Ootle has not observed this L1 block. Try again in a few minutes.",
+  },
+
   history: {
     title: "History",
     empty: "No transactions yet.",
@@ -151,6 +165,7 @@ const en = {
     kindSendPrivately: "Sent privately",
     kindClaim: "Claimed testnet TARI",
     kindPrivatePaymentReceived: "Received privately",
+    kindBurnClaim: "Claimed L1 burn",
     kindDappTransaction: "App transaction",
   },
 

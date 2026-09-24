@@ -684,13 +684,25 @@ async function renderHome(status: WalletStatus) {
     h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_CLOCK)]),
     t("home.history"),
   ]);
-  const actionRow = h("div", { class: "action-row" }, [sendActionBtn, receiveActionBtn, claimActionBtn, historyActionBtn]);
-
-  const homeStatusEl = h("div", { class: "status", id: "homeStatus", style: "display:none" });
-
   // Rescanning needs this account's own view key (see OotleAccount.scanForPrivatePayments()) --
   // unavailable for a daemon-relayed account, same gating Shield/Unshield/Send-privately use.
   const isLocalAccount = activeAccountSummary(status)?.kind === "local";
+  // Claiming an L1 burn seals with a key derived from this account's own secret, so it is local-only too.
+  const burnActionBtn = isLocalAccount
+    ? h("button", { class: "action-btn action-btn-wide", id: "burnAction" }, [
+        h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_ARROW_DOWN)]),
+        t("home.claimL1Burn"),
+      ])
+    : null;
+  const actionRow = h("div", { class: "action-row" }, [
+    sendActionBtn,
+    receiveActionBtn,
+    claimActionBtn,
+    historyActionBtn,
+    ...(burnActionBtn ? [burnActionBtn] : []),
+  ]);
+
+  const homeStatusEl = h("div", { class: "status", id: "homeStatus", style: "display:none" });
   const rescanControl = isLocalAccount ? buildRescanControl() : null;
   const balancesTitleRow = h("div", { class: "row", style: "justify-content:space-between;align-items:center;margin:2px 0 0" }, [
     h("div", { class: "section-title", style: "margin:0" }, [t("home.assets")]),
@@ -739,6 +751,7 @@ async function renderHome(status: WalletStatus) {
   });
   receiveActionBtn.addEventListener("click", () => renderReceive(status));
   historyActionBtn.addEventListener("click", () => renderHistory(status));
+  burnActionBtn?.addEventListener("click", () => renderClaimBurn(status));
   claimActionBtn.addEventListener("click", async () => {
     claimActionBtn.setAttribute("disabled", "true");
     homeStatusEl.style.display = "block";
@@ -1143,6 +1156,76 @@ function buildClaimPrivatePaymentCard(status: WalletStatus) {
   ]);
 }
 
+function renderClaimBurn(status: WalletStatus) {
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
+  render(h("h1", {}, [t("claimBurn.title")]), buildClaimBurnCard(), back);
+  document.getElementById("back")!.addEventListener("click", () => renderHome(status));
+}
+
+/**
+ * Minotari (L1) burns arrive by claim, not by transfer: an L1 wallet burns XTM to this account's
+ * public key, and the resulting proof file is claimed here. The key is shown so it can be pasted
+ * into the L1 wallet; the claimed funds land in the private balance as a stealth output.
+ */
+function buildClaimBurnCard() {
+  const keyLabel = h("span", {}, [t("common.copy")]);
+  const keyCopyBtn = h("button", { class: "icon-btn" }, [icon(ICON_COPY), keyLabel]);
+  const keyText = h("div", { class: "addr" }, ["…"]);
+  const keyRow = h("div", { class: "copy-row" }, [keyText, keyCopyBtn]);
+  let claimKey = "";
+  keyCopyBtn.addEventListener("click", () => claimKey && copyToClipboard(claimKey, keyLabel));
+  send<{ publicKey: string }>({ kind: "popup-get-burn-claim-key" })
+    .then(({ publicKey }) => {
+      claimKey = publicKey;
+      keyText.textContent = publicKey;
+    })
+    .catch(() => {
+      keyText.textContent = "—";
+    });
+
+  const proofInput = h("textarea", { rows: "4", spellcheck: "false", placeholder: '{"claim_proof": { … }, "encrypted_data": "…"}' }) as HTMLTextAreaElement;
+  const fileInput = h("input", { type: "file", accept: "application/json,.json" }) as HTMLInputElement;
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    if (file) proofInput.value = await file.text();
+  });
+  const claimBtn = h("button", { class: "secondary" }, [t("claimBurn.claimButton")]);
+  const statusEl = h("div", { class: "status", style: "display:none" });
+  const showStatus = bindStatus(statusEl);
+
+  claimBtn.addEventListener("click", async () => {
+    const proofJson = proofInput.value.trim();
+    if (!proofJson) {
+      showStatus(t("claimBurn.errNoProof"), "err");
+      return;
+    }
+    setBusy(claimBtn as HTMLButtonElement, true, t("claimBurn.claiming"));
+    showStatus(t("claimBurn.claiming"), "ok");
+    try {
+      await send({ kind: "popup-claim-burn", proofJson });
+      showStatus(t("claimBurn.claimedSuccess"), "ok");
+      proofInput.value = "";
+      fileInput.value = "";
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      showStatus(/block header not found/i.test(message) ? t("claimBurn.notYetObserved") : message, "err");
+    } finally {
+      setBusy(claimBtn as HTMLButtonElement, false);
+    }
+  });
+
+  return h("div", { class: "card" }, [
+    h("p", { class: "muted", style: "margin:0 0 8px" }, [t("claimBurn.description")]),
+    h("label", {}, [t("claimBurn.claimKeyLabel")]),
+    keyRow,
+    h("label", {}, [t("claimBurn.proofLabel")]),
+    proofInput,
+    fileInput,
+    statusEl,
+    claimBtn,
+  ]);
+}
+
 // A function, not a module-level Record built once -- the labels have to reflect whichever
 // language is active *at render time* (the user can switch languages mid-session), not whichever
 // was current when this module first evaluated.
@@ -1154,6 +1237,7 @@ function historyKindLabel(kind: TransactionHistoryEntry["kind"]): string {
     "send-privately": "history.kindSendPrivately",
     claim: "history.kindClaim",
     "private-payment-received": "history.kindPrivatePaymentReceived",
+    "burn-claim": "history.kindBurnClaim",
     "dapp-transaction": "history.kindDappTransaction",
   };
   return t(KEYS[kind]);
@@ -1170,6 +1254,7 @@ const HISTORY_KIND_ICON: Record<TransactionHistoryEntry["kind"], string> = {
   "send-privately": ICON_LOCK,
   claim: ICON_PLUS,
   "private-payment-received": ICON_UNLOCK,
+  "burn-claim": ICON_ARROW_DOWN,
   "dapp-transaction": ICON_EXTERNAL_LINK,
 };
 

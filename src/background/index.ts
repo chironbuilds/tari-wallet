@@ -53,6 +53,8 @@ import { isStealthTransferInstruction } from "@tari-project/ootle";
 import {
   OotleAccount,
   chromeStorageAdapter,
+  parseConsoleWalletBurnProof,
+  toHex,
   configureOotleStorage,
   getPrivatePaymentScanCursor,
   localAccountId,
@@ -1653,6 +1655,30 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
         // The amount/memo are only known once decryption succeeds -- see withHistory's own doc
         // comment for why these can't just go in the static base above.
         (result) => ({ amount: result.amount.toString(), memo: result.memo })
+      );
+    }
+
+    case "popup-get-burn-claim-key": {
+      const account = await getActiveAccount();
+      if (!account) throw new Error("Wallet is locked.");
+      if (!(account instanceof OotleAccount)) {
+        throw new Error("Claiming L1 burns isn't available for daemon-connected accounts -- switch to a local account first.");
+      }
+      return { publicKey: toHex(await account.getPublicKey()) };
+    }
+
+    case "popup-claim-burn": {
+      const account = await getActiveAccount();
+      if (!account) throw new Error("Wallet is locked.");
+      if (!(account instanceof OotleAccount)) {
+        throw new Error("Claiming L1 burns isn't available for daemon-connected accounts -- switch to a local account first.");
+      }
+      const proof = parseConsoleWalletBurnProof(message.proofJson);
+      const { activeAccountId } = await getState();
+      return withHistory(
+        { accountId: activeAccountId, kind: "burn-claim", resourceAddress: TARI_RESOURCE_ADDRESS, counterparty: proof.claim_proof.commitment },
+        () => account.claimBurn(proof),
+        (result) => ({ amount: result.claimedAmount.toString(), transactionId: result.transactionId })
       );
     }
 

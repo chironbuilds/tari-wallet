@@ -810,6 +810,9 @@ button + button {
 .action-row > button {
   margin-top: 0;
 }
+.action-row > .action-btn-wide {
+  grid-column: 1 / -1;
+}
 /* A compact toolbar, not a row of app-icon tiles: icon and label sit inline at a fixed height, the
    same register as .settings-row and other list controls elsewhere in the app. */
 .action-btn {
