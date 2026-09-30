@@ -83,13 +83,13 @@ const en = {
     privateSuffix: "{amount} {symbol} private",
     send: "Send",
     receive: "Receive",
-    claimXtr: "Claim TARI",
+    shield: "Shield",
+    unshield: "Unshield",
+    nothingToShield: "No public TARI to shield yet.",
+    nothingToUnshield: "No private TARI to unshield yet.",
     claimL1Burn: "Claim L1 burn",
     history: "History",
     assets: "Assets",
-    claiming: "Claiming from the testnet faucet — this submits a real transaction, usually takes a few seconds…",
-    claimedRefreshing: "Claimed! Refreshing balances…",
-    claimed: "Claimed testnet TARI.",
   },
 
   settings: {

@@ -676,9 +676,13 @@ async function renderHome(status: WalletStatus) {
     h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_ARROW_DOWN)]),
     t("home.receive"),
   ]);
-  const claimActionBtn = h("button", { class: "action-btn", id: "claimAction" }, [
-    h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_PLUS)]),
-    t("home.claimXtr"),
+  const shieldActionBtn = h("button", { class: "action-btn", id: "shieldAction" }, [
+    h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_LOCK)]),
+    t("home.shield"),
+  ]);
+  const unshieldActionBtn = h("button", { class: "action-btn", id: "unshieldAction" }, [
+    h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_UNLOCK)]),
+    t("home.unshield"),
   ]);
   const historyActionBtn = h("button", { class: "action-btn", id: "historyAction" }, [
     h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_CLOCK)]),
@@ -689,15 +693,18 @@ async function renderHome(status: WalletStatus) {
   const isLocalAccount = activeAccountSummary(status)?.kind === "local";
   // Claiming an L1 burn seals with a key derived from this account's own secret, so it is local-only too.
   const burnActionBtn = isLocalAccount
-    ? h("button", { class: "action-btn action-btn-wide", id: "burnAction" }, [
+    ? h("button", { class: "action-btn", id: "burnAction" }, [
         h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_ARROW_DOWN)]),
         t("home.claimL1Burn"),
       ])
     : null;
+  // History shares the last row with Claim L1 burn, or takes it alone when there's no burn button.
+  if (!burnActionBtn) historyActionBtn.classList.add("action-btn-wide");
   const actionRow = h("div", { class: "action-row" }, [
     sendActionBtn,
     receiveActionBtn,
-    claimActionBtn,
+    shieldActionBtn,
+    unshieldActionBtn,
     historyActionBtn,
     ...(burnActionBtn ? [burnActionBtn] : []),
   ]);
@@ -752,31 +759,28 @@ async function renderHome(status: WalletStatus) {
   receiveActionBtn.addEventListener("click", () => renderReceive(status));
   historyActionBtn.addEventListener("click", () => renderHistory(status));
   burnActionBtn?.addEventListener("click", () => renderClaimBurn(status));
-  claimActionBtn.addEventListener("click", async () => {
-    claimActionBtn.setAttribute("disabled", "true");
-    homeStatusEl.style.display = "block";
-    homeStatusEl.className = "status";
-    homeStatusEl.textContent = t("home.claiming");
+  // Shield/Unshield TARI straight from Home: the same screens a token's detail page opens, fed
+  // TARI's current balance.
+  const openTariPrivacy = async (open: (status: WalletStatus, balance: Balance) => void, needs: "public" | "private") => {
     try {
-      await send({ kind: "popup-claim-testnet-xtr" });
-      homeStatusEl.className = "status ok";
-      homeStatusEl.textContent = t("home.claimedRefreshing");
       const balances = await send<Balance[]>({ kind: "popup-get-balances" });
-      renderBalances(balancesCard, balances, status);
-      updateHeroBalance(balances);
-      homeStatusEl.textContent = t("home.claimed");
-      // Success is transient (matches Send/Shield/Unshield fading back to Home) -- an error stays
-      // put below since the user may still need to act on it.
-      setTimeout(() => {
-        if (homeStatusEl.className === "status ok") homeStatusEl.style.display = "none";
-      }, 4000);
+      const xtr = balances.find((b) => b.resourceAddress === TARI_RESOURCE_ADDRESS);
+      const held = needs === "public" ? BigInt(xtr?.amount ?? "0") : BigInt(xtr?.confidentialAmount ?? "0");
+      if (!xtr || held === 0n) {
+        homeStatusEl.style.display = "block";
+        homeStatusEl.className = "status err";
+        homeStatusEl.textContent = t(needs === "public" ? "home.nothingToShield" : "home.nothingToUnshield");
+        return;
+      }
+      open(status, xtr);
     } catch (e) {
+      homeStatusEl.style.display = "block";
       homeStatusEl.className = "status err";
       homeStatusEl.textContent = e instanceof Error ? e.message : String(e);
-    } finally {
-      claimActionBtn.removeAttribute("disabled");
     }
-  });
+  };
+  shieldActionBtn.addEventListener("click", () => void openTariPrivacy(renderShield, "public"));
+  unshieldActionBtn.addEventListener("click", () => void openTariPrivacy(renderUnshield, "private"));
 
   // Fired here rather than awaited before this point (or blocking buildStatus() the way it used
   // to) so the home screen it's shown alongside is already interactive -- see the removed call in

@@ -81,13 +81,13 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     privateSuffix: "{amount} {symbol} 隐私余额",
     send: "发送",
     receive: "接收",
-    claimXtr: "领取 TARI",
+    shield: "屏蔽",
+    unshield: "取消屏蔽",
+    nothingToShield: "还没有可屏蔽的公开 TARI。",
+    nothingToUnshield: "还没有可取消屏蔽的私密 TARI。",
     claimL1Burn: "领取 L1 销毁",
     history: "历史记录",
     assets: "资产",
-    claiming: "正在从测试网水龙头领取——这将提交一笔真实交易，通常需要几秒钟…",
-    claimedRefreshing: "领取成功！正在刷新余额…",
-    claimed: "已领取测试网 TARI。",
   },
 
   settings: {
