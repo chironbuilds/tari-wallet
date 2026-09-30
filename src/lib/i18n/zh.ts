@@ -161,6 +161,8 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     kindPrivatePaymentReceived: "已隐私接收",
     kindBurnClaim: "已领取 L1 销毁",
     kindDappTransaction: "应用交易",
+    txLabel: "交易",
+    viewOnExplorer: "在区块浏览器中查看 ↗",
   },
 
   send: {
@@ -179,6 +181,9 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     reviewAndSend: "确认并发送",
     available: "可用余额：{amount} {symbol}",
     privateBalanceHint: "隐私余额：{amount} {symbol}",
+    feeLabel: "手续费",
+    privateFeeHint: "隐私模式从另一笔隐私输出支付手续费，你的账户不会出现在链上。需要另一笔足够支付手续费的隐私输出——如果因此发送失败，请多屏蔽一些。",
+    privateFeeUnavailable: "此账户从公开余额支付手续费，会在链上暴露你的账户。请使用本地账户以隐私方式支付。",
     errInvalidAddress: "请输入有效的 Ootle 钱包地址（以 otl_ 开头）。",
     errExceedsBalance: "金额超过您的可用余额。",
     errExceedsPrivateBalance: "金额超过您的隐私余额。",

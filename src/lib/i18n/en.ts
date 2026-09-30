@@ -167,6 +167,8 @@ const en = {
     kindPrivatePaymentReceived: "Received privately",
     kindBurnClaim: "Claimed L1 burn",
     kindDappTransaction: "App transaction",
+    txLabel: "Tx",
+    viewOnExplorer: "View on explorer ↗",
   },
 
   send: {
@@ -185,6 +187,10 @@ const en = {
     reviewAndSend: "Review & Send",
     available: "Available: {amount} {symbol}",
     privateBalanceHint: "Private balance: {amount} {symbol}",
+    feeLabel: "Fee",
+    privateFeeHint:
+      "Private pays the fee from a separate private output, so your account never appears on-chain. Needs a second private output big enough for the fee — shield a little extra if the send fails for lack of one.",
+    privateFeeUnavailable: "This account pays fees from its public balance, which shows your account on-chain. Use a local account to pay privately.",
     errInvalidAddress: "Enter a valid Ootle wallet address (starts with otl_).",
     errExceedsBalance: "Amount exceeds your available balance.",
     errExceedsPrivateBalance: "Amount exceeds your private balance.",

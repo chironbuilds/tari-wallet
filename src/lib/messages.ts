@@ -751,6 +751,8 @@ export type PopupRequest =
       amount: string;
       maxFee?: string;
       memo?: string;
+      /** Omitted = private for a local account (see the handler), transparent for a daemon one. */
+      feeType?: "private" | "transparent";
     }
   | { kind: "popup-claim-private-payment"; resourceAddress: string; commitment: string }
   /** The active local account's public key -- the claim key a Minotari (L1) burn is addressed to. */

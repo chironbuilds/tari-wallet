@@ -1265,6 +1265,25 @@ const HISTORY_KIND_ICON: Record<TransactionHistoryEntry["kind"], string> = {
  * alongside the history list purely for display formatting (symbol/divisibility) — an entry for
  * a resource this account no longer holds still renders, just without those niceties.
  */
+/** Ootle explorer for a network, or null where none exists (Igor) -- the id is still shown. */
+const EXPLORER_BASE: Record<WalletStatus["network"], string | null> = {
+  esmeralda: "https://explorer.tari.mw",
+  igor: null,
+};
+
+/** "Tx 1a2b3c4d…5e6f7a8b · View on explorer ↗", with the full id on hover. */
+function historyTransactionLine(transactionId: string, network: WalletStatus["network"]): HTMLElement {
+  const base = EXPLORER_BASE[network];
+  const linkable = base !== null && /^[0-9a-f]{64}$/i.test(transactionId);
+  return h("div", { class: "list-row-subtitle history-tx", title: transactionId }, [
+    `${t("history.txLabel")} ${shortAddr(transactionId, 8)}`,
+    linkable ? " · " : "",
+    linkable
+      ? h("a", { href: `${base}/tx/${transactionId}`, target: "_blank", rel: "noopener noreferrer" }, [t("history.viewOnExplorer")])
+      : "",
+  ]);
+}
+
 async function renderHistory(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
   const skeleton = h("div", { class: "card history-list" }, [skeletonListRow(), skeletonListRow(), skeletonListRow()]);
@@ -1314,6 +1333,7 @@ async function renderHistory(status: WalletStatus) {
                 h("div", { class: "muted" }, [amountText ? `${amountText} · ${when}` : when]),
                 counterpartyText ? h("div", { class: "list-row-subtitle", title: entry.counterparty ?? "" }, [counterpartyText]) : "",
                 entry.memo ? h("div", { class: "list-row-subtitle" }, [`"${entry.memo}"`]) : "",
+                entry.transactionId ? historyTransactionLine(entry.transactionId, status.network) : "",
               ]),
             ]);
           })
@@ -1377,7 +1397,8 @@ function renderSend(
   document.getElementById("back")!.addEventListener("click", onBack);
 
   buildPublicSendForm(publicSection, balances, status.addressBook);
-  buildPrivateSendForm(privateSection, balances, status.addressBook, options?.initialResourceAddress);
+  const activeIsLocal = status.accounts.find((a) => a.id === status.activeAccountId)?.kind !== "daemon";
+  buildPrivateSendForm(privateSection, balances, status.addressBook, activeIsLocal, options?.initialResourceAddress);
   setTab(options?.initialTab ?? "public");
 }
 
@@ -1518,6 +1539,7 @@ function buildPrivateSendForm(
   container: HTMLElement,
   balances: Balance[],
   addressBook: { id: string; label: string; address: string }[],
+  canPayPrivateFee: boolean,
   initialResourceAddress?: string
 ) {
   const privateBalances = balances.filter((b) => b.kind === "Stealth" && BigInt(b.confidentialAmount) > 0n);
@@ -1572,6 +1594,15 @@ function buildPrivateSendForm(
     ]);
     const memoInput = h("input", { type: "text", placeholder: "e.g. Payment for invoice #42", maxlength: "200" });
     const submitBtn = h("button", { class: "primary" }, [t("send.sendPrivatelyButton", { symbol: label })]);
+    // On by default: a transparent fee is paid from the account's vault and names this account
+    // on-chain, undoing the privacy of the send itself. Daemon accounts can't pay one (no local
+    // stealth-fee support), so they get no switch and the background falls back to transparent.
+    const feeSwitch = canPayPrivateFee
+      ? switchControl("privateSendFeePrivate", true, t("settings.feePrivacyTransparent"), t("settings.feePrivacyPrivate"))
+      : null;
+    const feeHint = h("p", { class: "muted", style: "margin:4px 0 0" }, [
+      canPayPrivateFee ? t("send.privateFeeHint") : t("send.privateFeeUnavailable"),
+    ]);
 
     maxBtn.addEventListener("click", () => {
       (amountInput as HTMLInputElement).value = formatBalanceAmount(maxAmount.toString(), balance.divisibility);
@@ -1608,6 +1639,7 @@ function buildPrivateSendForm(
           recipientWalletAddress,
           amount: raw.toString(),
           memo: memo || undefined,
+          feeType: feeSwitch ? ((feeSwitch.querySelector("input") as HTMLInputElement).checked ? "private" : "transparent") : "transparent",
         });
         showResultSection(recipientCommitment);
       } catch (e) {
@@ -1626,6 +1658,9 @@ function buildPrivateSendForm(
       h("label", {}, [t("send.memoLabel")]),
       memoInput,
       h("p", { class: "muted", style: "margin:4px 0 0" }, [t("send.memoHint")]),
+      h("label", {}, [t("send.feeLabel")]),
+      ...(feeSwitch ? [feeSwitch] : []),
+      feeHint,
       submitBtn,
     ];
   };

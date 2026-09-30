@@ -286,5 +286,25 @@ real `tari_ootle_walletd`/Rust wallet, and diff the derived keys.
 
 ---
 
+## Addendum — 2026-09-23
+
+New popup-only message surface has landed since this audit and the 2026-08-15 follow-up
+(`security-audit-deepseek-v4-pro.md`): `popup-set-language` (writes a plain `"en"|"zh"`
+string to storage) and `popup-reload-extension` (calls `chrome.runtime.reload()`). Both
+are gated by the same existing `sender.origin` check every `popup-*` message already goes
+through (§1) — a page/content script cannot reach either. Neither touches key material,
+neither takes a value wider than what its own TypeScript union permits, and
+`chrome.runtime.reload()` has no destructive effect beyond restarting the extension. No
+new finding.
+
+Also since the last audit: a full English/Chinese i18n layer (`src/lib/i18n/`, pure
+string lookup/interpolation, no `innerHTML`/`eval` in the substitution path), a visual
+rebrand (CSS only), a `chrome.runtime.onUpdateAvailable` listener (read-only, writes a
+version string to storage), and the native token's displayed symbol changing from XTR to
+TARI (display text only). None of these touch the vault, signing, or message-passing
+trust boundaries this audit is actually about.
+
+---
+
 *This document reflects the state of the codebase at the commit noted above. Re-verify
 against current source before relying on any specific claim after further changes land.*

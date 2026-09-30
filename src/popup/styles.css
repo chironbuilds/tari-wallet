@@ -1380,3 +1380,15 @@ input[type="checkbox"] {
   border-left-color: var(--muted);
   color: var(--muted);
 }
+
+.history-tx {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.history-tx a {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: inherit;
+}
+.history-tx a:hover {
+  text-decoration: underline;
+}

@@ -29,6 +29,7 @@ import {
   wipeWallet,
 } from "../lib/storage";
 import { summarizeInstruction } from "../lib/instructionSummary";
+import { formatBalanceAmountGrouped } from "../popup/format";
 import { classifyProviderError } from "../lib/messages";
 import type {
   AccountSummary,
@@ -707,6 +708,23 @@ function shortId(id: string, n = 8): string {
   return id.length > n * 2 + 3 ? `${id.slice(0, n)}…${id.slice(-n)}` : id;
 }
 
+/** TARI's on-chain divisibility -- the fallback when `resolveResourceMeta` can't see the resource
+ * (an account that doesn't hold it yet), since TARI is the one resource we can always label. */
+const TARI_DIVISIBILITY = 6;
+
+/**
+ * An operation's raw on-chain integer amount as the user thinks of it: `10000000` of TARI is
+ * "10 TARI", never "10000000 TARI". Every amount the approval popup states goes through here -- a
+ * raw integer labelled with a token symbol overstates the amount by 10^divisibility on the one
+ * screen the user reads before signing. A resource whose divisibility is genuinely unknown says
+ * outright that it's in base units rather than guessing a scale.
+ */
+function approvalAmount(raw: string, resourceAddress: string, divisibility?: number): string {
+  const d = divisibility ?? (resourceAddress === TARI_RESOURCE_ADDRESS ? TARI_DIVISIBILITY : undefined);
+  const label = resourceLabel(resourceAddress);
+  return d === undefined ? `${BigInt(raw).toString()} base units of ${label}` : `${formatBalanceAmountGrouped(raw, d)} ${label}`;
+}
+
 /**
  * Breaks an operation down into the distinct facts the approval popup shows as separate lines
  * (see main.ts's `renderApprovalDetails`), rather than one run-on sentence -- each line is one
@@ -716,8 +734,11 @@ function shortId(id: string, n = 8): string {
  * highlighted box instead of buried in the middle of a paragraph.
  */
 function summarizeOperationForApproval(
-  operation: TransactionRequestOperation
+  operation: TransactionRequestOperation,
+  divisibility?: number
 ): { instructions: Instruction[]; steps?: string[]; warning?: string } {
+  const fmt = (raw: string) =>
+    "resourceAddress" in operation ? approvalAmount(raw, operation.resourceAddress, divisibility) : BigInt(raw).toString();
   switch (operation.kind) {
     case "instructions": {
       // Unlike every other kind below, this is arbitrary dApp-authored instructions -- there is no
@@ -736,14 +757,14 @@ function summarizeOperationForApproval(
     case "withdrawStealthAndExecute":
       return {
         instructions: operation.followUpInstructions,
-        steps: [`Reveals ${BigInt(operation.amount).toString()} ${resourceLabel(operation.resourceAddress)} for use in this transaction.`],
+        steps: [`Reveals ${fmt(operation.amount)} for use in this transaction.`],
       };
     case "redeemStealthOutputAndExecute":
       return {
         instructions: operation.followUpInstructions,
         steps: [
           `Redeems a stealth token (${shortId(operation.commitmentHex)}).`,
-          `Reveals ${BigInt(operation.revealedAmount).toString()} ${resourceLabel(operation.resourceAddress)} for use in this transaction.`,
+          `Reveals ${fmt(operation.revealedAmount)} for use in this transaction.`,
         ],
       };
     case "redeemStealthOutputWithPrivateFee":
@@ -751,7 +772,7 @@ function summarizeOperationForApproval(
         instructions: operation.followUpInstructions,
         steps: [
           `Redeems a stealth token (${shortId(operation.commitmentHex)}).`,
-          `Reveals ${BigInt(operation.revealedAmount).toString()} ${resourceLabel(operation.resourceAddress)} for use in this transaction.`,
+          `Reveals ${fmt(operation.revealedAmount)} for use in this transaction.`,
           "Pays the fee from a separate stealth UTXO — this account's address is never revealed.",
         ],
       };
@@ -759,7 +780,7 @@ function summarizeOperationForApproval(
       return {
         instructions: [],
         steps: [
-          `Locks ${BigInt(operation.amount).toString()} ${resourceLabel(operation.resourceAddress)} in an HTLC.`,
+          `Locks ${fmt(operation.amount)} in an HTLC.`,
           `Claimable by ${shortId(operation.claimantWalletAddress)} with the matching secret, before epoch ${BigInt(operation.refundEpoch).toString()}.`,
           "Refundable back to this account after that epoch.",
         ],
@@ -774,20 +795,20 @@ function summarizeOperationForApproval(
       return {
         instructions: [],
         steps: [
-          `Moves ${BigInt(operation.amount).toString()} ${resourceLabel(operation.resourceAddress)} from your public balance into your private balance.`,
+          `Moves ${fmt(operation.amount)} from your public balance into your private balance.`,
           "Stays in this account.",
         ],
         // Stated outright, not left for the user to infer from a field name. Shielding is the act
         // of making value invisible; a promise puts a permanent public floor back on it, for
         // everyone, for as long as the output lives. Someone approving a "move to private" must
         // not discover afterwards that they also published a number.
-        warning: promiseWarning(operation.minimumValuePromise, "this new private output"),
+        warning: promiseWarning(operation.minimumValuePromise, "this new private output", fmt),
       };
     case "depositConfidential":
       return {
         instructions: [],
         steps: [
-          `Moves ${BigInt(operation.amount).toString()} ${resourceLabel(operation.resourceAddress)} from your public balance into a Confidential vault.`,
+          `Moves ${fmt(operation.amount)} from your public balance into a Confidential vault.`,
           "Stays in this account.",
           `Different privacy mechanism from "shield" — only works if this resource was created as a Confidential-type resource.`,
         ],
@@ -796,7 +817,7 @@ function summarizeOperationForApproval(
       return {
         instructions: [],
         steps: [
-          `Moves ${BigInt(operation.revealedAmount).toString()} ${resourceLabel(operation.resourceAddress)} from your private balance back into your public balance.`,
+          `Moves ${fmt(operation.revealedAmount)} from your private balance back into your public balance.`,
           "This amount becomes visible on-chain.",
         ],
       };
@@ -804,10 +825,10 @@ function summarizeOperationForApproval(
       return {
         instructions: [],
         steps: [
-          `Sends ${BigInt(operation.amount).toString()} ${resourceLabel(operation.resourceAddress)} privately to ${shortId(operation.recipientWalletAddress)}.`,
+          `Sends ${fmt(operation.amount)} privately to ${shortId(operation.recipientWalletAddress)}.`,
           "The amount and recipient stay hidden on-chain.",
         ],
-        warning: promiseWarning(operation.minimumValuePromise, "the recipient's new output"),
+        warning: promiseWarning(operation.minimumValuePromise, "the recipient's new output", fmt),
       };
     case "htlcClaim":
       return {
@@ -821,7 +842,7 @@ function summarizeOperationForApproval(
       return {
         instructions: [],
         steps: [
-          `Refunds ${BigInt(operation.amount).toString()} ${resourceLabel(operation.resourceAddress)} from an HTLC you funded, back into your private balance.`,
+          `Refunds ${fmt(operation.amount)} from an HTLC you funded, back into your private balance.`,
           "Only works once its refund epoch has passed.",
         ],
       };
@@ -836,11 +857,11 @@ function summarizeOperationForApproval(
  * returns `undefined` -- a warning shown on every transaction is one nobody reads on the
  * transaction that needed it.
  */
-function promiseWarning(minimumValuePromise: string | undefined, subject: string): string | undefined {
+function promiseWarning(minimumValuePromise: string | undefined, subject: string, fmt: (raw: string) => string): string | undefined {
   if (minimumValuePromise === undefined || BigInt(minimumValuePromise) === 0n) return undefined;
-  return `This will also publicly and permanently record that ${subject} is worth at least ${BigInt(
+  return `This will also publicly and permanently record that ${subject} is worth at least ${fmt(
     minimumValuePromise,
-  ).toString()} — visible to everyone on-chain, not just this site, for as long as the output exists.`;
+  )} — visible to everyone on-chain, not just this site, for as long as the output exists.`;
 }
 
 /** The transaction-history `counterparty` label for `operation` -- one case per kind, matching
@@ -905,7 +926,9 @@ async function createTransactionRequest(
   operation: TransactionRequestOperation
 ): Promise<{ requestId: string; approved: Promise<boolean> }> {
   const requestId = crypto.randomUUID();
-  const { instructions, steps, warning } = summarizeOperationForApproval(operation);
+  const divisibility =
+    "resourceAddress" in operation ? (await resolveResourceMeta(operation.resourceAddress))?.divisibility : undefined;
+  const { instructions, steps, warning } = summarizeOperationForApproval(operation, divisibility);
   // The persisted record's `note` (also `TransactionRequestSummary.note` -- the dApp-facing text
   // from `tari_getTransactionRequest`) stays a single flat string for API stability; the popup
   // gets the structured `steps`/`warning` below instead, so it can render each fact on its own
@@ -1389,6 +1412,19 @@ async function resolveResourceMeta(resourceAddress: string): Promise<Pick<Transa
   }
 }
 
+/**
+ * The on-chain transaction id in an SDK call's resolved result, whichever spelling that call uses:
+ * `transactionId` (shield/unshield/sendPrivately/claimBurn/withdrawStealthAndExecute/...) or the
+ * indexer's `transaction_id` (send/execute/claimTestnetXtr). `undefined` when the result carries
+ * neither, e.g. claimPrivatePayment() -- history then simply shows no id for that entry.
+ */
+function transactionIdOf(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const r = result as { transactionId?: unknown; transaction_id?: unknown };
+  const id = typeof r.transactionId === "string" ? r.transactionId : typeof r.transaction_id === "string" ? r.transaction_id : undefined;
+  return id && /^[0-9a-f]{64}$/i.test(id) ? id.toLowerCase() : undefined;
+}
+
 async function withHistory<T>(
   base: Omit<TransactionHistoryEntry, "id" | "createdAt" | "status">,
   action: () => Promise<T>,
@@ -1407,7 +1443,9 @@ async function withHistory<T>(
   };
   try {
     const result = await action();
-    await record("confirmed", deriveOnSuccess?.(result));
+    const derived = deriveOnSuccess?.(result);
+    const transactionId = derived?.transactionId ?? transactionIdOf(result);
+    await record("confirmed", { ...derived, ...(transactionId ? { transactionId } : {}) });
     return result;
   } catch (e) {
     await record("failed");
@@ -1589,6 +1627,12 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       const account = requireLocalOrDaemonAccount(activeAccount, "Sending privately");
       const maxFee = message.maxFee ? BigInt(message.maxFee) : undefined;
       const { activeAccountId } = await getState();
+      // A private send spends only stealth inputs, so the fee is the one thing that could tie it to
+      // this account: paid transparently it withdraws from the account's vault and names the
+      // account on-chain. Default to a private fee (a separate shielded UTXO, excluded from the
+      // send's own coin selection by the SDK) wherever that's possible, i.e. a local account.
+      const feeType = message.feeType ?? (account instanceof OotleAccount ? "private" : "transparent");
+      rejectPrivateFeeForDaemon(account instanceof OotleAccount ? undefined : feeType, "a private send's fee");
       return withHistory(
         {
           accountId: activeAccountId,
@@ -1598,7 +1642,16 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
           counterparty: message.recipientWalletAddress,
           memo: message.memo,
         },
-        () => account.sendPrivately(message.resourceAddress, message.recipientWalletAddress, BigInt(message.amount), maxFee, message.memo)
+        async () =>
+          account.sendPrivately(
+            message.resourceAddress,
+            message.recipientWalletAddress,
+            BigInt(message.amount),
+            maxFee,
+            message.memo,
+            undefined,
+            await resolveFeeType(account, feeType)
+          )
       );
     }
 

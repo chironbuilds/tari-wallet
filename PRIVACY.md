@@ -1,35 +1,45 @@
 # Privacy Policy — Sapient (Chrome extension)
 
-_Last updated: 2026-07-22_
+_Last updated: September 2026_
 
-Sapient is a self-custody browser extension wallet for Tari Ootle. This policy describes what data it handles and where it goes.
+Sapient is a self-custody wallet: it is built to work **without** a server of ours sitting in the middle. This policy covers two separate things: the Sapient browser extension, and the website at sapient.tari.mw, since they collect different things (the extension: essentially nothing; the site: only what a static page loads by default).
 
-## What this extension stores
+## The short version
 
-Everything below is stored **only in your own browser**, using the standard Chrome extension storage API (`chrome.storage.local`). None of it is sent to any server operated by the developer of this extension — there is no backend collecting this data.
+- Sapient has no backend. There is no Sapient server that ever sees your seed phrase, your keys, your balances, or your transactions.
+- Your recovery phrase and derived keys are generated on-device and stored only in this browser's encrypted local storage, protected by the password you set.
+- The extension talks directly to the Tari Ootle network (an indexer/validator you're connected to) and, only with your explicit approval, to sites you choose to connect a wallet account to.
+- Nothing is sent to any analytics, advertising, or tracking service, whether by the extension or by the website.
 
-- **Your encrypted wallet vault** — your 24-word recovery phrase, encrypted with a key derived from your password (AES-256-GCM, PBKDF2 with 600,000 iterations). The extension never stores your password itself.
-- **Account list and settings** — which accounts you've derived or added, which one is active, and which network (testnet) you're using.
-- **Connected sites** — the list of websites you've approved to view your account address and request transaction signatures, so you don't have to reconnect every time.
-- **Daemon connection details (if you use this optional feature)** — if you choose to connect this wallet to your own `tari_ootle_walletd` instance, the URL and an authentication token for that connection are stored locally so you don't have to reconnect every time. This information never leaves your device except in requests you send directly to that daemon.
+## The extension
 
-## What this extension transmits, and to whom
+**What's generated and stored, and where:**
 
-- **The Tari Ootle network** — to read balances and submit transactions, this extension talks directly to a Tari Ootle indexer (a public node run by the Tari Project) or, if you've connected one, your own wallet daemon. These requests contain only the on-chain data needed to operate your wallet (account addresses, transaction data) — never your recovery phrase or password.
-- **Websites you connect to (dApps)** — a website only ever learns your account address, and only after you explicitly approve a connection request. It can only request a transaction; every transaction still requires your explicit approval in this extension before anything is signed or submitted.
-- **Nothing else.** This extension does not use analytics, telemetry, crash reporting, or any third-party tracking service. It does not use cookies. It makes no network requests other than the ones described above.
+- A 24-word recovery phrase is generated (or imported) entirely on-device. It, and the keys derived from it, are encrypted with the password you set and stored only in this browser's local extension storage (`chrome.storage.local`), never transmitted anywhere, including to us, since there is nowhere for it to be transmitted *to*.
+- Wallet metadata that isn't secret on its own (account labels, an optional address book, cached substate versions, a locally-recorded transaction history, your display-language preference, and (if you use one) a connected wallet daemon's API key) is also kept only in local extension storage. None of it leaves the browser except to the network destinations described below.
+- If the extension's service worker or popup ever throws an error, that error stays in your own browser's console. Sapient does not run any crash- or usage-reporting service.
 
-## Your recovery phrase
+**What leaves your browser, and to whom:**
 
-Your recovery phrase is generated on your device and is never transmitted anywhere, in any form, at any time. Anyone with access to your recovery phrase or your unlocked browser profile can access your funds — treat it the same way you would treat a password to your bank account.
+- **The Ootle network.** To check balances, resolve substates, and submit transactions, the extension talks directly to an Ootle indexer (by default a testnet indexer for the esmeralda/igor network), the same way any blockchain wallet talks to a node. That indexer sees the on-chain addresses and transactions it's serving, the same information any node operator can see for requests it handles; it is not operated by us.
+- **Sites you connect to.** A web page only ever learns your wallet exists, or gets access to a specific account, after you approve a connection request in the extension's own popup, the same explicit-approval model used by other browser-extension wallets. A site you haven't connected to cannot see your accounts, balances, or activity.
+- **A wallet daemon, if you choose to connect one.** Connecting to a self-hosted or third-party `tari_ootle_walletd` is optional and off by default; if you use it, requests for that account go to whatever daemon URL you configured, not to us.
 
-## Uninstalling
+The extension requests browser permissions for local storage (`storage`), its auto-lock timer (`alarms`), and network access to the hosts above, plus, only when you initiate a connection to a new site, that one site's origin (`optional_host_permissions`), granted per-site through Chrome's own permission prompt rather than assumed up front.
 
-Uninstalling the extension, or using its "Reset wallet" option, deletes all locally stored data described above. If you have not backed up your recovery phrase separately, this is unrecoverable.
+## The website
+
+sapient.tari.mw is a static page with no account system, no analytics, and no advertising or tracking scripts. It sets no cookies and reads/writes nothing to your browser's storage. The one third-party request it makes is to **Google Fonts** (fonts.googleapis.com / fonts.gstatic.com) to load its typefaces. Like any site using Google Fonts, that exposes your IP address and browser's user agent to Google as part of that request. No other outbound request is made by this page.
+
+## Data you control
+
+Because everything sensitive lives only in this browser's local storage, you control it directly: uninstalling the extension or using its own "Erase wallet" action deletes it. There is no remote account for us to delete anything from, because none exists.
+
+> Sapient is testnet software under active development. This policy describes the code's current behavior as accurately as we can; if you find a discrepancy, please open an issue on [GitHub](https://github.com/chironbuilds/tari-wallet).
 
 ## Changes to this policy
 
-If this policy changes, the updated version will be published at this same URL with a new "Last updated" date.
+If Sapient's data handling changes (for example, adding an optional feature that talks to a new third party), this page will be updated to reflect it, and the "Last updated" date above will change accordingly. The canonical, always-current version is published at https://sapient.tari.mw/privacy.html.
 
 ## Contact
 
