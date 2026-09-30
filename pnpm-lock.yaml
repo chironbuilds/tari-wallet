@@ -14,8 +14,8 @@ importers:
   .:
     dependencies:
       '@chironbuilder/ootle-sdk':
-        specifier: ^0.1.15
-        version: 0.1.15
+        specifier: ^0.1.16
+        version: 0.1.16
       '@noble/ciphers':
         specifier: ^2.2.0
         version: 2.2.0
@@ -77,8 +77,8 @@ importers:
 
 packages:
 
-  '@chironbuilder/ootle-sdk@0.1.15':
-    resolution: {integrity: sha512-/DkDfWjhGv6QZTWQJELvCJAxH/QQZV1dC0NRyPiY0BISFDtDn6DRcb+wnXP1ewwXE3ocSHFDyH5TxjlTY+cfIQ==}
+  '@chironbuilder/ootle-sdk@0.1.16':
+    resolution: {integrity: sha512-Ob7Tz22WPaAhDhgMnOeHlqcuxU976Ugb+3vh0qlo6IkLItiz+PXRo5tznrCoZqAIY2uAbWyQHoX14C8Gm1OxUQ==}
 
   '@crxjs/vite-plugin@2.7.1':
     resolution: {integrity: sha512-mn77Lc1ilIvbO7ZqijjNy+AnRgc8srkfHOtV6HrGrYZgRe8YI3aIcSjHJCU5Kq75SejEZGrdAoHdn3gBGeKpEA==}
@@ -1090,7 +1090,7 @@ packages:
 
 snapshots:
 
-  '@chironbuilder/ootle-sdk@0.1.15':
+  '@chironbuilder/ootle-sdk@0.1.16':
     dependencies:
       '@noble/curves': 1.9.7
       '@noble/hashes': 2.4.0

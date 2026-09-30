@@ -18,7 +18,7 @@
   "license": "MIT",
   "packageManager": "pnpm@11.9.0",
   "dependencies": {
-    "@chironbuilder/ootle-sdk": "^0.1.15",
+    "@chironbuilder/ootle-sdk": "^0.1.16",
     "@noble/ciphers": "^2.2.0",
     "@noble/hashes": "^2.2.0",
     "@tari-project/ootle": "^0.3.0",
