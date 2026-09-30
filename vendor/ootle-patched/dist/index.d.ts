@@ -17,6 +17,7 @@ import { IndexerGetTransactionResultResponse } from '@tari-project/ootle-ts-bind
 import { IndexerSubmitTransactionRequest } from '@tari-project/ootle-ts-bindings';
 import { IndexerSubmitTransactionResponse } from '@tari-project/ootle-ts-bindings';
 import { IndexerTransactionFinalizedResult } from '@tari-project/ootle-ts-bindings';
+import { InputDeclaration } from '@tari-project/ootle-ts-bindings';
 import { Instruction } from '@tari-project/ootle-ts-bindings';
 import { InstructionArg } from '@tari-project/ootle-ts-bindings';
 import { ListRecentTransactionsRequest } from '@tari-project/ootle-ts-bindings';
@@ -517,7 +518,7 @@ export declare function fromHexStr(hex: string): Uint8Array;
  * @returns A complete transfer statement.
  * @throws {InvalidArgumentError} if `specs` is empty.
  */
-export declare function generateOutputsStatement(crypto: StealthCryptoProvider, specs: Output[], revealed: bigint): Promise<StealthTransferStatement>;
+export declare function generateOutputsStatement(crypto: StealthCryptoProvider, specs: Output[], revealed: bigint, revealedReceiver?: Uint8Array): Promise<StealthTransferStatement>;
 
 /**
  * Generate a fresh seal keypair (a thin wrapper over the WASM `generateKeypair`).
@@ -1195,10 +1196,13 @@ export declare interface StealthCryptoProvider {
      *
      * @param specs - The outputs to create (incl. change).
      * @param revealedOutputAmount - The un-confidential (revealed) µTari output amount.
+     * @param revealedReceiver - The 32-byte public key allowed to take the revealed output
+     *   (tari-ootle#2645: the engine requires its badge in the transaction's auth scope). Required
+     *   when `revealedOutputAmount > 0`, ignored otherwise.
      * @returns The WASM-produced {@link StealthOutputsStatement} and the aggregated
      *   `outputMask` for the balance proof.
      */
-    generateOutputsStatement(specs: Output[], revealedOutputAmount: bigint): Promise<{
+    generateOutputsStatement(specs: Output[], revealedOutputAmount: bigint, revealedReceiver?: Uint8Array): Promise<{
         statement: StealthOutputsStatement;
         outputMask: Mask;
     }>;
@@ -1363,11 +1367,23 @@ export declare class StealthTransfer {
     /** Guards against a second {@link prepare} re-emitting instructions into the same builder. */
     private prepared;
     /**
-     * Set by {@link toRevealedOutputAsBucket}; when non-null, {@link emitInstructions} leaves the
-     * revealed-change bucket on the workspace under this name instead of auto-depositing it back
-     * to the revealed source account.
+     * When set, revealed change is captured as a bucket on the workspace under this name
+     * instead of being auto-deposited back to `revealedInput.source` — see
+     * {@link toRevealedOutputAsBucket}.
      */
     private revealedOutputBucketVar;
+    /**
+     * Extra instructions appended after the native `StealthTransfer` instruction (and its
+     * change-bucket handling), in the same transaction — see {@link andThen}. Lets a caller
+     * chain e.g. a custom contract call that consumes the bucket saved by
+     * {@link toRevealedOutputAsBucket}, all signed together by the authorizer in one
+     * transaction instead of needing a separate one.
+     */
+    private followUpInstructions;
+    /**
+     * The public key allowed to take the revealed output — see {@link withRevealedReceiver}.
+     */
+    private revealedReceiver;
     /**
      * @param provider - Read-only chain access (used by {@link prepare} to resolve inputs).
      * @param resourceAddress - The resource being transferred.
@@ -1394,32 +1410,40 @@ export declare class StealthTransfer {
      */
     toRevealedOutput(amount: bigint): this;
     /**
-     * Like {@link toRevealedOutput}, but leaves the revealed-change bucket on the workspace under
-     * `workspaceVarName` instead of auto-depositing it back to the revealed source account. Pairs
-     * with {@link andThen} so a caller can route Stealth-typed funds into its own follow-up
-     * instructions in the same signed transaction — a plain `CallMethod withdraw` on a Stealth
-     * vault is not a standalone-valid instruction; moving Stealth funds anywhere always requires
-     * the native `StealthTransfer` instruction this builder already emits.
+     * Like {@link toRevealedOutput}, but instead of auto-depositing the change back into
+     * `revealedInput.source`, the `StealthTransfer` instruction's bucket output is left on the
+     * workspace under `workspaceVarName` for {@link andThen}'s instructions (or a caller-supplied
+     * `withBuilder` continuation) to consume directly — e.g. passing it straight into a custom
+     * contract call in the same transaction, rather than requiring a second transaction that
+     * withdraws it back out again (which a plain `CallMethod withdraw` on a Stealth-typed vault
+     * cannot do standalone — see this class's own `emitInstructions` doc comment: the account
+     * template's `withdraw` only produces a valid bucket when paired with the native
+     * `StealthTransfer` instruction in the same transaction).
      *
-     * Mutually exclusive with {@link toRevealedOutput} in the same builder — call one or the
-     * other, not both, since they disagree on where the change bucket ends up.
+     * A real `toStealthOutput` is still required elsewhere on this builder (`validate()` enforces
+     * it): the bundled `ootle-wasm@0.37.0` signer cannot parse a statement with zero stealth
+     * outputs at all — confirmed live, `signTransaction`'s own WASM call throws the generic "did
+     * not match any variant of untagged enum TransactionInput" error regardless of how
+     * `balance_proof` is represented. A small dust self-output (as `OotleAccount.
+     * withdrawStealthAndExecute` in tari-wallet-extension does) satisfies this cheaply.
      *
-     * @throws {InvalidArgumentError} if `amount` is not `> 0`, or a different workspace name was
-     *   already set by an earlier call.
+     * @throws {InvalidArgumentError} if `amount` is not `> 0`.
      */
     toRevealedOutputAsBucket(amount: bigint, workspaceVarName: string): this;
     /**
-     * Append raw instructions to run in the same signed transaction, after the native
-     * `StealthTransfer` instruction (and the revealed-change bucket save from
-     * {@link toRevealedOutputAsBucket}, if any) — typically used to consume that bucket in a
-     * custom contract call.
+     * Name the public key allowed to take the revealed output (tari-ootle#2645). The engine
+     * requires that key's badge in the transaction's auth scope before it creates the revealed
+     * bucket, so it must be a key that signs the transaction — normally the account key, which
+     * {@link WalletStealthAuthorizer} signs with by default. Required whenever the transfer has a
+     * revealed output ({@link toRevealedOutput} / {@link toRevealedOutputAsBucket}).
      *
-     * Workspace variable ids are a single flat counter across the whole transaction:
-     * `StealthTransfer` claims id `0` (and `1`, when there's a revealed input) internally via its
-     * own `saveVar` calls before these run, so instructions referencing workspace variables by
-     * **name** (`{ Workspace: "name" }`) resolve correctly through the builder's own name → id
-     * map — but any instruction constructed with a raw numeric `WorkspaceOffsetId` by hand must
-     * account for those already-claimed ids itself.
+     * @throws {InvalidArgumentError} if `publicKey` is not 32 bytes.
+     */
+    withRevealedReceiver(publicKey: Uint8Array): this;
+    /**
+     * Append `instructions` after the native `StealthTransfer` instruction (and its bucket
+     * handling), so they run in the same signed transaction — typically consuming the bucket
+     * {@link toRevealedOutputAsBucket} saved to the workspace. Repeatable; each call appends.
      */
     andThen(instructions: Instruction[]): this;
     /**
@@ -1840,8 +1864,13 @@ export declare class TransactionBuilder {
      * Note this REPLACES any fee instructions already set, as it always has.
      */
     withFeeInstructionsBuilder(builder: (b: TransactionBuilder) => TransactionBuilder): this;
-    addInput(input: SubstateRequirement): this;
-    withInputs(inputs: SubstateRequirement[]): this;
+    /**
+     * Declare a transaction input. Since tari-ootle#2640 every input declares read or write
+     * intent; a plain {@link SubstateRequirement} (no `is_write`) is declared a **write**, the
+     * engine's own default — over-declaring only locks more, under-declaring aborts execution.
+     */
+    addInput(input: SubstateRequirement | InputDeclaration): this;
+    withInputs(inputs: (SubstateRequirement | InputDeclaration)[]): this;
     /** @throws {InvalidArgumentError} if `minEpoch` is not a non-negative integer. */
     withMinEpoch(minEpoch: number): this;
     /**
@@ -2076,7 +2105,7 @@ export declare class WasmStealthCrypto implements StealthCryptoProvider {
      */
     private readonly network;
     constructor(network?: Network);
-    generateOutputsStatement(specs: Output[], revealedOutputAmount: bigint): Promise<{
+    generateOutputsStatement(specs: Output[], revealedOutputAmount: bigint, revealedReceiver?: Uint8Array): Promise<{
         statement: StealthOutputsStatement;
         outputMask: Mask;
     }>;

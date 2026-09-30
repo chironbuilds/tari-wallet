@@ -15,11 +15,11 @@ minimumReleaseAgeExclude:
   - '@tari-project/indexer-client@1.6.0'
   - '@tari-project/ootle-indexer@0.3.0'
   - '@tari-project/ootle-secret-key-wallet@0.3.0'
-  - '@tari-project/ootle-ts-bindings@1.49.1'
+  - '@tari-project/ootle-ts-bindings@1.49.1 || 1.55.0'
   - '@tari-project/ootle-wallet-daemon-signer@0.3.0'
-  - '@tari-project/ootle-wasm@0.39.1 || 0.41.0'
+  - '@tari-project/ootle-wasm@0.39.1 || 0.41.0 || 0.42.0'
   - '@tari-project/wallet_jrpc_client@1.22.0'
-  - '@chironbuilder/ootle-sdk@0.1.0 || 0.1.1 || 0.1.2 || 0.1.3 || 0.1.4 || 0.1.6 || 0.1.7 || 0.1.8 || 0.1.9 || 0.1.10 || 0.1.12 || 0.1.13'
+  - '@chironbuilder/ootle-sdk@0.1.0 || 0.1.1 || 0.1.2 || 0.1.3 || 0.1.4 || 0.1.6 || 0.1.7 || 0.1.8 || 0.1.9 || 0.1.10 || 0.1.12 || 0.1.13 || 0.1.15'
 
 # Forces the transitive `uuid` dependency (pulled in by vite-plugin-top-level-await, build-time
 # only, never shipped in the extension itself) up to a patched version -- GHSA-w5hq-g745-h8pq,
@@ -44,6 +44,9 @@ overrides:
   # fixed. Points at a locally-built, patched copy rebased on current `ootle.ts` -- remove this
   # override and the vendor/ directory once upstream ships a real fix.
   '@tari-project/ootle': 'file:./vendor/ootle-patched'
+  # One bindings version everywhere: the indexer/signer packages still pull 1.54 (pre-Ootle 0.42 types),
+  # which clash with the 0.42 transaction/claim types this wallet and the SDK are built against.
+  '@tari-project/ootle-ts-bindings': ^1.55.0
   # @tari-project/ootle-secret-key-wallet@0.3.0 now correctly externalizes @tari-project/ootle-wasm
   # (confirmed: its dist/index.js dropped from ~1.5MB with inlined WebAssembly.instantiate calls to
   # ~4KB) -- the dual-WASM-instance bug this override worked around is fixed upstream. No override
