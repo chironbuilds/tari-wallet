@@ -1688,6 +1688,9 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       try {
         const { claimed, found } = await account.scanForPrivatePayments(maxPages);
         await recordPrivatePaymentHistory(activeAccountId, found);
+        // Private outputs spent from another wallet on this seed stay listed until checked; drop
+        // them so the private balance is the real one.
+        await account.pruneSpentShieldedOutputs().catch(() => 0);
         await syncActivePublicReceipts();
         return { claimed };
       } catch {
