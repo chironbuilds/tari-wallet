@@ -1241,6 +1241,7 @@ function historyKindLabel(kind: TransactionHistoryEntry["kind"]): string {
     "send-privately": "history.kindSendPrivately",
     claim: "history.kindClaim",
     "private-payment-received": "history.kindPrivatePaymentReceived",
+    received: "history.kindReceived",
     "burn-claim": "history.kindBurnClaim",
     "dapp-transaction": "history.kindDappTransaction",
   };
@@ -1258,6 +1259,7 @@ const HISTORY_KIND_ICON: Record<TransactionHistoryEntry["kind"], string> = {
   "send-privately": ICON_LOCK,
   claim: ICON_PLUS,
   "private-payment-received": ICON_UNLOCK,
+  received: ICON_ARROW_DOWN,
   "burn-claim": ICON_ARROW_DOWN,
   "dapp-transaction": ICON_EXTERNAL_LINK,
 };
@@ -1290,7 +1292,8 @@ function historyTransactionLine(transactionId: string, network: WalletStatus["ne
 
 async function renderHistory(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
-  const skeleton = h("div", { class: "card history-list" }, [skeletonListRow(), skeletonListRow(), skeletonListRow()]);
+  // History has the whole popup to itself, so its list fills the page (scrolling with it) instead of the 220px box it gets elsewhere.
+  const skeleton = h("div", { class: "card history-list history-list-full" }, [skeletonListRow(), skeletonListRow(), skeletonListRow()]);
   render(h("h1", {}, [t("history.title")]), skeleton, back);
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
 
@@ -1299,13 +1302,15 @@ async function renderHistory(status: WalletStatus) {
     send<Balance[]>({ kind: "popup-get-balances" }).catch(() => [] as Balance[]),
   ]);
   const balanceByResource = new Map(balances.map((b) => [b.resourceAddress, b]));
+  // Newest first; receipts found with no known time (createdAt 0) go last.
+  entries.sort((a, b) => b.createdAt - a.createdAt);
 
   const list =
     entries.length === 0
       ? emptyState(t("history.empty"), ICON_CLOCK)
       : h(
           "div",
-          { class: "card history-list" },
+          { class: "card history-list history-list-full" },
           entries.map((entry) => {
             // Prefer what was persisted with the entry itself (see TransactionHistoryEntry's doc
             // comment) -- only fall back to a current-balance lookup for an entry recorded before
@@ -1320,7 +1325,7 @@ async function renderHistory(status: WalletStatus) {
               entry.amount && entry.resourceAddress
                 ? `${formatBalanceAmountGrouped(entry.amount, divisibility)} ${resourceLabel(entry.resourceAddress, symbol)}`
                 : null;
-            const when = new Date(entry.createdAt).toLocaleString();
+            const when = entry.createdAt > 0 ? new Date(entry.createdAt).toLocaleString() : t("history.earlier");
             // dapp-transaction's counterparty is a human sentence ("origin: summary") -- shortAddr()
             // (first-N…last-N) would garble it. Every other kind's counterparty is a real address,
             // where shortAddr() is exactly right. Either way, list-row-subtitle's CSS still wraps

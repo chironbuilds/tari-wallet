@@ -833,7 +833,7 @@ export interface WalletStatus {
 export interface TransactionHistoryEntry {
   id: string;
   accountId: string;
-  kind: "send" | "shield" | "unshield" | "send-privately" | "claim" | "private-payment-received" | "burn-claim" | "dapp-transaction";
+  kind: "send" | "shield" | "unshield" | "send-privately" | "claim" | "private-payment-received" | "received" | "burn-claim" | "dapp-transaction";
   resourceAddress?: string;
   amount?: string;
   counterparty?: string;

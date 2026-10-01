@@ -86,7 +86,7 @@ export interface AddressBookEntry {
 export interface TransactionHistoryEntry {
   id: string;
   accountId: string;
-  kind: "send" | "shield" | "unshield" | "send-privately" | "claim" | "private-payment-received" | "burn-claim" | "dapp-transaction";
+  kind: "send" | "shield" | "unshield" | "send-privately" | "claim" | "private-payment-received" | "received" | "burn-claim" | "dapp-transaction";
   resourceAddress?: string;
   /** Raw, resource-native units (matches ShieldedOutputRecord.amount's convention). */
   amount?: string;
@@ -97,6 +97,7 @@ export interface TransactionHistoryEntry {
    * doesn't currently surface one to the caller (see wallet.ts's `execute()`, which discards it
    * after using it internally to poll for the result). */
   transactionId?: string;
+  /** 0 for a receipt found on chain with no way to tell when it arrived (shown as "earlier"). */
   createdAt: number;
   status: "confirmed" | "failed";
   /** The plaintext memo attached to a shield/unshield/send-privately/private-payment-received

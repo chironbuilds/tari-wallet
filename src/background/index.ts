@@ -72,6 +72,7 @@ import { getPendingApproval, requestApproval, resolveApproval } from "./approval
 import { shouldAutoLock } from "../lib/autoLock";
 import { encryptSecret } from "../lib/secretAtRest";
 import { migrateOotleStorageOnce } from "../lib/migrateOotleStorage";
+import { syncPublicReceipts } from "./receipts";
 
 // Must happen before anything below touches OotleAccount/shielded-output/known-versions storage.
 // Synchronous (just sets a module-level variable), so there's no ordering risk with the message
@@ -1425,6 +1426,17 @@ function transactionIdOf(result: unknown): string | undefined {
   return id && /^[0-9a-f]{64}$/i.test(id) ? id.toLowerCase() : undefined;
 }
 
+/** This wallet's own operations under way (see withHistory) -- receipt detection waits them out. */
+let opsInFlight = 0;
+
+/** Records public payments into the active local account (see receipts.ts); best-effort. */
+async function syncActivePublicReceipts(): Promise<void> {
+  const account = await getActiveAccount();
+  if (!(account instanceof OotleAccount)) return;
+  const { activeAccountId, network } = await getState();
+  await syncPublicReceipts(activeAccountId, account, network, () => opsInFlight > 0);
+}
+
 async function withHistory<T>(
   base: Omit<TransactionHistoryEntry, "id" | "createdAt" | "status">,
   action: () => Promise<T>,
@@ -1441,6 +1453,7 @@ async function withHistory<T>(
       // Best-effort -- see doc comment above.
     }
   };
+  opsInFlight++;
   try {
     const result = await action();
     const derived = deriveOnSuccess?.(result);
@@ -1450,6 +1463,8 @@ async function withHistory<T>(
   } catch (e) {
     await record("failed");
     throw e;
+  } finally {
+    opsInFlight--;
   }
 }
 
@@ -1673,6 +1688,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       try {
         const { claimed, found } = await account.scanForPrivatePayments(maxPages);
         await recordPrivatePaymentHistory(activeAccountId, found);
+        await syncActivePublicReceipts();
         return { claimed };
       } catch {
         return { claimed: 0 }; // best-effort -- an indexer hiccup here shouldn't surface as an error the user has to dismiss
@@ -1882,6 +1898,8 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     }
 
     case "popup-get-transaction-history": {
+      // Catch up on public payments first, but never hold History up for long on a slow indexer.
+      await Promise.race([syncActivePublicReceipts(), new Promise((resolve) => setTimeout(resolve, 8000))]);
       const { activeAccountId } = await getState();
       return listTransactionHistory(activeAccountId);
     }

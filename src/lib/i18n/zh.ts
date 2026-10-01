@@ -159,6 +159,8 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     kindSendPrivately: "已隐私发送",
     kindClaim: "已领取测试网 TARI",
     kindPrivatePaymentReceived: "已隐私接收",
+    kindReceived: "已接收",
+    earlier: "较早",
     kindBurnClaim: "已领取 L1 销毁",
     kindDappTransaction: "应用交易",
     txLabel: "交易",

@@ -376,6 +376,11 @@ button + button {
   overflow-y: auto;
   scroll-behavior: smooth;
 }
+/* History's own page: no inner box -- the list runs the full page and scrolls with #app. */
+.history-list.history-list-full {
+  max-height: none;
+  overflow-y: visible;
+}
 .balances-card::-webkit-scrollbar,
 .instruction-list::-webkit-scrollbar,
 .history-list::-webkit-scrollbar,

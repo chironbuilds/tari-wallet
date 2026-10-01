@@ -165,6 +165,8 @@ const en = {
     kindSendPrivately: "Sent privately",
     kindClaim: "Claimed testnet TARI",
     kindPrivatePaymentReceived: "Received privately",
+    kindReceived: "Received",
+    earlier: "Earlier",
     kindBurnClaim: "Claimed L1 burn",
     kindDappTransaction: "App transaction",
     txLabel: "Tx",
