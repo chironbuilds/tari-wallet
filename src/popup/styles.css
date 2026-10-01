@@ -1397,3 +1397,16 @@ input[type="checkbox"] {
 .history-tx a:hover {
   text-decoration: underline;
 }
+
+/* A page title with its back button beside it (History). */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.page-header h1 {
+  margin: 0;
+}
+.page-header .icon-btn {
+  padding: 8px;
+}
