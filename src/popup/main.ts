@@ -2503,12 +2503,21 @@ async function renderApprovalFlow(approvalId: string) {
  * connect request, it's whichever account is active right now (there's nothing else to bind to
  * yet -- that's exactly what a connect request grants). */
 function approvalAccountChip(status: WalletStatus, accountId: string | undefined): HTMLElement {
-  const account = status.accounts.find((a) => a.id === (accountId ?? status.activeAccountId));
+  const resolvedId = accountId ?? status.activeAccountId;
+  const account = status.accounts.find((a) => a.id === resolvedId);
+  // Show the wallet (otl_…) address -- the public identity a site actually connects to and sends
+  // to -- not the component address. The identicon still derives from the component address
+  // (account.address), matching the home/Receive convention: text = otl_ wallet address, avatar =
+  // component. `receiveAddress` is the *active* account's wallet address (buildStatus only resolves
+  // the active one); for an approval that targets a non-active account -- only reachable if the user
+  // switched accounts while it sat pending -- fall back to the component address, the sole
+  // identifier the AccountSummary carries.
+  const displayAddress = resolvedId === status.activeAccountId ? (status.receiveAddress ?? account?.address ?? null) : (account?.address ?? null);
   return h("div", { class: "approval-account-chip" }, [
     accountAvatar(account?.address ?? null, 26),
     h("div", {}, [
       h("div", { style: "font-weight:600;font-size:13px" }, [account?.label ?? t("approval.defaultAccountLabel")]),
-      account?.address ? h("div", { class: "muted", style: "font-size:11px" }, [shortAddr(account.address)]) : "",
+      displayAddress ? h("div", { class: "muted", style: "font-size:11px" }, [shortAddr(displayAddress)]) : "",
     ]),
   ]);
 }

@@ -50,7 +50,30 @@ export async function requestApproval(approval: PendingApprovalInput, id: string
 
 async function openApprovalWindow(id: string): Promise<void> {
   const url = chrome.runtime.getURL(`popup.html#/approve/${id}`);
-  const win = await chrome.windows.create({ url, type: "popup", width: 380, height: 600 });
+  const width = 380;
+  const height = 600;
+  // Anchor the window to the top-right of the active browser window -- where the toolbar icon and
+  // the normal action popup appear -- instead of letting Chrome drop a type:"popup" window at an
+  // arbitrary spot (which, on a multi-window/multi-monitor setup, often lands nowhere near where the
+  // user clicked). A dApp-triggered approval genuinely can't attach to the toolbar icon the way the
+  // action popup does, so top-right of the focused window is the closest it can sit to where Sapient
+  // is expected to open.
+  let top: number | undefined;
+  let left: number | undefined;
+  try {
+    const focused = await chrome.windows.getLastFocused();
+    if (typeof focused.left === "number" && typeof focused.top === "number" && typeof focused.width === "number") {
+      const margin = 16;
+      // No Math.max(0,...) clamp: a window on a secondary monitor can legitimately have negative or
+      // large coordinates, and Chrome clips to the usable screen area on its own.
+      left = Math.round(focused.left + focused.width - width - margin);
+      top = Math.round(focused.top + margin);
+    }
+  } catch {
+    // getLastFocused can reject (no open window, or it races one closing) -- fall back to Chrome's
+    // default placement rather than failing the approval entirely.
+  }
+  const win = await chrome.windows.create({ url, type: "popup", width, height, top, left });
   const entry = pending.get(id);
   if (entry && win?.id !== undefined) entry.windowId = win.id;
 }
