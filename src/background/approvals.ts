@@ -50,7 +50,11 @@ export async function requestApproval(approval: PendingApprovalInput, id: string
 
 async function openApprovalWindow(id: string): Promise<void> {
   const url = chrome.runtime.getURL(`popup.html#/approve/${id}`);
-  const width = 380;
+  // Match the action popup's own body size (styles.css: 320x560). The height carries an extra ~40px
+  // over the 560 body for the popup window's title bar (a type:"popup" window has one; the toolbar
+  // action popup does not); width needs no such allowance, so a 380 width just left ~60px of empty
+  // background to the right of Sapient's 320-wide UI.
+  const width = 320;
   const height = 600;
   // Anchor the window to the top-right of the active browser window -- where the toolbar icon and
   // the normal action popup appear -- instead of letting Chrome drop a type:"popup" window at an
