@@ -3,7 +3,11 @@
 // without needing a live network or a real OotleAccount. This is the one place a field-name or
 // shape mismatch between the two WASM calls would silently produce a malformed instruction
 // argument instead of a compile or runtime error (both take/return plain JSON strings).
-import { createConfidentialWithdrawProofLiteral, createStealthOutputWitness, generateKeypair } from "@tari-project/ootle-wasm";
+// createConfidentialWithdrawProofLiteral is a chironbuilds patch not present in upstream
+// @tari-project/ootle-wasm; production's depositConfidential() reaches it through the SDK's own
+// bundled @chironbuilder/ootle-wasm-legacy, so this test validates the composition against that
+// same build (the three functions all live there).
+import { createConfidentialWithdrawProofLiteral, createStealthOutputWitness, generateKeypair } from "@chironbuilder/ootle-wasm-legacy";
 import { describe, expect, it } from "vitest";
 import { Network } from "@tari-project/ootle";
 import { fromHex } from "./vault";

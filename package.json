@@ -6,7 +6,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "node scripts/sync-vendored-ootle-wasm.mjs",
     "build": "vite build",
     "package": "vite build && node scripts/make-store-zip.mjs",
     "dev": "vite build --watch",
@@ -31,6 +30,7 @@
     "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
+    "@chironbuilder/ootle-wasm-legacy": "file:vendor/ootle-wasm-patched",
     "@crxjs/vite-plugin": "^2.7.1",
     "@noble/curves": "^2.4.0",
     "@types/chrome": "^0.2.2",
