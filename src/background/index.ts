@@ -29,7 +29,7 @@ import {
   wipeWallet,
 } from "../lib/storage";
 import { summarizeInstruction } from "../lib/instructionSummary";
-import { formatBalanceAmountGrouped } from "../popup/format";
+import { formatBalanceAmountGrouped, formatMaxFee } from "../popup/format";
 import { classifyProviderError } from "../lib/messages";
 import type {
   AccountSummary,
@@ -173,8 +173,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Page (dApp) requests, relayed by the content script
 // ---------------------------------------------------------------------------
 
-async function handlePageRequest(message: PageRequestMessage, _sender: chrome.runtime.MessageSender): Promise<unknown> {
+async function handlePageRequest(message: PageRequestMessage, sender: chrome.runtime.MessageSender): Promise<unknown> {
   const { origin, method, params } = message;
+
+  // Defense in depth on the origin every permission decision below keys off. `origin` comes from
+  // the content script's message (it set it from `window.location.origin`), but `sender.origin` is
+  // the origin Chrome itself stamped on the sender -- unforgeable from page JS. In the intended
+  // design they always agree: a page can't reach this listener at all (chrome.runtime isn't exposed
+  // to page scripts and externally_connectable isn't declared -- see inject.ts's relay), only the
+  // content script can, and it reports its own frame's origin honestly. Rejecting a mismatch closes
+  // off a compromised or buggy content script claiming an origin that isn't its own to borrow
+  // another site's connection, view-access grant, or signing authority. Only enforced when
+  // `sender.origin` is a concrete string: a sandboxed/opaque-origin frame reports "null" on both
+  // sides (still matches), and the rare undefined falls back to the message origin as before.
+  if (typeof sender.origin === "string" && sender.origin !== origin) {
+    throw new Error("Origin mismatch: the request's origin does not match its sender.");
+  }
 
   switch (method) {
     case "tari_getNetwork": {
@@ -935,7 +949,10 @@ async function createTransactionRequest(
   // gets the structured `steps`/`warning` below instead, so it can render each fact on its own
   // line and the promise disclosure in its own highlighted box.
   const note = [...(steps ?? []), warning].filter(Boolean).join(" ");
-  const maxFee = "maxFee" in operation ? operation.maxFee : undefined;
+  // Formatted as a human TARI amount here, not shown raw: the approval popup renders this string
+  // verbatim (`approval.maxFee`), and fees are always paid in TARI -- see formatMaxFee.
+  const rawMaxFee = "maxFee" in operation ? operation.maxFee : undefined;
+  const maxFee = rawMaxFee !== undefined ? formatMaxFee(rawMaxFee) : undefined;
   const now = Date.now();
   const record: TransactionRequestRecord = {
     id: requestId,

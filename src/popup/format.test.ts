@@ -4,6 +4,7 @@ import {
   deriveWebUiApiKeysUrl,
   formatBalanceAmount,
   formatBalanceAmountGrouped,
+  formatMaxFee,
   isValidComponentAddress,
   normalizeDaemonUrl,
   parseDecimalToRaw,
@@ -235,5 +236,25 @@ describe("tokenInitial", () => {
 
   it("uses T for the native TARI resource", () => {
     expect(tokenInitial(TARI_RESOURCE_ADDRESS, null)).toBe("T");
+  });
+});
+
+describe("formatMaxFee", () => {
+  it("scales a raw micro-TARI fee budget to a human TARI amount", () => {
+    // 2_000_000 micro-TARI is 2 TARI, not a 2-million fee cap.
+    expect(formatMaxFee("2000000")).toBe("2 TARI");
+  });
+
+  it("keeps fractional TARI (truncating trailing zeros)", () => {
+    expect(formatMaxFee("1500")).toBe("0.0015 TARI");
+  });
+
+  it("groups the whole part of a large budget", () => {
+    expect(formatMaxFee("1234567000000")).toBe("1,234,567 TARI");
+  });
+
+  it("falls back to the raw string for a non-integer value rather than throwing", () => {
+    // A malformed dApp-supplied maxFee must not break the whole approval screen.
+    expect(formatMaxFee("not-a-number")).toBe("not-a-number");
   });
 });

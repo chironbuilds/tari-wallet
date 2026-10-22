@@ -72,6 +72,25 @@ export function formatBalanceAmountGrouped(rawAmount: string, divisibility: numb
   return frac ? `${grouped}.${frac}` : grouped;
 }
 
+/** TARI's on-chain divisibility. Transaction fees are always paid in TARI, so the max-fee budget
+ * shown on the approval screen is formatted with this. Mirrors `TARI_DIVISIBILITY` in
+ * background/index.ts (kept local there for the same reason TARI_RESOURCE_ADDRESS is). */
+export const TARI_DIVISIBILITY = 6;
+
+/** The transaction-fee budget (`maxFee`) a dApp supplies is a raw TARI micro-unit integer. Formats
+ * it as a human TARI amount for the one screen the user reads before signing -- a bare "2000000"
+ * there reads as a 2-million-TARI fee cap instead of the 2 TARI it actually is, exactly the
+ * overstatement `approvalAmount` was written to stop for transfer amounts but the fee line skipped.
+ * Falls back to the raw string for anything that isn't a plain integer, so a malformed dApp-supplied
+ * value is shown as-sent rather than breaking the whole approval. */
+export function formatMaxFee(rawMicroTari: string): string {
+  try {
+    return `${formatBalanceAmountGrouped(rawMicroTari, TARI_DIVISIBILITY)} TARI`;
+  } catch {
+    return rawMicroTari;
+  }
+}
+
 export function tokenInitial(resourceAddress: string, symbol: string | null): string {
   const label = resourceLabel(resourceAddress, symbol);
   return label.slice(0, 1).toUpperCase();
