@@ -856,7 +856,12 @@ export interface DaemonAccountOption {
 // ---- Approval requests (background holds these; popup renders + resolves them) ----
 
 export type PendingApproval =
-  | { kind: "connect"; id: string; origin: string }
+  /** `accountId` is the account that was active when the prompt was raised -- the one the chip
+   * shows and the one the connection will bind, captured up front so a user who switches the active
+   * account while this window sits open still connects exactly the account they saw and approved
+   * (not whatever happens to be active at click time). Absent only for a pending approval raised
+   * before this field existed; display and binding then fall back to the current active account. */
+  | { kind: "connect"; id: string; origin: string; accountId?: string }
   /** `tari_requestViewAccess`'s prompt -- a read grant over the connected account's confidential
    * position, deliberately its own approval kind rather than a checkbox on the connect screen: it
    * is asked for separately, at the moment a feature actually needs it, so the user is answering
@@ -910,7 +915,7 @@ export type PendingApproval =
 // `Omit<PendingApproval, "id">` does not distribute over the union the way you'd want (it loses
 // the discriminant), so this is spelled out by hand for requestApproval()'s input.
 export type PendingApprovalInput =
-  | { kind: "connect"; origin: string }
+  | { kind: "connect"; origin: string; accountId?: string }
   | { kind: "viewAccess"; origin: string; accountId: string }
   | {
       kind: "transaction";

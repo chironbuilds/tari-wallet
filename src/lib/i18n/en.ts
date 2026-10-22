@@ -393,6 +393,8 @@ const en = {
     viewRawInstructionData: "View raw instruction data",
     feeEnforcedNote: "This site requires a {feeType} fee for this request — it can't be changed here. Reject if you don't want that.",
     feePaymentLabel: "Fee payment",
+    feeHint:
+      "Private pays the fee from a separate private output, so your account stays off-chain. Transparent pays from your public balance and reveals this account on-chain.",
     maxFeeLine: "Max fee: {fee}",
     dryRunNote: "This is a dry run — nothing will be spent.",
     simulateButton: "Simulate",

@@ -2500,8 +2500,10 @@ async function renderApprovalFlow(approvalId: string) {
  * user with multiple accounts can confirm which identity/funds a request is exposing before
  * approving. For a transaction, that's the site's connected account (`approval.accountId`, bound
  * at connect time -- NOT necessarily whichever account happens to be active right now); for a
- * connect request, it's whichever account is active right now (there's nothing else to bind to
- * yet -- that's exactly what a connect request grants). */
+ * connect request, it's the account that was active when the prompt was raised (also carried on
+ * `approval.accountId` now, captured up front so the account shown is exactly the one the
+ * connection will bind -- see tari_requestAccounts). `undefined` only for a pre-update pending
+ * approval with no captured id, which falls back to the current active account. */
 function approvalAccountChip(status: WalletStatus, accountId: string | undefined): HTMLElement {
   const resolvedId = accountId ?? status.activeAccountId;
   const account = status.accounts.find((a) => a.id === resolvedId);
@@ -2580,7 +2582,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     render(
       h("h1", {}, [t("approval.connectTitle")]),
       h("p", { class: "muted" }, [h("b", {}, [approval.origin]), t("approval.connectDescriptionSuffix")]),
-      approvalAccountChip(status, undefined),
+      approvalAccountChip(status, approval.accountId),
       statusEl,
       h("button", { class: "primary", id: "approve" }, [t("approval.connectButton")]),
       h("button", { class: "secondary", id: "reject" }, [t("approval.cancelButton")])
@@ -2697,6 +2699,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
               t("settings.feePrivacyTransparent"),
               t("settings.feePrivacyPrivate")
             ),
+            h("p", { class: "muted", style: "font-size:11px;margin:6px 0 0" }, [t("approval.feeHint")]),
           ])
       : "";
 

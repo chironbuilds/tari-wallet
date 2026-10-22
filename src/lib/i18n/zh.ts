@@ -380,6 +380,8 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     viewRawInstructionData: "查看原始指令数据",
     feeEnforcedNote: "此站点要求此请求使用 {feeType} 手续费——此处无法更改。如果不希望如此，请拒绝。",
     feePaymentLabel: "手续费支付方式",
+    feeHint:
+      "“私密”从单独的私密输出中支付手续费，您的账户不会出现在链上。“透明”从您的公开余额中支付，会在链上暴露此账户。",
     maxFeeLine: "最高手续费：{fee}",
     dryRunNote: "这是一次模拟运行——不会实际扣款。",
     simulateButton: "模拟运行",

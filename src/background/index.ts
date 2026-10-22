@@ -221,12 +221,17 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
           return [await account.getComponentAddress()];
         }
       }
-      const approved = await requestApproval({ kind: "connect", origin });
+      // Captured BEFORE the (arbitrarily long) approval prompt and both shown on it and bound
+      // below -- not re-read after it resolves. Otherwise a user who switched the active account
+      // while the connect window sat open would approve connecting the account the chip showed but
+      // silently bind whichever account is active at click time (same TOCTOU the viewAccess grant
+      // already guards against, for the same reason).
+      const { activeAccountId } = await getState();
+      const approved = await requestApproval({ kind: "connect", origin, accountId: activeAccountId });
       if (!approved) throw new Error("Connection request rejected.");
       // Unlocking (if needed) happens inside the approval popup before it resolves; by the time
       // we get here the wallet must be unlocked or the user closed the window without unlocking.
       if (!(await isUnlocked())) throw new Error("Wallet is locked.");
-      const { activeAccountId } = await getState();
       await addConnectedSite(origin, activeAccountId);
       const account = await getAccountById(activeAccountId);
       if (!account) throw new Error("Could not resolve account.");
