@@ -1899,7 +1899,7 @@ function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: 
           },
           [
             h("div", { class: "balance-left" }, [
-              h("span", { class: "token-avatar", "aria-hidden": "true" }, [tokenInitial(b.resourceAddress, b.symbol)]),
+              tokenAvatar(b.resourceAddress, b.symbol),
               h("span", { class: "token-symbol" }, [label]),
             ]),
             amountCol,
@@ -1910,6 +1910,22 @@ function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: 
       })
     );
   }
+}
+
+/**
+ * A token has no on-chain icon (resource metadata is just SYMBOL/name), so TARI gets the wallet's own
+ * logo and every other resource a letter on a colour derived from its address -- distinct tokens look
+ * distinct instead of all being the same grey circle. No network fetch.
+ */
+function tokenAvatar(resourceAddress: string, symbol: string | null, large = false): HTMLElement {
+  const size = large ? 64 : 28;
+  if (resourceAddress === TARI_RESOURCE_ADDRESS) {
+    return h("img", { class: "token-avatar token-logo", src: chrome.runtime.getURL("icons/icon48.png"), alt: "", width: String(size), height: String(size), style: `width:${size}px;height:${size}px` });
+  }
+  let hash = 0;
+  for (const ch of resourceAddress) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const hue = hash % 360;
+  return h("span", { class: "token-avatar", "aria-hidden": "true", style: `width:${size}px;height:${size}px;font-size:${large ? 26 : 12}px;background:hsl(${hue},45%,28%);color:hsl(${hue},80%,85%);border-color:hsl(${hue},45%,40%)` }, [tokenInitial(resourceAddress, symbol)]);
 }
 
 function renderTokenDetail(status: WalletStatus, balance: Balance) {
@@ -1996,7 +2012,7 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
 
   render(
     h("h1", {}, [t("tokenDetail.title")]),
-    h("div", { class: "hero" }, [h("div", { class: "avatar" }, [tokenInitial(balance.resourceAddress, balance.symbol)])]),
+    h("div", { class: "hero" }, [tokenAvatar(balance.resourceAddress, balance.symbol, true)]),
     h("div", { class: "card" }, [
       h("div", { class: "muted" }, [t("tokenDetail.name")]),
       h("div", { class: "detail-value" }, [displayName]),

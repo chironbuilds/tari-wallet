@@ -28,6 +28,7 @@ import {
   type TransactionRequestRecord,
   wipeWallet,
 } from "../lib/storage";
+import { isNewerVersion } from "../lib/version";
 import { summarizeInstruction } from "../lib/instructionSummary";
 import { formatBalanceAmountGrouped, formatMaxFee } from "../popup/format";
 import { classifyProviderError } from "../lib/messages";
@@ -1404,7 +1405,9 @@ async function buildStatus(): Promise<WalletStatus> {
     addressBook: state.addressBook,
     autoLockMinutes: state.autoLockMinutes,
     feePrivacyDefault: state.feePrivacyDefault,
-    updateAvailable: state.pendingUpdateVersion,
+    // Only offered while it is actually newer than the running build: after the reload the stored
+    // version equals the current one, and leaving the banner up would make Reload look broken.
+    updateAvailable: state.pendingUpdateVersion && isNewerVersion(state.pendingUpdateVersion, chrome.runtime.getManifest().version) ? state.pendingUpdateVersion : null,
     language: state.language,
   };
 }
@@ -1595,7 +1598,15 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     case "popup-get-balances": {
       const account = await getActiveAccount();
       if (!account) throw new Error("Wallet is locked.");
-      return account.getBalances();
+      // The indexer's vault lookup has a hard 15s limit inside the SDK and an occasionally slow indexer
+      // trips it; a second attempt almost always lands (the first warms the indexer), so retry once
+      // before showing the user a timeout.
+      try {
+        return await account.getBalances();
+      } catch (e) {
+        if (e instanceof Error && e.message.startsWith("Timed out")) return account.getBalances();
+        throw e;
+      }
     }
 
     case "popup-claim-testnet-xtr": {
