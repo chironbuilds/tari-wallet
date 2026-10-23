@@ -13,8 +13,8 @@ importers:
   .:
     dependencies:
       '@chironbuilder/ootle-sdk':
-        specifier: ^0.1.25
-        version: 0.1.25
+        specifier: ^0.1.26
+        version: 0.1.26
       '@noble/ciphers':
         specifier: ^2.2.0
         version: 2.2.0
@@ -79,8 +79,8 @@ importers:
 
 packages:
 
-  '@chironbuilder/ootle-sdk@0.1.25':
-    resolution: {integrity: sha512-8J6GGNXk2f42cjpOjx4g79M4n64wTPntoKvN+AF25UWm8eDZKRkAhXaPIGP6Egdp5Qgwd9NF/xhYyftPNxfXFA==}
+  '@chironbuilder/ootle-sdk@0.1.26':
+    resolution: {integrity: sha512-M7jutnmV6Ov4zisiGwxiV1iNCoN2SRm8Q2w+RJgMO8b1ZI/EodbAzukocv4eURO9eTo7+NoMTOhAWYzq2q+GDQ==}
 
   '@crxjs/vite-plugin@2.7.1':
     resolution: {integrity: sha512-mn77Lc1ilIvbO7ZqijjNy+AnRgc8srkfHOtV6HrGrYZgRe8YI3aIcSjHJCU5Kq75SejEZGrdAoHdn3gBGeKpEA==}
@@ -1095,7 +1095,7 @@ packages:
 
 snapshots:
 
-  '@chironbuilder/ootle-sdk@0.1.25':
+  '@chironbuilder/ootle-sdk@0.1.26':
     dependencies:
       '@chironbuilder/ootle-legacy': '@tari-project/ootle@file:vendor/ootle-patched'
       '@chironbuilder/ootle-wasm-legacy': '@tari-project/ootle-wasm@file:vendor/ootle-wasm-patched'
