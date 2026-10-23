@@ -93,6 +93,7 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
   settings: {
     title: "设置",
     addAccount: "添加账户",
+    importAccount: "导入账户（助记词）",
     connectDaemon: "连接钱包守护进程",
     daemonConnections: "守护进程连接",
     connectedSites: "已连接站点",
@@ -252,7 +253,15 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     noPrivacyActionsNote: "此代币的隐私余额使用了本钱包尚不支持发送或取消屏蔽的格式。",
   },
 
+  importAccount: {
+    title: "导入账户",
+    description: "通过24个单词的助记词添加另一个钱包。它将成为此处的独立账户；您的主助记词保持不变。",
+    labelLabel: "名称（可选）",
+    labelPlaceholder: "例如：储蓄",
+    submit: "导入",
+  },
   accountSwitcher: {
+    importedTag: "已导入",
     title: "切换账户",
     daemonTag: "守护进程",
     current: "当前",

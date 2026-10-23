@@ -10,6 +10,7 @@ import { WalletDaemonClient } from "@tari-project/ootle-wallet-daemon-signer";
 import { OotleAccount, type WalletAccountApi } from "@chironbuilder/ootle-sdk";
 import { DaemonAccount } from "../lib/daemonAccount";
 import { type AccountId, getState, parseAccountId } from "../lib/storage";
+import { fromHex } from "../lib/vault";
 import { decryptSecret } from "../lib/secretAtRest";
 import { getUnlockedSeed } from "./session";
 
@@ -41,7 +42,26 @@ async function resolveAccountId(id: AccountId): Promise<WalletAccountApi | null>
     const { network } = await getState();
     return getLocalAccount(seed, network, id.index);
   }
+  if (id.type === "imported") return getImportedAccount(seed, id.id);
   return getDaemonAccount(seed, id.connectionId, id.componentAddress);
+}
+
+/** An imported seed is account 0 of its own phrase (so restoring that phrase elsewhere gives the same address), but its
+ * SDK ledger is keyed by a unique index so it never mixes with another seed's private outputs. */
+async function getImportedAccount(masterSeed: Uint8Array, id: string): Promise<OotleAccount | null> {
+  const { network, importedAccounts } = await getState();
+  const ref = importedAccounts.find((a) => a.id === id);
+  if (!ref) return null;
+  const key = `imported:${id}:${network}`;
+  let account = localCache.get(key);
+  if (!account) {
+    const entropy = fromHex(await decryptSecret(masterSeed, ref.encryptedSeed));
+    account = OotleAccount.fromSeed(entropy, 0, network);
+    // `index` is only ever used to name the ledger (checked in the SDK), never for key derivation after construction.
+    (account as { index: number }).index = ref.ledgerIndex;
+    localCache.set(key, account);
+  }
+  return account;
 }
 
 function getLocalAccount(seed: Uint8Array, network: "esmeralda" | "igor", index: number): OotleAccount {

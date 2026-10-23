@@ -764,6 +764,8 @@ export type PopupRequest =
    * (see renderHome()), not blocking on it the way buildStatus() used to. */
   | { kind: "popup-auto-scan-private-payments" }
   | { kind: "popup-add-account" }
+  | { kind: "popup-import-account"; mnemonic: string; label?: string }
+  | { kind: "popup-remove-imported-account"; accountId: string }
   | { kind: "popup-set-active-account"; accountId: string }
   | { kind: "popup-get-connected-sites" }
   | { kind: "popup-disconnect-site"; origin: string }
@@ -788,7 +790,7 @@ export type PopupRequest =
 export interface AccountSummary {
   id: string;
   label: string;
-  kind: "local" | "daemon";
+  kind: "local" | "daemon" | "imported";
   /** This account's on-chain component address, for rendering a per-account avatar in the
    * switcher (matching the MetaMask/Phantom convention of letting users recognize accounts by
    * icon, not just an ordinal label). Null only when the wallet is locked (no seed available to

@@ -691,7 +691,7 @@ async function renderHome(status: WalletStatus) {
   ]);
   // Rescanning needs this account's own view key (see OotleAccount.scanForPrivatePayments()) --
   // unavailable for a daemon-relayed account, same gating Shield/Unshield/Send-privately use.
-  const isLocalAccount = activeAccountSummary(status)?.kind === "local";
+  const isLocalAccount = activeAccountSummary(status)?.kind !== "daemon" && !!activeAccountSummary(status);
   // Claiming an L1 burn seals with a key derived from this account's own secret, so it is local-only too.
   const burnActionBtn = isLocalAccount
     ? h("button", { class: "action-btn", id: "burnAction" }, [
@@ -829,9 +829,39 @@ function settingsRow(id: string, label: string, leadingIcon: string, trailing?: 
   ]);
 }
 
+/** Adds a second recovery phrase as its own account. The phrase is encrypted under this wallet's seed, so it needs no extra password. */
+function renderImportAccount(status: WalletStatus) {
+  const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
+  const label = h("input", { type: "text", id: "importLabel", placeholder: t("importAccount.labelPlaceholder"), maxlength: "40" }) as HTMLInputElement;
+  const ta = h("textarea", { id: "importMnemonic", placeholder: t("setPassword.mnemonicPlaceholder"), maxlength: "1000", autocomplete: "off", spellcheck: "false" }) as HTMLTextAreaElement;
+  const submit = h("button", { class: "primary", id: "importSubmit" }, [t("importAccount.submit")]) as HTMLButtonElement;
+  const msg = h("div", { class: "status", id: "importStatus" }, []);
+  render(h("h1", {}, [t("importAccount.title")]), h("p", { class: "muted" }, [t("importAccount.description")]), h("label", {}, [t("importAccount.labelLabel")]), label, ta, msg, submit, back);
+  back.addEventListener("click", () => renderSettings(status));
+  submit.addEventListener("click", async () => {
+    const mnemonic = ta.value.trim();
+    if (!isPlausibleMnemonic(mnemonic)) {
+      msg.className = "status err";
+      msg.textContent = t("setPassword.errInvalidMnemonic");
+      return;
+    }
+    submit.disabled = true;
+    try {
+      await send({ kind: "popup-import-account", mnemonic, label: label.value });
+      ta.value = "";
+      await renderHome(await getStatus());
+    } catch (e) {
+      submit.disabled = false;
+      msg.className = "status err";
+      msg.textContent = e instanceof Error ? e.message : String(e);
+    }
+  });
+}
+
 function renderSettings(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
   const addAccountBtn = settingsRow("addAccount", t("settings.addAccount"), ICON_USER_PLUS);
+  const importAccountBtn = settingsRow("importAccount", t("settings.importAccount"), ICON_USER_PLUS);
   const connectDaemonBtn = settingsRow("connectDaemon", t("settings.connectDaemon"), ICON_SERVER);
   const daemonsBtn = settingsRow("daemons", t("settings.daemonConnections"), ICON_SERVER, String(status.daemonConnections.length));
   const sitesBtn = settingsRow("sites", t("settings.connectedSites"), ICON_GLOBE);
@@ -895,6 +925,7 @@ function renderSettings(status: WalletStatus) {
     back,
     h("div", { class: "card settings-card" }, [
       addAccountBtn,
+      importAccountBtn,
       connectDaemonBtn,
       daemonsBtn,
       sitesBtn,
@@ -1005,6 +1036,7 @@ function renderSettings(status: WalletStatus) {
       document.getElementById("back")!.addEventListener("click", () => renderSettings(status));
     }
   });
+  document.getElementById("importAccount")!.addEventListener("click", () => renderImportAccount(status));
   document.getElementById("connectDaemon")!.addEventListener("click", () => renderConnectDaemon(status));
   document.getElementById("daemons")!.addEventListener("click", () => renderDaemonConnections(status));
   document.getElementById("sites")!.addEventListener("click", renderConnectedSites);
@@ -1053,7 +1085,7 @@ function renderReceive(status: WalletStatus) {
     ]),
   ]);
 
-  const isLocalAccount = activeAccountSummary(status)?.kind === "local";
+  const isLocalAccount = activeAccountSummary(status)?.kind !== "daemon" && !!activeAccountSummary(status);
   const claimCard = isLocalAccount ? buildClaimPrivatePaymentCard(status) : null;
 
   render(
@@ -2070,7 +2102,7 @@ function renderAccountSwitcher(status: WalletStatus) {
         accountAvatar(account.address, 28),
         h("div", {}, [
           h("div", { style: "font-weight:600;font-size:13.5px" }, [account.label]),
-          account.kind === "daemon" ? h("div", { class: "muted", style: "font-size:11px" }, [t("accountSwitcher.daemonTag")]) : "",
+          account.kind === "daemon" ? h("div", { class: "muted", style: "font-size:11px" }, [t("accountSwitcher.daemonTag")]) : account.kind === "imported" ? h("div", { class: "muted", style: "font-size:11px" }, [t("accountSwitcher.importedTag")]) : "",
         ]),
       ]),
       isActive ? h("span", { class: "settings-row-right" }, [t("accountSwitcher.current")]) : "",

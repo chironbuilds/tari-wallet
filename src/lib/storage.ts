@@ -53,6 +53,19 @@ export interface DaemonConnectionConfig {
 }
 
 /** One account on a connected daemon that the user has added to this wallet's account list. */
+/** A second seed phrase imported as its own account; the entropy is encrypted under the master seed (see secretAtRest.ts). */
+export interface ImportedAccountRef {
+  id: string;
+  label: string;
+  /** Unique per imported account: keys the SDK's per-account ledger so two seeds never share one. */
+  ledgerIndex: number;
+  encryptedSeed: { iv: string; ciphertext: string };
+}
+
+export function importedAccountId(id: string): string {
+  return `imported:${id}`;
+}
+
 export interface DaemonAccountRef {
   connectionId: string;
   componentAddress: string;
@@ -172,6 +185,7 @@ export interface WalletState {
   connectedSites: ConnectedSite[];
   daemonConnections: DaemonConnectionConfig[];
   daemonAccounts: DaemonAccountRef[];
+  importedAccounts: ImportedAccountRef[];
   /** Saved recipient addresses, shared across Send and Send-privately. */
   addressBook: AddressBookEntry[];
   /** Transactions this wallet has submitted/claimed, newest first, capped at
@@ -218,6 +232,7 @@ const DEFAULTS: WalletState = {
   connectedSites: [],
   daemonConnections: [],
   daemonAccounts: [],
+  importedAccounts: [],
   addressBook: [],
   transactionHistory: [],
   autoLockMinutes: DEFAULT_AUTO_LOCK_MINUTES,
@@ -233,10 +248,11 @@ export function daemonAccountId(connectionId: string, componentAddress: string):
   return `daemon:${connectionId}:${componentAddress}`;
 }
 
-export type AccountId = { type: "local"; index: number } | { type: "daemon"; connectionId: string; componentAddress: string };
+export type AccountId = { type: "local"; index: number } | { type: "imported"; id: string } | { type: "daemon"; connectionId: string; componentAddress: string };
 
 export function parseAccountId(id: string): AccountId {
   if (id.startsWith("local:")) return { type: "local", index: Number(id.slice("local:".length)) };
+  if (id.startsWith("imported:")) return { type: "imported", id: id.slice("imported:".length) };
   if (id.startsWith("daemon:")) {
     const rest = id.slice("daemon:".length);
     const sep = rest.indexOf(":");

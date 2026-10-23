@@ -95,6 +95,7 @@ const en = {
   settings: {
     title: "Settings",
     addAccount: "Add account",
+    importAccount: "Import account (recovery phrase)",
     connectDaemon: "Connect daemon wallet",
     daemonConnections: "Daemon connections",
     connectedSites: "Connected sites",
@@ -259,7 +260,15 @@ const en = {
     noPrivacyActionsNote: "This token's private balance uses a format this wallet doesn't support sending or unshielding for yet.",
   },
 
+  importAccount: {
+    title: "Import account",
+    description: "Add another wallet by its 24-word recovery phrase. It becomes its own account here; your main phrase is unchanged.",
+    labelLabel: "Name (optional)",
+    labelPlaceholder: "e.g. Savings",
+    submit: "Import",
+  },
   accountSwitcher: {
+    importedTag: "Imported",
     title: "Switch account",
     daemonTag: "daemon",
     current: "Current",

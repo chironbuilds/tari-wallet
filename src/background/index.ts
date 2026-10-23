@@ -27,8 +27,11 @@ import {
   type TransactionHistoryEntry,
   type TransactionRequestRecord,
   wipeWallet,
+  importedAccountId,
 } from "../lib/storage";
 import { isNewerVersion } from "../lib/version";
+import { decryptSecret } from "../lib/secretAtRest";
+import { fromHex as fromHexString, toHex as toHexString } from "../lib/vault";
 import { summarizeInstruction } from "../lib/instructionSummary";
 import { formatBalanceAmountGrouped, formatMaxFee } from "../popup/format";
 import { classifyProviderError } from "../lib/messages";
@@ -1384,6 +1387,13 @@ async function buildStatus(): Promise<WalletStatus> {
       return { id, label: `Account ${i + 1}`, kind: "local" as const, address: account ? await account.getComponentAddress() : null };
     })
   );
+  const importedSummaries: AccountSummary[] = await Promise.all(
+    state.importedAccounts.map(async (a) => {
+      const id = importedAccountId(a.id);
+      const account = await getAccountById(id);
+      return { id, label: a.label, kind: "imported" as const, address: account ? await account.getComponentAddress() : null };
+    })
+  );
   const daemonAccounts: AccountSummary[] = state.daemonAccounts.map((a) => ({
     id: daemonAccountId(a.connectionId, a.componentAddress),
     label: a.label,
@@ -1400,7 +1410,7 @@ async function buildStatus(): Promise<WalletStatus> {
     receiveAddress,
     lastKnownAddress,
     activeAccountError,
-    accounts: [...localAccounts, ...daemonAccounts],
+    accounts: [...localAccounts, ...importedSummaries, ...daemonAccounts],
     daemonConnections: state.daemonConnections.map((c) => ({ id: c.id, url: c.url, label: c.label })),
     addressBook: state.addressBook,
     autoLockMinutes: state.autoLockMinutes,
@@ -1793,6 +1803,45 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       const newId = localAccountId(newIndex);
       await setState({ accountCount: newIndex + 1, activeAccountId: newId });
       return { index: newIndex };
+    }
+
+    case "popup-import-account": {
+      const master = await getUnlockedSeed();
+      if (!master) throw new Error("Wallet is locked.");
+      const imported = await importWalletSeed(message.mnemonic);
+      const state = await getState();
+      // Refuse a phrase already in the wallet: the same keys twice would be two names for one account.
+      const addr = (e: Uint8Array) => OotleAccount.fromSeed(e, 0, state.network).getComponentAddress();
+      const newAddr = await addr(imported.entropy);
+      if (newAddr === (await addr(master))) throw new Error("That's this wallet's own recovery phrase.");
+      for (const ref of state.importedAccounts) {
+        if ((await addr(fromHexString(await decryptSecret(master, ref.encryptedSeed)))) === newAddr) {
+          throw new Error("That recovery phrase is already imported.");
+        }
+      }
+      const id = crypto.randomUUID().slice(0, 8);
+      const ledgerIndex = 1_000_000 + state.importedAccounts.reduce((m, a) => Math.max(m, a.ledgerIndex - 1_000_000 + 1), 0);
+      const label = (message.label ?? "").trim().slice(0, 40) || `Imported ${state.importedAccounts.length + 1}`;
+      const ref = { id, label, ledgerIndex, encryptedSeed: await encryptSecret(master, toHexString(imported.entropy)) };
+      await setState({ importedAccounts: [...state.importedAccounts, ref], activeAccountId: importedAccountId(id) });
+      await removeAllConnectedSites();
+      await broadcastAccountsChanged([]);
+      return { accountId: importedAccountId(id) };
+    }
+
+    case "popup-remove-imported-account": {
+      const state = await getState();
+      const id = message.accountId.replace(/^imported:/, "");
+      const importedAccounts = state.importedAccounts.filter((a) => a.id !== id);
+      if (importedAccounts.length === state.importedAccounts.length) throw new Error("No such imported account.");
+      const wasActive = state.activeAccountId === message.accountId;
+      if (wasActive) {
+        await removeAllConnectedSites();
+        await broadcastAccountsChanged([]);
+      }
+      await setState({ importedAccounts, activeAccountId: wasActive ? "local:0" : state.activeAccountId });
+      clearAccountCache();
+      return {};
     }
 
     case "popup-set-active-account": {
