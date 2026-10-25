@@ -71,7 +71,7 @@ import {
 } from "@chironbuilder/ootle-sdk";
 import { DaemonAccount } from "../lib/daemonAccount";
 import { clearAccountCache, getAccountById, getActiveAccount, getDaemonClient } from "./accounts";
-import { clearUnlockedSeed, getLastActivity, getUnlockedSeed, isUnlocked, setUnlockedSeed, touchActivity } from "./session";
+import { clearPendingMnemonic, clearUnlockedSeed, getLastActivity, getPendingMnemonic, getUnlockedSeed, isUnlocked, setPendingMnemonic, setUnlockedSeed, touchActivity } from "./session";
 import { getPendingApproval, requestApproval, resolveApproval } from "./approvals";
 import { shouldAutoLock } from "../lib/autoLock";
 import { encryptSecret } from "../lib/secretAtRest";
@@ -1402,6 +1402,7 @@ async function buildStatus(): Promise<WalletStatus> {
   }));
   return {
     hasWallet: state.vault !== null,
+    backupPending: state.vault !== null && state.backupPending === true,
     isUnlocked: unlocked,
     network: state.network,
     activeAccountId: state.activeAccountId,
@@ -1562,7 +1563,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     case "popup-create-wallet": {
       const { seed, mnemonic } = await createWalletSeed();
       const vault = await encryptVault(message.password, serializeSeed(seed));
-      await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0), walletOrigin: "created" });
+      await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0), walletOrigin: "created", backupPending: true });
       // getLocalAccount() caches by "network:index" alone, not by seed identity -- unreachable in
       // the normal flow (this case only shows when no wallet exists yet, i.e. the cache was never
       // populated), but a request racing a just-completed popup-reset-wallet could read the old
@@ -1571,13 +1572,32 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       // Cheap enough to always clear here regardless of whether that race actually happened.
       clearAccountCache();
       await setUnlockedSeed(seed.entropy);
+      await setPendingMnemonic(mnemonic);
       return { mnemonic };
+    }
+
+    // Lets a popup that was closed mid-onboarding show the phrase again. Only answers while the
+    // wallet is unlocked and unverified; after the check there is no way back to it except
+    // popup-reveal-mnemonic, which asks for the password.
+    case "popup-get-pending-mnemonic": {
+      const { vault, backupPending } = await getState();
+      if (!vault || !backupPending) throw new Error("No recovery phrase is waiting to be verified.");
+      if (!(await isUnlocked())) throw new Error("Wallet is locked.");
+      const mnemonic = await getPendingMnemonic();
+      if (!mnemonic) throw new Error("The recovery phrase is no longer in memory.");
+      return { mnemonic };
+    }
+
+    case "popup-confirm-backup": {
+      await setState({ backupPending: false });
+      await clearPendingMnemonic();
+      return {};
     }
 
     case "popup-import-wallet": {
       const seed = await importWalletSeed(message.mnemonic);
       const vault = await encryptVault(message.password, serializeSeed(seed));
-      await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0), walletOrigin: "imported" });
+      await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0), walletOrigin: "imported", backupPending: false });
       // See popup-create-wallet's comment just above -- same stale-cache race, same fix.
       clearAccountCache();
       await setUnlockedSeed(seed.entropy);
@@ -1880,6 +1900,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
 
     case "popup-reset-wallet": {
       await clearUnlockedSeed();
+      await clearPendingMnemonic();
       clearAccountCache();
       resetKnownVersions();
       await wipeWallet();

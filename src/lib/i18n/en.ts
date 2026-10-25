@@ -45,6 +45,8 @@ const en = {
     description:
       "Write down these 24 words in order and store them somewhere safe. Anyone with this phrase can spend your funds. It will not be shown again.",
     confirmButton: "I've saved my recovery phrase",
+    resumeDescription: "You created this wallet but have not confirmed your recovery phrase yet. Enter your password to show it again, then confirm it before you continue.",
+    resumeButton: "Show recovery phrase",
   },
 
   verifyMnemonic: {

@@ -304,8 +304,50 @@ async function main() {
   renderLoading();
   const status = await getStatus();
   if (!status.hasWallet) renderWelcome();
-  else if (!status.isUnlocked) renderUnlock(undefined, status.lastKnownAddress);
+  else if (!status.isUnlocked) renderUnlock(status.backupPending ? () => void main() : undefined, status.lastKnownAddress);
+  else if (status.backupPending) await resumeBackup();
   else await renderHome(status);
+}
+
+/**
+ * The popup was closed (or the wallet locked) between creating the wallet and passing the phrase
+ * check. The vault already exists, so show the phrase again instead of dropping into a wallet whose
+ * owner never confirmed they can recover it.
+ */
+async function resumeBackup() {
+  try {
+    const { mnemonic } = await send<{ mnemonic: string }>({ kind: "popup-get-pending-mnemonic" });
+    renderBackupMnemonic(mnemonic);
+  } catch {
+    // The browser was restarted since the wallet was created, so the phrase is no longer held in
+    // memory. The password proves ownership and brings it back from the vault.
+    renderBackupPasswordPrompt();
+  }
+}
+
+function renderBackupPasswordPrompt() {
+  const statusEl = h("div", { class: "status err", id: "status", style: "display:none" });
+  render(
+    h("h1", {}, [t("backupMnemonic.title")]),
+    h("p", { class: "muted" }, [t("backupMnemonic.resumeDescription")]),
+    h("label", {}, [t("common.password")]),
+    h("input", { type: "password", id: "pw", maxlength: "256", autofocus: "true" }),
+    statusEl,
+    h("button", { class: "primary", id: "show" }, [t("backupMnemonic.resumeButton")])
+  );
+  const pw = document.getElementById("pw") as HTMLInputElement;
+  pw.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("show")!.click();
+  });
+  document.getElementById("show")!.addEventListener("click", async () => {
+    try {
+      const { mnemonic } = await send<{ mnemonic: string }>({ kind: "popup-reveal-mnemonic", password: pw.value });
+      renderBackupMnemonic(mnemonic);
+    } catch (e) {
+      statusEl.textContent = e instanceof Error ? e.message : String(e);
+      statusEl.style.display = "block";
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -473,6 +515,7 @@ function renderVerifyMnemonic(mnemonic: string) {
     }
     renderLoading(t("common.derivingAccount"));
     try {
+      await send({ kind: "popup-confirm-backup" });
       const status = await getStatus();
       await renderHome(status);
     } catch (e) {

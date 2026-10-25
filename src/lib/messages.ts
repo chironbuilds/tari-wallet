@@ -735,6 +735,8 @@ export type PopupRequest =
   | { kind: "popup-reload-extension" }
   | { kind: "popup-set-language"; language: "en" | "zh" }
   | { kind: "popup-create-wallet"; password: string }
+  | { kind: "popup-get-pending-mnemonic" }
+  | { kind: "popup-confirm-backup" }
   | { kind: "popup-import-wallet"; password: string; mnemonic: string }
   | { kind: "popup-unlock"; password: string }
   | { kind: "popup-lock" }
@@ -800,6 +802,8 @@ export interface AccountSummary {
 
 export interface WalletStatus {
   hasWallet: boolean;
+  /** A created wallet whose recovery phrase has not been verified yet. */
+  backupPending: boolean;
   isUnlocked: boolean;
   network: "esmeralda" | "igor";
   activeAccountId: string;

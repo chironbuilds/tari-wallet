@@ -44,6 +44,8 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     title: "保存您的助记词",
     description: "请按顺序抄写这 24 个单词，并妥善保存在安全的地方。任何持有该助记词的人都可以动用您的资金。此助记词不会再次显示。",
     confirmButton: "我已保存助记词",
+    resumeDescription: "您已创建此钱包，但尚未确认助记词。请输入密码再次显示助记词，并在继续之前完成确认。",
+    resumeButton: "显示助记词",
   },
 
   verifyMnemonic: {

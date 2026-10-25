@@ -32,6 +32,24 @@ export async function clearUnlockedSeed(): Promise<void> {
   await chrome.storage.session.remove([SEED_KEY, ACTIVITY_KEY]);
 }
 
+// The recovery phrase of a wallet that was created but not yet verified, so a popup reopened on the
+// phrase screen can show it again. Same lifetime as the unlocked seed (memory only, gone when the
+// browser closes) and removed the moment the user passes the check.
+const PENDING_MNEMONIC_KEY = "pendingMnemonic";
+
+export async function setPendingMnemonic(mnemonic: string): Promise<void> {
+  await chrome.storage.session.set({ [PENDING_MNEMONIC_KEY]: mnemonic });
+}
+
+export async function getPendingMnemonic(): Promise<string | null> {
+  const { [PENDING_MNEMONIC_KEY]: m } = await chrome.storage.session.get(PENDING_MNEMONIC_KEY);
+  return typeof m === "string" ? m : null;
+}
+
+export async function clearPendingMnemonic(): Promise<void> {
+  await chrome.storage.session.remove(PENDING_MNEMONIC_KEY);
+}
+
 export async function isUnlocked(): Promise<boolean> {
   return (await getUnlockedSeed()) !== null;
 }

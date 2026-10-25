@@ -216,6 +216,11 @@ export interface WalletState {
    * `popup-auto-scan-private-payments` to decide whether the very first scan needs the deep,
    * many-page lookback or can use the same shallow window every later scan uses. */
   walletOrigin: "created" | "imported" | null;
+  /** True from the moment a wallet is created until the user passes the recovery-phrase check.
+   * The vault is saved the instant the password is set, so without this a popup closed on the
+   * phrase screen left a working wallet whose phrase was never verified. Absent (undefined) on
+   * wallets that predate the flag, which are treated as already backed up. */
+  backupPending?: boolean;
   /** Mirrors WalletStatus.updateAvailable -- the version chrome.runtime.onUpdateAvailable last
    * reported, persisted so it survives a service-worker restart between the update landing and the
    * user next opening the popup. Cleared back to null once the user actually reloads. */
