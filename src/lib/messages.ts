@@ -789,6 +789,8 @@ export type PopupRequest =
    * outright -- the user-side counterpart to a dApp's own `tari_revokeViewAccess`. */
   | { kind: "popup-revoke-site-view-access"; origin: string }
   | { kind: "popup-get-pending-approval"; approvalId: string }
+  /** Simulates a pending transaction request and reports what it does to the signing account. */
+  | { kind: "popup-preview-transaction-request"; approvalId: string }
   | { kind: "popup-resolve-approval"; approvalId: string; approve: boolean; feeType?: "private" | "transparent" }
   | { kind: "popup-reset-wallet" }
   | { kind: "popup-connect-daemon"; url: string; apiKey: string; label: string }
@@ -951,3 +953,20 @@ export type PendingApprovalInput =
     }
   | { kind: "signOwnershipProof"; origin: string; accountId: string; resourceAddress: string; substateId: string; challenge: string }
   | { kind: "signWalletOwnershipProof"; origin: string; accountId: string; walletAddress: string; challenge: string };
+
+/** What a pending transaction request does to the signing account, found by simulating it
+ * (`popup-preview-transaction-request`). Amounts are already formatted for display. */
+export interface TransactionPreview {
+  /** False when the request couldn't be simulated at all -- `error` says why. */
+  simulated: boolean;
+  error?: string;
+  /** Set when the simulation ran but the engine rejected the transaction. */
+  wouldFail?: string;
+  outgoing: string[];
+  incoming: string[];
+  /** Methods other than deposit* that the request calls on the signing account's own component. */
+  ownAccountCalls: string[];
+  /** For an HTLC claim: the funded output's decrypted value, and any problem the pre-claim check found. */
+  htlcValue?: string;
+  htlcProblems?: string[];
+}

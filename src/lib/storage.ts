@@ -146,6 +146,12 @@ export interface TransactionRequestRecord {
   id: string;
   origin: string;
   accountId: string;
+  /** The network active when the request was created -- submit refuses to run it on any other.
+   * Absent only on records written before this field existed. */
+  network?: WalletState["network"];
+  /** For an htlcClaim: the funded output's value as shown on the approval screen (raw units).
+   * Passed to the SDK's pre-claim check at submit, so the claim refuses a different amount. */
+  previewedHtlcValue?: string;
   operation: TransactionRequestOperation;
   /** Human-readable summary shown on the popup approval screen and returned to the dApp --
    * computed once at creation from `operation` (see background/index.ts). */
@@ -512,6 +518,18 @@ export async function recordTransactionRequestDecision(
     transactionRequests[index] = { ...record, operation, status: approved ? "approved" : "rejected" };
     await setState({ transactionRequests });
     return true;
+  });
+}
+
+/** Remembers the HTLC value the approval screen showed, while the request is still pending. */
+export async function setTransactionRequestPreviewedHtlcValue(id: string, value: string): Promise<void> {
+  await serialized(async () => {
+    const state = await getState();
+    const index = state.transactionRequests.findIndex((r) => r.id === id);
+    if (index === -1 || state.transactionRequests[index]!.status !== "pending") return;
+    const transactionRequests = [...state.transactionRequests];
+    transactionRequests[index] = { ...transactionRequests[index]!, previewedHtlcValue: value };
+    await setState({ transactionRequests });
   });
 }
 

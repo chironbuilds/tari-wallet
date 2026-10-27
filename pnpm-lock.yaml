@@ -13,8 +13,8 @@ importers:
   .:
     dependencies:
       '@chironbuilder/ootle-sdk':
-        specifier: ^0.1.27
-        version: 0.1.27
+        specifier: ^0.1.29
+        version: 0.1.29
       '@noble/ciphers':
         specifier: ^2.2.0
         version: 2.2.0
@@ -82,8 +82,8 @@ importers:
 
 packages:
 
-  '@chironbuilder/ootle-sdk@0.1.27':
-    resolution: {integrity: sha512-VY4uWWUO/GOf2YpLZUbCln+l8wRysTwoj6TMZCxaBcaHlGQ1evFpnka451sHU5Jrrwzik/3xAeT486UfQUXUpQ==}
+  '@chironbuilder/ootle-sdk@0.1.29':
+    resolution: {integrity: sha512-ySSIiooIOysaSq6BJF7J+O6R9yYYnhjUEg4vmvkV9oRdfKff9n5XYT55hPQvsCQYBtkgC4hvCujDRGwNTs1CcA==}
 
   '@crxjs/vite-plugin@2.7.1':
     resolution: {integrity: sha512-mn77Lc1ilIvbO7ZqijjNy+AnRgc8srkfHOtV6HrGrYZgRe8YI3aIcSjHJCU5Kq75SejEZGrdAoHdn3gBGeKpEA==}
@@ -1101,12 +1101,12 @@ packages:
 
 snapshots:
 
-  '@chironbuilder/ootle-sdk@0.1.27':
+  '@chironbuilder/ootle-sdk@0.1.29':
     dependencies:
       '@chironbuilder/ootle-legacy': '@tari-project/ootle@file:vendor/ootle-patched'
       '@chironbuilder/ootle-wasm-legacy': '@tari-project/ootle-wasm@file:vendor/ootle-wasm-patched'
       '@noble/curves': 1.9.7
-      '@noble/hashes': 2.2.0
+      '@noble/hashes': 2.4.0
       '@tari-project/ootle': 0.10.0
       '@tari-project/ootle-indexer': 0.10.0
       '@tari-project/ootle-secret-key-wallet': 0.10.0

@@ -16,11 +16,19 @@ const pending = new Map<string, PendingEntry>();
 
 /** Most approval windows one origin may have open at once. */
 export const MAX_PENDING_APPROVALS_PER_ORIGIN = 3;
+/** Most approval windows open at once across every origin -- a page can spawn many origins
+ * (subdomains, iframes), so the per-origin cap alone doesn't bound the flood. */
+export const MAX_PENDING_APPROVALS_TOTAL = 6;
 
 function pendingCountForOrigin(origin: string): number {
   let n = 0;
   for (const entry of pending.values()) if (entry.approval.origin === origin) n++;
   return n;
+}
+
+/** Whether `requestApproval` would open a window for `origin` right now rather than refuse. */
+export function canRequestApproval(origin: string): boolean {
+  return pending.size < MAX_PENDING_APPROVALS_TOTAL && pendingCountForOrigin(origin) < MAX_PENDING_APPROVALS_PER_ORIGIN;
 }
 
 function randomId(): string {
@@ -43,7 +51,7 @@ export async function requestApproval(approval: PendingApprovalInput, id: string
   // request is refused outright (as if declined) rather than queued -- the pending ones are still
   // on screen for the user to answer first. The persisted request record, if this id has one, is
   // marked rejected so a dApp polling it sees a terminal state instead of "pending" forever.
-  if (pendingCountForOrigin(full.origin) >= MAX_PENDING_APPROVALS_PER_ORIGIN) {
+  if (!canRequestApproval(full.origin)) {
     void recordTransactionRequestDecision(id, false);
     return false;
   }

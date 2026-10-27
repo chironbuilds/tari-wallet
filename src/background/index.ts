@@ -74,12 +74,22 @@ import {
 import { DaemonAccount } from "../lib/daemonAccount";
 import { clearAccountCache, getAccountById, getActiveAccount, getDaemonClient } from "./accounts";
 import { clearPendingMnemonic, clearUnlockedSeed, getLastActivity, getPendingMnemonic, getUnlockedSeed, isUnlocked, setPendingMnemonic, setUnlockedSeed, touchActivity } from "./session";
-import { getPendingApproval, requestApproval, resolveApproval } from "./approvals";
+import { canRequestApproval, getPendingApproval, requestApproval, resolveApproval } from "./approvals";
 import { shouldAutoLock } from "../lib/autoLock";
 import { encryptSecret } from "../lib/secretAtRest";
 import { migrateOotleStorageOnce } from "../lib/migrateOotleStorage";
 import { syncPublicReceipts } from "./receipts";
 import { fetchNftDetails } from "./nftDetails";
+import { ownAccountCalls, previewOperation } from "./preview";
+import { isSecureDappOrigin } from "../lib/dappOrigin";
+import { setTransactionRequestPreviewedHtlcValue } from "../lib/storage";
+import type { TransactionPreview } from "../lib/messages";
+
+/** Caps on the scan budgets a dApp may ask for -- each page is one or more indexer round trips. */
+const MAX_DAPP_SCAN_PAGES = 20;
+const MAX_DAPP_SCAN_PAGE_SIZE = 100;
+const clampScan = (n: number | undefined, max: number): number | undefined =>
+  typeof n === "number" && Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), max) : undefined;
 
 // Must happen before anything below touches OotleAccount/shielded-output/known-versions storage.
 // Synchronous (just sets a module-level variable), so there's no ordering risk with the message
@@ -196,15 +206,17 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
   if (typeof sender.origin === "string" && sender.origin !== origin) {
     throw new Error("Origin mismatch: the request's origin does not match its sender.");
   }
+  // A plain-http page can be rewritten by anyone on the network path, who would then inherit its
+  // connection and signing prompts -- only loopback dev servers may use http.
+  if (!isSecureDappOrigin(origin)) {
+    throw new Error("Sapient only connects to https:// sites (or http://localhost during development).");
+  }
 
+  // No page request touches the auto-lock activity clock: a connected tab polling on a timer would
+  // otherwise keep the wallet unlocked forever. Only the user's own popup/approval use counts.
   switch (method) {
     case "tari_getNetwork": {
-      // No connected-site check on purpose (any page can ask which network this is) -- exactly why
-      // this must NOT touch activity. It used to, unconditionally, at the top of this function:
-      // any page (connected or not, no approval needed) could poll this on a timer and silently
-      // keep the auto-lock countdown reset forever, defeating the point of auto-lock entirely on a
-      // shared/unattended machine. Activity now only counts when a request actually uses an
-      // established, user-approved connection -- see the other cases below.
+      // No connected-site check on purpose: any page can ask which network this is.
       const { network } = await getState();
       return network;
     }
@@ -214,7 +226,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (!site || !(await isUnlocked())) return [];
       const account = await getAccountById(site.accountId);
       if (!account) return [];
-      await touchActivity();
       return [await account.getComponentAddress()];
     }
 
@@ -223,10 +234,7 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       const existing = await getConnectedSite(origin);
       if (existing && (await isUnlocked())) {
         const account = await getAccountById(existing.accountId);
-        if (account) {
-          await touchActivity();
-          return [await account.getComponentAddress()];
-        }
+        if (account) return [await account.getComponentAddress()];
       }
       // Captured BEFORE the (arbitrarily long) approval prompt and both shown on it and bound
       // below -- not re-read after it resolves. Otherwise a user who switched the active account
@@ -242,7 +250,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       await addConnectedSite(origin, activeAccountId);
       const account = await getAccountById(activeAccountId);
       if (!account) throw new Error("Could not resolve account.");
-      await touchActivity();
       return [await account.getComponentAddress()];
     }
 
@@ -259,7 +266,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
     case "tari_requestViewAccess": {
       const site = await getConnectedSite(origin);
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
-      await touchActivity();
       if (site.viewAccessGrantedAt !== undefined) return { granted: true };
       const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Wallet is locked.");
@@ -336,7 +342,7 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
     case "tari_scanForPrivatePayments": {
       const account = await requireViewAccess(origin);
       const p = (params ?? {}) as { maxPages?: number };
-      const { claimed, found } = await account.scanForPrivatePayments(p.maxPages);
+      const { claimed, found } = await account.scanForPrivatePayments(clampScan(p.maxPages, MAX_DAPP_SCAN_PAGES));
       // Same reason the popup's own rescan does this: a scan that discovers real incoming payments
       // must leave a trace in the wallet's own history, not only in the dApp's response.
       const site = await getConnectedSite(origin);
@@ -359,10 +365,10 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       const p = params as { resourceAddress: string; maxPages?: number; pageSize?: number; limit?: number; transactionIds?: string[] };
       if (!p?.resourceAddress) throw new Error("resourceAddress is required.");
       const found = await account.scanForResourceUtxos(p.resourceAddress, {
-        maxPages: p.maxPages,
-        pageSize: p.pageSize,
+        maxPages: clampScan(p.maxPages, MAX_DAPP_SCAN_PAGES),
+        pageSize: clampScan(p.pageSize, MAX_DAPP_SCAN_PAGE_SIZE),
         limit: p.limit,
-        transactionIds: p.transactionIds,
+        transactionIds: Array.isArray(p.transactionIds) ? p.transactionIds.slice(0, MAX_DAPP_SCAN_PAGE_SIZE) : undefined,
       });
       const site = await getConnectedSite(origin);
       if (site) await recordPrivatePaymentHistory(site.accountId, found);
@@ -418,7 +424,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (typeof p.challenge !== "string" || p.challenge.length === 0) {
         throw new Error("challenge must be a non-empty string.");
       }
-      await touchActivity();
       const approved = await requestApproval({
         kind: "signOwnershipProof",
         origin,
@@ -441,7 +446,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (typeof p.challenge !== "string" || p.challenge.length === 0) {
         throw new Error("challenge must be a non-empty string.");
       }
-      await touchActivity();
       const walletAddress = await account.getWalletAddress();
       const approved = await requestApproval({
         kind: "signWalletOwnershipProof",
@@ -459,7 +463,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
       const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Wallet is locked.");
-      await touchActivity();
       return account.getWalletAddress();
     }
 
@@ -468,7 +471,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (!site || !(await isUnlocked())) return [];
       const account = await getAccountById(site.accountId);
       if (!account) return [];
-      await touchActivity();
       // The confidential half is withheld unless this site holds the separate view grant -- see
       // ConnectedSite.viewAccessGrantedAt. `privateVisible` is what makes the withheld case
       // distinguishable from a genuine zero; a dApp that reads `confidentialAmount` alone and sees
@@ -494,7 +496,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
       const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Wallet is locked.");
-      await touchActivity();
       const p = params as { substateId: string; version?: number | null };
       const provider = await account.getProvider();
       return provider.getSubstate(p.substateId, p.version ?? null);
@@ -505,7 +506,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
       const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Wallet is locked.");
-      await touchActivity();
       // Some stealth-touching features need this account's own view secret and one-time stealth
       // signing, which only a seed-derived local account has (see WalletDaemonSigner's doc
       // comment) -- those stay `isLocal`-only below. Others (shield/unshield/sendPrivately/balance
@@ -543,7 +543,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
       const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Wallet is locked.");
-      await touchActivity();
       const p = params as { transactionId: string };
       const provider = await account.getProvider();
       return provider.getTransactionResult(p.transactionId);
@@ -554,7 +553,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
     case "tari_signAndSubmitTransaction": {
       const site = await getConnectedSite(origin);
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
-      await touchActivity();
       const p = params as { instructions: Instruction[]; maxFee?: string; dryRun?: boolean; inputs?: SubstateRequirement[] };
       assertNoStealthTransferInstruction(p.instructions);
       // Dry runs are read-only simulations (quotes, balance-adjacent lookups) — a DEX price quote
@@ -586,7 +584,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
     case "tari_withdrawStealthAndExecute": {
       const site = await getConnectedSite(origin);
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
-      await touchActivity();
       const p = params as {
         resourceAddress: string;
         amount: string;
@@ -604,7 +601,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
     case "tari_htlcFund": {
       const site = await getConnectedSite(origin);
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
-      await touchActivity();
       const p = params as {
         resourceAddress: string;
         amount: string;
@@ -620,7 +616,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
     case "tari_createTransactionRequest": {
       const site = await getConnectedSite(origin);
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
-      await touchActivity();
       const operation = params as TransactionRequestOperation;
       if (operation.kind === "instructions") assertNoStealthTransferInstruction(operation.instructions);
       if ("enforceFeeType" in operation && operation.enforceFeeType && !operation.feeType) {
@@ -642,7 +637,6 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
     case "tari_submitTransactionRequest": {
       const site = await getConnectedSite(origin);
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
-      await touchActivity();
       const p = params as { requestId: string };
       const record = await getTransactionRequest(p.requestId);
       if (!record || record.origin !== origin) throw new Error("Unknown transaction request.");
@@ -705,7 +699,6 @@ async function requireViewAccessAccount(origin: string): Promise<WalletAccountAp
   }
   const account = await getAccountById(site.accountId);
   if (!account) throw new Error("Wallet is locked.");
-  await touchActivity();
   return account;
 }
 
@@ -981,11 +974,15 @@ async function createTransactionRequest(
   // verbatim (`approval.maxFee`), and fees are always paid in TARI -- see formatMaxFee.
   const rawMaxFee = "maxFee" in operation ? operation.maxFee : undefined;
   const maxFee = rawMaxFee !== undefined ? formatMaxFee(rawMaxFee) : undefined;
+  // Refused before anything is persisted: a refused request must not take a slot in the capped
+  // request list, or a spamming site could push other sites' approved requests out of it.
+  if (!canRequestApproval(origin)) throw new Error("Too many requests are waiting for approval -- answer those first.");
   const now = Date.now();
   const record: TransactionRequestRecord = {
     id: requestId,
     origin,
     accountId,
+    network: (await getState()).network,
     operation,
     note,
     status: "pending",
@@ -1093,6 +1090,11 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
   // Checked before claiming so a locked wallet can't strand the record in "submitting" with no
   // execution ever following.
   if (!(await isUnlocked())) throw new Error("Wallet is locked.");
+  // An approval is for one network: refused before the claim so the record stays answerable.
+  const pre = await getTransactionRequest(requestId);
+  if (pre?.network && pre.network !== (await getState()).network) {
+    throw new Error(`This request was approved on ${pre.network}; switch back to that network or create a new request.`);
+  }
   const outcome = await beginTransactionRequestSubmit(requestId);
   if (!outcome.claimed) {
     switch (outcome.reason) {
@@ -1113,6 +1115,19 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
   const feeType = operation.kind === "redeemStealthOutputWithPrivateFee" ? undefined : operation.feeType;
 
   const doExecute = async (): Promise<unknown> => {
+    // These kinds exist to spend one bounded amount (the revealed bucket); their follow-up
+    // instructions run under this account's own signature, so a withdraw (or any non-deposit call)
+    // on the account itself would spend beyond what the approval stated.
+    if (
+      operation.kind === "withdrawStealthAndExecute" ||
+      operation.kind === "redeemStealthOutputAndExecute" ||
+      operation.kind === "redeemStealthOutputWithPrivateFee"
+    ) {
+      const calls = ownAccountCalls(operation.followUpInstructions, await account.getComponentAddress());
+      if (calls.length > 0) {
+        throw new Error(`Refused: this request's follow-up instructions call "${calls[0]}" on your own account, which this kind of request may not do.`);
+      }
+    }
     switch (operation.kind) {
       case "instructions":
         return account.execute(operation.instructions, {
@@ -1249,7 +1264,10 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
           operation.conditions,
           operation.preimageHex,
           maxFee,
-          await resolveFeeType(local, feeType)
+          await resolveFeeType(local, feeType),
+          // The amount the approval screen showed, when it showed one: the pre-claim check then
+          // refuses to reveal the preimage for an output worth anything else.
+          record.previewedHtlcValue !== undefined ? { expected: { amount: BigInt(record.previewedHtlcValue) } } : {}
         );
       }
       case "htlcRefund": {
@@ -1468,6 +1486,44 @@ async function resolveResourceMeta(resourceAddress: string): Promise<Pick<Transa
   }
 }
 
+/** Simulates a still-pending transaction request against its own account and formats the result
+ * for the approval screen. `null` for request kinds whose approval steps already say exactly what
+ * moves (the wallet builds those transactions itself). */
+async function previewTransactionRequest(requestId: string): Promise<TransactionPreview | null> {
+  const record = await getTransactionRequest(requestId);
+  if (!record || record.status !== "pending") return null;
+  const account = await getAccountById(record.accountId);
+  if (!account) throw new Error("Wallet is locked.");
+  const raw = await previewOperation(account, record.operation);
+  if (!raw) return null;
+
+  const balances = await account.getBalances().catch(() => []);
+  const fmt = (amount: bigint, resourceAddress: string) =>
+    approvalAmount(amount.toString(), resourceAddress, balances.find((b) => b.resourceAddress === resourceAddress)?.divisibility);
+
+  const outgoing: string[] = [];
+  const incoming: string[] = [];
+  for (const [resourceAddress, delta] of raw.changes) {
+    (delta < 0n ? outgoing : incoming).push(fmt(delta < 0n ? -delta : delta, resourceAddress));
+  }
+  const preview: TransactionPreview = {
+    simulated: raw.simulated,
+    error: raw.error,
+    wouldFail: raw.wouldFail,
+    outgoing,
+    incoming,
+    ownAccountCalls: raw.ownAccountCalls,
+  };
+  if (raw.htlc && record.operation.kind === "htlcClaim") {
+    preview.htlcProblems = raw.htlc.problems;
+    if (raw.htlc.value !== null) {
+      preview.htlcValue = fmt(raw.htlc.value, record.operation.resourceAddress);
+      await setTransactionRequestPreviewedHtlcValue(record.id, raw.htlc.value.toString());
+    }
+  }
+  return preview;
+}
+
 /**
  * The on-chain transaction id in an SDK call's resolved result, whichever spelling that call uses:
  * `transactionId` (shield/unshield/sendPrivately/claimBurn/withdrawStealthAndExecute/...) or the
@@ -1580,6 +1636,8 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       return {};
 
     case "popup-create-wallet": {
+      // Overwriting an existing vault would destroy its seed; the reset flow wipes first.
+      if ((await getState()).vault) throw new Error("A wallet already exists -- reset it first.");
       const { seed, mnemonic } = await createWalletSeed();
       const vault = await encryptVault(message.password, serializeSeed(seed));
       await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0), walletOrigin: "created", backupPending: true });
@@ -1614,6 +1672,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     }
 
     case "popup-import-wallet": {
+      if ((await getState()).vault) throw new Error("A wallet already exists -- reset it first.");
       const seed = await importWalletSeed(message.mnemonic);
       const vault = await encryptVault(message.password, serializeSeed(seed));
       await setState({ vault, accountCount: 1, activeAccountId: localAccountId(0), walletOrigin: "imported", backupPending: false });
@@ -1932,6 +1991,9 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     case "popup-get-pending-approval":
       return getPendingApproval(message.approvalId) ?? null;
 
+    case "popup-preview-transaction-request":
+      return previewTransactionRequest(message.approvalId);
+
     case "popup-resolve-approval":
       return { resolved: await resolveApproval(message.approvalId, message.approve, message.feeType) };
 
@@ -2048,6 +2110,12 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     }
 
     case "popup-set-network": {
+      // Connections and approvals are per network: a site approved on one network must ask again
+      // on the other (submitApprovedTransactionRequest also refuses a cross-network submit).
+      if ((await getState()).network !== message.network) {
+        await removeAllConnectedSites();
+        await broadcastAccountsChanged([]);
+      }
       await setState({ network: message.network });
       // Local accounts are cached by "network:index" (see accounts.ts's getLocalAccount), so they
       // already pick up the new network on their own -- but a daemon-relayed account's cache key

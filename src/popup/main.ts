@@ -1,5 +1,5 @@
 import "./styles.css";
-import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest, TransactionHistoryEntry, WalletStatus } from "../lib/messages";
+import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest, TransactionHistoryEntry, TransactionPreview, WalletStatus } from "../lib/messages";
 import { LANGUAGE_LABELS, getLanguage, setLanguage, t, type Language } from "../lib/i18n";
 import { isPlausibleMnemonic } from "../lib/cipherSeed";
 import { AUTO_LOCK_OPTIONS, formatAutoLockOption } from "../lib/autoLock";
@@ -2830,12 +2830,36 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     const warningBlock = approval.warning ? h("div", { class: "approval-warning" }, [approval.warning]) : "";
     const hasInstructions = approval.instructions.length > 0;
 
+    // Filled in after first paint: simulating can take several seconds, and the rest of the screen
+    // is worth reading meanwhile. Stays empty for request kinds the wallet builds itself.
+    const previewBlock = h("div", { class: "approval-steps" }, [h("div", { class: "muted" }, [t("approval.previewLoading")])]);
+    void send<TransactionPreview | null>({ kind: "popup-preview-transaction-request", approvalId })
+      .then((p) => {
+        if (!p) return previewBlock.remove();
+        const lines: (Node | string)[] = [h("div", { style: "font-weight:600" }, [t("approval.previewTitle")])];
+        const warn = (text: string) => h("div", { class: "approval-warning" }, [text]);
+        if (p.htlcValue) lines.push(h("div", { class: "approval-step" }, [t("approval.previewHtlcValue", { amount: p.htlcValue })]));
+        for (const problem of p.htlcProblems ?? []) lines.push(warn(t("approval.previewHtlcProblem", { problem })));
+        if (p.simulated) {
+          if (p.wouldFail) lines.push(warn(t("approval.previewWouldFail", { error: p.wouldFail })));
+          for (const amount of p.outgoing) lines.push(h("div", { class: "approval-step" }, [t("approval.previewSends", { amount })]));
+          for (const amount of p.incoming) lines.push(h("div", { class: "approval-step" }, [t("approval.previewReceives", { amount })]));
+          if (p.outgoing.length === 0 && p.incoming.length === 0 && !p.wouldFail) lines.push(h("div", { class: "muted" }, [t("approval.previewNoChanges")]));
+        } else if (p.error && !p.htlcValue) {
+          lines.push(warn(t("approval.previewUnavailable", { error: p.error })));
+        }
+        for (const method of p.ownAccountCalls) lines.push(warn(t("approval.previewOwnAccountCall", { method })));
+        previewBlock.replaceChildren(...lines);
+      })
+      .catch((e) => previewBlock.replaceChildren(h("div", { class: "approval-warning" }, [t("approval.previewUnavailable", { error: e instanceof Error ? e.message : String(e) })])));
+
     render(
       h("h1", {}, [t("approval.transactionTitle")]),
       h("p", { class: "muted" }, [h("b", {}, [approval.origin]), t("approval.transactionDescriptionSuffix")]),
       approvalAccountChip(status, approval.accountId),
       stepsBlock,
       warningBlock,
+      approval.dryRun ? "" : previewBlock,
       approval.maxFee ? h("p", { class: "muted" }, [t("approval.maxFeeLine", { fee: approval.maxFee })]) : "",
       approval.dryRun ? h("p", { class: "muted" }, [t("approval.dryRunNote")]) : "",
       feeChoiceBlock,
