@@ -253,6 +253,8 @@ const en = {
     revealedBalanceLabel: "Revealed balance",
     balanceLabel: "Balance",
     tokenIds: "Token IDs",
+    nftLoading: "Loading attributes…",
+    nftNoAttributes: "No attributes found",
     privateBalanceLabel: "Private balance",
     decryptFailures: "{count} private {word} couldn't be decrypted with this account's key.",
     resourceAddressLabel: "Resource address",

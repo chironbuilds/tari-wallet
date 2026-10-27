@@ -2085,6 +2085,30 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
     });
   }
 
+  // One card per NFT: the id first, then whatever attributes its on-chain data carries (the chain
+  // stores no image -- art, where a collection has any, is generated off-chain from these).
+  const nftList = h("div", { style: "font-size:12px;word-break:break-all;max-height:260px;overflow-y:auto" }, [t("tokenDetail.nftLoading")]);
+  if (balance.kind === "NonFungible" && balance.nonFungibleTokenIds && balance.nonFungibleTokenIds.length > 0) {
+    send<{ tokenId: string; attributes: Array<[string, string]> }[]>({
+      kind: "popup-get-nft-details",
+      resourceAddress: balance.resourceAddress,
+      tokenIds: balance.nonFungibleTokenIds,
+    })
+      .then((details) => {
+        nftList.replaceChildren(
+          ...details.map((d) =>
+            h("div", { class: "card", style: "margin:6px 0;padding:8px" }, [
+              h("div", { class: "muted" }, [d.tokenId]),
+              ...(d.attributes.length === 0
+                ? [h("div", {}, [t("tokenDetail.nftNoAttributes")])]
+                : d.attributes.map(([k, v]) => h("div", {}, [h("span", { class: "muted" }, [`${k}: `]), v]))),
+            ])
+          )
+        );
+      })
+      .catch(() => nftList.replaceChildren(balance.nonFungibleTokenIds!.join(", ")));
+  }
+
   render(
     h("h1", {}, [t("tokenDetail.title")]),
     h("div", { class: "hero" }, [tokenAvatar(balance.resourceAddress, balance.symbol, true)]),
@@ -2102,9 +2126,7 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
       ...(balance.kind === "NonFungible" && balance.nonFungibleTokenIds && balance.nonFungibleTokenIds.length > 0
         ? [
             h("div", { class: "muted" }, [t("tokenDetail.tokenIds")]),
-            h("div", { class: "detail-value", style: "font-size:12px;word-break:break-all" }, [
-              balance.nonFungibleTokenIds.join(", "),
-            ]),
+            nftList,
           ]
         : []),
       ...(isConfidential

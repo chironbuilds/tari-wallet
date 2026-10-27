@@ -13,8 +13,8 @@ importers:
   .:
     dependencies:
       '@chironbuilder/ootle-sdk':
-        specifier: ^0.1.26
-        version: 0.1.26
+        specifier: ^0.1.27
+        version: 0.1.27
       '@noble/ciphers':
         specifier: ^2.2.0
         version: 2.2.0
@@ -39,6 +39,9 @@ importers:
       '@tari-project/ootle-wasm':
         specifier: ^0.47.0
         version: 0.47.0
+      '@tari-project/ootle-wasm-bor':
+        specifier: 0.48.0-rc.0
+        version: 0.48.0-rc.0
       hash-wasm:
         specifier: ^4.12.0
         version: 4.12.0
@@ -79,8 +82,8 @@ importers:
 
 packages:
 
-  '@chironbuilder/ootle-sdk@0.1.26':
-    resolution: {integrity: sha512-M7jutnmV6Ov4zisiGwxiV1iNCoN2SRm8Q2w+RJgMO8b1ZI/EodbAzukocv4eURO9eTo7+NoMTOhAWYzq2q+GDQ==}
+  '@chironbuilder/ootle-sdk@0.1.27':
+    resolution: {integrity: sha512-VY4uWWUO/GOf2YpLZUbCln+l8wRysTwoj6TMZCxaBcaHlGQ1evFpnka451sHU5Jrrwzik/3xAeT486UfQUXUpQ==}
 
   '@crxjs/vite-plugin@2.7.1':
     resolution: {integrity: sha512-mn77Lc1ilIvbO7ZqijjNy+AnRgc8srkfHOtV6HrGrYZgRe8YI3aIcSjHJCU5Kq75SejEZGrdAoHdn3gBGeKpEA==}
@@ -508,6 +511,9 @@ packages:
 
   '@tari-project/ootle-wallet-daemon-signer@0.10.0':
     resolution: {integrity: sha512-jdlLihyrroysP6uUYrDF4ceOUMHdNhv3wMIryaFr16PqNLJVzzc8+jmfAcySBs5KPH6BXczT2m6keMmNDqwPzA==}
+
+  '@tari-project/ootle-wasm-bor@0.48.0-rc.0':
+    resolution: {integrity: sha512-LtXSu5HBbeU7axpcZHekQOuOtGyksGjYoi+HSWmmrXh7HHLW4s/MFelbYv/AE87AcRvCYdSW0eGF/Y6M0qVjMQ==}
 
   '@tari-project/ootle-wasm@0.42.0':
     resolution: {integrity: sha512-a7cR4vbLPSg4ghnYh6cmEZ9qTU0GkP93Lc+0pWlz19hEUESx4QmjM+FYKmW2bwlr8sKdosargTphEJ5fX+8WtA==}
@@ -1095,12 +1101,12 @@ packages:
 
 snapshots:
 
-  '@chironbuilder/ootle-sdk@0.1.26':
+  '@chironbuilder/ootle-sdk@0.1.27':
     dependencies:
       '@chironbuilder/ootle-legacy': '@tari-project/ootle@file:vendor/ootle-patched'
       '@chironbuilder/ootle-wasm-legacy': '@tari-project/ootle-wasm@file:vendor/ootle-wasm-patched'
       '@noble/curves': 1.9.7
-      '@noble/hashes': 2.4.0
+      '@noble/hashes': 2.2.0
       '@tari-project/ootle': 0.10.0
       '@tari-project/ootle-indexer': 0.10.0
       '@tari-project/ootle-secret-key-wallet': 0.10.0
@@ -1392,6 +1398,8 @@ snapshots:
       '@tari-project/ootle': 0.10.0
       '@tari-project/ootle-ts-bindings': 1.60.0
       '@tari-project/wallet_jrpc_client': 1.26.0
+
+  '@tari-project/ootle-wasm-bor@0.48.0-rc.0': {}
 
   '@tari-project/ootle-wasm@0.42.0': {}
 

@@ -10,6 +10,7 @@
 import { defaultIndexerUrl, getVaultIdsForAccount } from "@tari-project/ootle";
 import { OotleAccount, toOotleNetwork, type NetworkName } from "@chironbuilder/ootle-sdk";
 import { addTransactionHistoryEntry, listTransactionHistory } from "../lib/storage";
+import { decodeEvent } from "../lib/bor";
 
 const EVENT_PAGE = 100;
 const EVENT_PAGES = 5;
@@ -112,7 +113,9 @@ async function fetchDeposits(base: string, provider: Awaited<ReturnType<OotleAcc
     for (let page = 0; page < EVENT_PAGES; page++) {
       const res = await fetch(`${base}/transactions/events?substate_id=${vaultId}&limit=${EVENT_PAGE}&offset=${page * EVENT_PAGE}`);
       if (!res.ok) throw new Error(`indexer ${res.status}`);
-      const { events } = (await res.json()) as { events: VaultEvent[] };
+      // From Ootle 0.48 each event is a base64 CBOR `Event`; decodeEvent passes the old JSON through.
+      const { events: raw } = (await res.json()) as { events: Array<[string, unknown]> };
+      const events = raw.map(([txId, ev]) => [txId, decodeEvent<VaultEvent[1]>(ev)] as VaultEvent);
       for (const [txId, ev] of events) {
         if (ev.topic === "std.vault.pay_fee") feePaid.add(txId);
         const sign = ev.topic === "std.vault.deposit" ? 1n : ev.topic === "std.vault.withdraw" ? -1n : 0n;

@@ -246,6 +246,8 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     revealedBalanceLabel: "公开余额",
     balanceLabel: "余额",
     tokenIds: "代币 ID",
+    nftLoading: "正在加载属性…",
+    nftNoAttributes: "未找到属性",
     privateBalanceLabel: "隐私余额",
     decryptFailures: "有 {count} 个隐私输出无法用此账户的密钥解密。",
     resourceAddressLabel: "资源地址",

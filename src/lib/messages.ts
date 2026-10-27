@@ -29,6 +29,7 @@ export type ProviderMethod =
   | "tari_getShieldedOutputs"
   | "tari_scanForPrivatePayments"
   | "tari_scanForResourceUtxos"
+  | "tari_scanForOwnedUtxos"
   | "tari_claimPrivatePayment"
   // ---- Ownership proof (spends nothing; local accounts only) ----
   | "tari_signOwnershipChallenge"
@@ -446,6 +447,18 @@ export interface ProviderRequestParams {
    */
   tari_scanForResourceUtxos: { resourceAddress: string; maxPages?: number; pageSize?: number; limit?: number; transactionIds?: string[] };
   /**
+   * Scans the indexer's live UTXO set for outputs owned by this account, without requiring the
+   * indexer to retain full transaction history. Finds any stealth output that exists on-chain for
+   * `resourceAddress` regardless of how it was created (unlike `tari_scanForPrivatePayments`
+   * which only sees native `StealthTransfer`s, or `tari_scanForResourceUtxos` which requires
+   * recent history). Also marks known outputs as spent when the chain reports they were consumed.
+   *
+   * `mode` is `"delta"` (default: incremental, checkpoint-based, fast on repeat calls) or
+   * `"full"` (paginated scan of the entire current UTXO set; use when checkpoints are lost or a
+   * full re-scan is needed). Returns `{ newOutputs, markedSpent }`.
+   */
+  tari_scanForOwnedUtxos: { resourceAddress: string; mode?: "delta" | "full" };
+  /**
    * Claims a specific stealth payment this account was told about out of band, by commitment --
    * the recipient-side counterpart to a `sendPrivately` result's `recipientCommitment`. Fetches the
    * `utxo_{resource}_{commitment}` substate and decrypts it with this account's view secret;
@@ -742,6 +755,7 @@ export type PopupRequest =
   | { kind: "popup-lock" }
   | { kind: "popup-reveal-mnemonic"; password: string }
   | { kind: "popup-get-balances" }
+  | { kind: "popup-get-nft-details"; resourceAddress: string; tokenIds: string[] }
   | { kind: "popup-claim-testnet-xtr" }
   | { kind: "popup-send"; recipientWalletAddress: string; resourceAddress: string; amount: string }
   | { kind: "popup-shield"; resourceAddress: string; amount: string; maxFee?: string; memo?: string }

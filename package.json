@@ -17,7 +17,7 @@
   "license": "MIT",
   "packageManager": "pnpm@11.9.0",
   "dependencies": {
-    "@chironbuilder/ootle-sdk": "^0.1.26",
+    "@chironbuilder/ootle-sdk": "^0.1.27",
     "@noble/ciphers": "^2.2.0",
     "@noble/hashes": "^2.2.0",
     "@tari-project/ootle": "^0.10.0",
@@ -26,6 +26,7 @@
     "@tari-project/ootle-ts-bindings": "^1.60.0",
     "@tari-project/ootle-wallet-daemon-signer": "^0.10.0",
     "@tari-project/ootle-wasm": "^0.47.0",
+    "@tari-project/ootle-wasm-bor": "0.48.0-rc.0",
     "hash-wasm": "^4.12.0",
     "qrcode-generator": "^2.0.4"
   },

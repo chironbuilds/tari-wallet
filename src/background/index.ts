@@ -54,12 +54,14 @@ import type {
   WalletStatus,
 } from "../lib/messages";
 import type { Instruction, SubstateRequirement } from "@tari-project/ootle-ts-bindings";
-import { isStealthTransferInstruction } from "@tari-project/ootle";
+import { defaultIndexerUrl, isStealthTransferInstruction } from "@tari-project/ootle";
 import {
   OotleAccount,
   chromeStorageAdapter,
+  listShieldedOutputs,
   parseConsoleWalletBurnProof,
   toHex,
+  toOotleNetwork,
   configureOotleStorage,
   getPrivatePaymentScanCursor,
   localAccountId,
@@ -77,6 +79,7 @@ import { shouldAutoLock } from "../lib/autoLock";
 import { encryptSecret } from "../lib/secretAtRest";
 import { migrateOotleStorageOnce } from "../lib/migrateOotleStorage";
 import { syncPublicReceipts } from "./receipts";
+import { fetchNftDetails } from "./nftDetails";
 
 // Must happen before anything below touches OotleAccount/shielded-output/known-versions storage.
 // Synchronous (just sets a module-level variable), so there's no ordering risk with the message
@@ -374,6 +377,22 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
         })),
       };
       return result;
+    }
+
+    case "tari_scanForOwnedUtxos": {
+      // Uses the indexer's live UTXO set rather than transaction history, so it finds any output
+      // that exists on-chain right now regardless of age or how it was created. Complements
+      // tari_scanForPrivatePayments (which walks transaction history) and works without the indexer
+      // retaining full history. Requires view access for the same reason: it decrypts outputs with
+      // the account's view key.
+      const account = await requireViewAccess(origin);
+      if (!(account instanceof OotleAccount)) throw new Error("UTXO set scanning is only available for local accounts.");
+      const p = params as { resourceAddress: string; mode?: "delta" | "full" };
+      if (!p?.resourceAddress) throw new Error("resourceAddress is required.");
+      const { network } = await getState();
+      const indexerBaseUrl = defaultIndexerUrl(toOotleNetwork(network));
+      const { newOutputs, markedSpent } = await account.scanForOwnedUtxos(p.resourceAddress, indexerBaseUrl, { mode: p.mode });
+      return { newOutputs, markedSpent };
     }
 
     case "tari_claimPrivatePayment": {
@@ -1639,6 +1658,11 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       }
     }
 
+    case "popup-get-nft-details": {
+      const { network } = await getState();
+      return fetchNftDetails(network, message.resourceAddress, message.tokenIds);
+    }
+
     case "popup-claim-testnet-xtr": {
       const account = await getActiveAccount();
       if (!account) throw new Error("Wallet is locked.");
@@ -1738,7 +1762,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       // (see renderHome()) instead of blocking buildStatus() -- see that removal's comment for why.
       const account = await getActiveAccount();
       if (!account || !(account instanceof OotleAccount)) return { claimed: 0 };
-      const { activeAccountId, walletOrigin } = await getState();
+      const { activeAccountId, walletOrigin, network } = await getState();
       const hasCursor = (await getPrivatePaymentScanCursor(activeAccountId)) !== null;
       // A wallet this extension generated cannot have received a private payment before the moment
       // it was created -- there is no seed, therefore no view key, therefore nothing to have been
@@ -1755,6 +1779,19 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
         // them so the private balance is the real one.
         await account.pruneSpentShieldedOutputs().catch(() => 0);
         await syncActivePublicReceipts();
+
+        // UTXO-set delta scan: finds any stealth output that exists on-chain right now, regardless
+        // of age or how it was created. Runs for every resource this account already has shielded
+        // outputs for, plus the native TARI resource (which may have received a direct UTXO-mint
+        // from a template that bypasses StealthTransfer). Best-effort -- an indexer hiccup here
+        // shouldn't surface as an error the user has to dismiss.
+        const indexerBaseUrl = defaultIndexerUrl(toOotleNetwork(network));
+        const knownOutputs = await listShieldedOutputs(activeAccountId);
+        const knownResources = [...new Set([TARI_RESOURCE_ADDRESS, ...knownOutputs.map((o) => o.resourceAddress)])];
+        for (const resourceAddress of knownResources) {
+          await account.scanForOwnedUtxos(resourceAddress, indexerBaseUrl).catch(() => undefined);
+        }
+
         return { claimed };
       } catch {
         return { claimed: 0 }; // best-effort -- an indexer hiccup here shouldn't surface as an error the user has to dismiss
