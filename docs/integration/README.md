@@ -29,8 +29,9 @@ None of these prompt an approval popup:
 
 ```js
 await window.tari.request({ method: "tari_getAccounts" });   // -> string[] (already-connected accounts)
-await window.tari.request({ method: "tari_getNetwork" });    // -> "esmeralda" | "igor"
+await window.tari.request({ method: "tari_getNetwork" });    // -> "mainnet" | "esmeralda" | "igor"
 await window.tari.request({ method: "tari_getBalances" });   // -> TokenBalance[]
+await window.tari.request({ method: "tari_resolveName", params: { name: "🦄🚀" } }); // -> { walletAddress: "otl_…", … } for an emoji name (Yat)
 await window.tari.request({
   method: "tari_getSubstate",
   params: { substateId: "resource_...", version: null },

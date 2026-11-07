@@ -1,6 +1,7 @@
 // Shared message shapes for the three extension contexts:
 //   injected page script <-> content script <-> background service worker
 // and separately: popup UI <-> background service worker.
+import type { NetworkName } from "@chironbuilder/ootle-sdk";
 import type { Instruction, SubstateRequirement } from "@tari-project/ootle-ts-bindings";
 
 // ---- Page (window.tari) <-> content script <-> background ----
@@ -34,6 +35,8 @@ export type ProviderMethod =
   // ---- Ownership proof (spends nothing; local accounts only) ----
   | "tari_signOwnershipChallenge"
   | "tari_signWalletOwnershipChallenge"
+  // ---- Names ----
+  | "tari_resolveName"
   | "tari_disconnect";
 
 /**
@@ -197,7 +200,12 @@ export type TransactionRequestOperation =
   | {
       kind: "sendPrivately";
       resourceAddress: string;
+      /** The recipient's `otl_` wallet address. May be omitted when `recipientName` is given: the
+       * wallet then resolves the name itself (`tari_resolveName`) when the request is created and
+       * fills this in, so the approval screen shows both the name and the address it resolved to. */
       recipientWalletAddress: string;
+      /** An emoji name (a Yat) for the recipient; see `recipientWalletAddress`. */
+      recipientName?: string;
       amount: string;
       maxFee?: string;
       memo?: string;
@@ -503,6 +511,15 @@ export interface ProviderRequestParams {
    */
   tari_signWalletOwnershipChallenge: { challenge: string };
 
+  /**
+   * Resolves an emoji name (a Yat, 1 to 6 emoji) to an `otl_` wallet address on the connected
+   * account's network, from the name's public records (y.at first, then raddish.io). Returns a
+   * `ResolvedNameResult`. Throws when the name has no address, its owner keeps it private, the
+   * address is for another network, or neither source can be reached -- never a guess. Nothing is
+   * cached: names change hands. Needs no connection and no view access: the records are public.
+   */
+  tari_resolveName: { name: string };
+
   tari_disconnect: undefined;
 }
 
@@ -555,6 +572,18 @@ export interface ShieldedOutputSummary {
   transactionId: string;
   createdAt: number;
   memo?: string;
+}
+
+/** `tari_resolveName`'s result. */
+export interface ResolvedNameResult {
+  /** The name as the caller gave it, trimmed. */
+  name: string;
+  /** The canonical spelling: Yat's sibling emoji folded onto their base (💜 -> ❤), selectors dropped. */
+  canonical: string;
+  walletAddress: string;
+  network: NetworkName;
+  /** Which public record answered. */
+  source: "yat" | "raddish";
 }
 
 /** `tari_scanForPrivatePayments`' result. */
@@ -726,6 +755,22 @@ export interface WalletCapabilities {
    * witness data (e.g. a future ScriptPath preimage) should not be dry-run through this wallet
    * until this is true. */
   dryRunIsLocal: boolean;
+  /** The network the connected account is on. A dApp that holds real value should refuse to run
+   * against anything but `"mainnet"`. */
+  network: NetworkName;
+  /** `tari_resolveName` -- resolving an emoji name (a Yat) to an `otl_` destination, and
+   * `recipientName` on the `sendPrivately` request kind. */
+  resolveName: boolean;
+  /** Template addresses whose method calls the approval popup can put into words (a verified
+   * argument decoder exists for them); every other template shows the method name only. */
+  approvalDecoders: string[];
+  /** Incoming private payments can be found by this account on its own (a view-key scan), so a
+   * payer need not pass the recipient commitment out of band. Same requirement as `privateScan`. */
+  privateReceive: boolean;
+  /** Reserved for a `tari_getStealthDestination` string a name record can publish. Not built. */
+  stealthDestination: boolean;
+  /** Reserved for `tari_signNftOwnershipChallenge` / `tari_getNfts`. Not built. */
+  nftOwnershipProof: boolean;
 }
 
 /**
@@ -756,6 +801,7 @@ export type PopupRequest =
   | { kind: "popup-reveal-mnemonic"; password: string }
   | { kind: "popup-get-balances" }
   | { kind: "popup-get-nft-details"; resourceAddress: string; tokenIds: string[] }
+  | { kind: "popup-resolve-name"; name: string }
   | { kind: "popup-claim-testnet-xtr" }
   | { kind: "popup-send"; recipientWalletAddress: string; resourceAddress: string; amount: string }
   | { kind: "popup-shield"; resourceAddress: string; amount: string; maxFee?: string; memo?: string }
@@ -802,7 +848,7 @@ export type PopupRequest =
   | { kind: "popup-set-fee-privacy-default"; feeType: "private" | "transparent" }
   | { kind: "popup-add-address-book-entry"; label: string; address: string }
   | { kind: "popup-remove-address-book-entry"; id: string }
-  | { kind: "popup-set-network"; network: "esmeralda" | "igor" }
+  | { kind: "popup-set-network"; network: NetworkName }
   | { kind: "popup-get-transaction-history" };
 
 export interface AccountSummary {
@@ -821,7 +867,7 @@ export interface WalletStatus {
   /** A created wallet whose recovery phrase has not been verified yet. */
   backupPending: boolean;
   isUnlocked: boolean;
-  network: "esmeralda" | "igor";
+  network: NetworkName;
   activeAccountId: string;
   accountCount: number;
   address: string | null;
@@ -966,6 +1012,9 @@ export interface TransactionPreview {
   incoming: string[];
   /** Methods other than deposit* that the request calls on the signing account's own component. */
   ownAccountCalls: string[];
+  /** Plain sentences for calls on contracts the wallet knows ("raddish yat_swap: Buy the listed Yat
+   * for 50 XTR…"); see `WalletCapabilities.approvalDecoders`. Empty for every other call. */
+  explained: string[];
   /** For an HTLC claim: the funded output's decrypted value, and any problem the pre-claim check found. */
   htlcValue?: string;
   htlcProblems?: string[];

@@ -2,7 +2,6 @@ import {
   Network,
   TransactionBuilder,
   amountLiteral,
-  defaultIndexerUrl,
   resolveMaxEpoch,
   resolveTransaction,
   resourceAddressLiteral,
@@ -39,6 +38,7 @@ import {
   resolveUnshieldPlan,
   substateExists,
   toOotleNetwork,
+  indexerUrlFor,
   withTimeout,
 } from "@chironbuilder/ootle-sdk";
 import { toHex } from "./vault";
@@ -210,7 +210,7 @@ export class DaemonAccount implements WalletAccountApi {
       client.accountsGet({ name_or_address: { ComponentAddress: componentAddress } }),
       "looking up the daemon account"
     );
-    const indexerProvider = await IndexerProvider.connect({ url: defaultIndexerUrl(toOotleNetwork(networkName)), network: toOotleNetwork(networkName) });
+    const indexerProvider = await IndexerProvider.connect({ url: indexerUrlFor(toOotleNetwork(networkName)), network: toOotleNetwork(networkName) });
     return new DaemonAccount(client, indexerProvider, networkName, account, address, url);
   }
 

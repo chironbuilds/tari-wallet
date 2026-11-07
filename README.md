@@ -70,6 +70,30 @@ of WalletConnect) and their trade-offs.
 
 ## Recent additions (typecheck/test/build verified; not yet exercised live)
 
+- **Mainnet as a network** (`"mainnet" | "esmeralda" | "igor"`, SDK 0.3.0): Settings offers
+  Mainnet beside the two testnets, behind a confirmation that spells out that it holds real value;
+  the indexer is Tari's public `indexer-a.ootle.tari.com` (`indexerUrlFor` in the SDK; override
+  with `setIndexerUrl`); the faucet refuses; no explorer link yet. Mainnet addresses carry no
+  network tag (`otl_1…`), which the Send forms now accept.
+- **Pay a name** (`tari_resolveName`, `recipientName` on `sendPrivately`, and the Send forms):
+  an emoji name (a Yat, 1 to 6 emoji) resolves to an `otl_` address from its public records on
+  y.at, then the owner's route on raddish.io, with Yat's own spelling rules (`lib/yatName.ts`);
+  an address for another network is refused, and nothing is cached. `lib/yatResolver.ts`.
+- **Readable approvals for known contracts** (`WalletCapabilities.approvalDecoders`): a short
+  allowlist of template addresses, each with hand-written, tested per-method decoders
+  (`lib/templateDecoders.ts`, `lib/knownTemplates.ts`), lets the approval preview say "Buy the
+  listed Yat for 50 XTR" for a template it knows. The component's template is read from its
+  on-chain substate, never from the request; arguments are read by a small CBOR reader
+  (`lib/cbor.ts`); anything a decoder does not recognise falls back to today's generic line.
+  Ships with decoders for raddish's `yat_swap` and `yat_escrow`, registered once their template
+  addresses are published.
+- **Verifiable ownership proofs** (SDK 0.3.0): `verifyWalletOwnershipProof` /
+  `verifyOwnershipProof` / `verifySchnorrSignature`, a byte-level spec (`docs/ownership-proof.md`
+  in the SDK) and fixed test vectors from Tari's real signer, so a site can check
+  `tari_signWalletOwnershipChallenge`'s output server-side without this extension's code.
+- **More capability flags**: `network`, `resolveName`, `approvalDecoders`, `privateReceive`, and
+  the reserved `stealthDestination` / `nftOwnershipProof` (both false today).
+
 - **Private transaction fees** (`WalletCapabilities.supportsPrivateFees`): every
   `tari_createTransactionRequest` kind except `redeemStealthOutputWithPrivateFee` (already always
   private) now takes an optional `feeType: "private" | "transparent"` hint and `enforceFeeType`

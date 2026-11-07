@@ -150,9 +150,28 @@ export function isValidComponentAddress(address: string): boolean {
   return /^component_[0-9a-f]{64}$/i.test(address);
 }
 
-/** A bech32m Ootle wallet address ("otl_<network>_<data>", e.g. "otl_esm_1v3sn...") — a loose
- * shape check, not full bech32m checksum validation (that happens wasm-side on submission
- * regardless); this just catches an obviously wrong or truncated paste before it gets that far. */
+/** A bech32m Ootle wallet address: "otl_<network>_<data>" on a testnet (e.g. "otl_esm_1v3sn...",
+ * "otl_igr_1...") and "otl_<data>" on mainnet (e.g. "otl_1aj4k..."), whose hrp carries no network
+ * tag. A loose shape check, not full bech32m checksum validation (that happens wasm-side on
+ * submission regardless); this just catches an obviously wrong or truncated paste before it gets
+ * that far. */
 export function isValidOotleWalletAddress(address: string): boolean {
-  return /^otl_[a-z0-9]+_[a-z0-9]{20,}$/i.test(address.trim());
+  return /^otl_(?:[a-z]+_)?1[a-z0-9]{20,}$/i.test(address.trim());
+}
+
+/** The network an `otl_` address is for, read from its hrp, or `undefined` for a shape this wallet
+ * does not know. Mainnet addresses carry no tag ("otl_1…"). */
+export function networkOfOotleWalletAddress(address: string): "mainnet" | "esmeralda" | "igor" | undefined {
+  const m = /^otl_(?:([a-z]+)_)?1[a-z0-9]{20,}$/i.exec(address.trim());
+  if (!m) return undefined;
+  switch ((m[1] ?? "").toLowerCase()) {
+    case "":
+      return "mainnet";
+    case "esm":
+      return "esmeralda";
+    case "igr":
+      return "igor";
+    default:
+      return undefined;
+  }
 }

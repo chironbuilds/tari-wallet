@@ -34,6 +34,9 @@ import { isNewerVersion } from "../lib/version";
 import { decryptSecret } from "../lib/secretAtRest";
 import { fromHex as fromHexString, toHex as toHexString } from "../lib/vault";
 import { summarizeInstruction } from "../lib/instructionSummary";
+import { knownTemplateAddresses, registerRaddishTemplates } from "../lib/templateDecoders";
+import { RADDISH_TEMPLATES } from "../lib/knownTemplates";
+import { resolveYatName } from "../lib/yatResolver";
 import { formatBalanceAmountGrouped, formatMaxFee } from "../popup/format";
 import { classifyProviderError } from "../lib/messages";
 import type {
@@ -47,6 +50,7 @@ import type {
   PopupRequest,
   PrivateBalance,
   PrivatePaymentScanResult,
+  ResolvedNameResult,
   ResourceUtxoScanResult,
   ShieldedOutputSummary,
   TransactionRequestOperation,
@@ -55,7 +59,7 @@ import type {
   WalletStatus,
 } from "../lib/messages";
 import type { Instruction, SubstateRequirement } from "@tari-project/ootle-ts-bindings";
-import { defaultIndexerUrl, isStealthTransferInstruction } from "@tari-project/ootle";
+import { isStealthTransferInstruction } from "@tari-project/ootle";
 import {
   OotleAccount,
   chromeStorageAdapter,
@@ -63,6 +67,7 @@ import {
   parseConsoleWalletBurnProof,
   toHex,
   toOotleNetwork,
+  indexerUrlFor,
   configureOotleStorage,
   getPrivatePaymentScanCursor,
   localAccountId,
@@ -100,6 +105,8 @@ const clampScan = (n: number | undefined, max: number): number | undefined =>
 // never wrong data.
 configureOotleStorage(chromeStorageAdapter());
 void migrateOotleStorageOnce();
+// Approval decoders for the contracts this wallet knows how to put into words (templateDecoders.ts).
+registerRaddishTemplates(RADDISH_TEMPLATES);
 
 // chrome.runtime.sendMessage serializes its payload as JSON, not a full structured clone — a
 // BigInt anywhere in a response (transaction results, token amounts) makes the whole send fail
@@ -254,6 +261,14 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       return [await account.getComponentAddress()];
     }
 
+    case "tari_resolveName": {
+      const p = params as { name?: unknown };
+      if (typeof p?.name !== "string") throw new Error("tari_resolveName needs { name: string }.");
+      const r = await resolveYatName(p.name, (await getState()).network);
+      const result: ResolvedNameResult = { name: r.name, canonical: r.canonical, walletAddress: r.walletAddress, network: r.network, source: r.source };
+      return result;
+    }
+
     case "tari_disconnect": {
       await removeConnectedSite(origin);
       return null;
@@ -397,7 +412,7 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       const p = params as { resourceAddress: string; mode?: "delta" | "full" };
       if (!p?.resourceAddress) throw new Error("resourceAddress is required.");
       const { network } = await getState();
-      const indexerBaseUrl = defaultIndexerUrl(toOotleNetwork(network));
+      const indexerBaseUrl = indexerUrlFor(toOotleNetwork(network));
       const { newOutputs, markedSpent } = await account.scanForOwnedUtxos(p.resourceAddress, indexerBaseUrl, { mode: p.mode });
       return { newOutputs, markedSpent };
     }
@@ -537,6 +552,12 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
         confidentialDeposit: isLocal,
         supportsPrivateFees: isLocal,
         dryRunIsLocal: false,
+        network: (await getState()).network,
+        resolveName: true,
+        approvalDecoders: knownTemplateAddresses(),
+        privateReceive: isLocal,
+        stealthDestination: false,
+        nftOwnershipProof: false,
       };
       return capabilities;
     }
@@ -621,6 +642,14 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
       const operation = params as TransactionRequestOperation;
       if (operation.kind === "instructions") assertNoStealthTransferInstruction(operation.instructions);
+      if (operation.kind === "sendPrivately" && operation.recipientName) {
+        // Resolve here, once, before the request is stored: the approval screen then shows the
+        // address the name resolved to, and what the user approves is what gets paid. A dApp that
+        // passes both a name and an address gets the address the *name* resolves to, never its own.
+        const resolved = await resolveYatName(operation.recipientName, (await getState()).network);
+        operation.recipientWalletAddress = resolved.walletAddress;
+        operation.recipientName = resolved.canonical;
+      }
       if ("enforceFeeType" in operation && operation.enforceFeeType && !operation.feeType) {
         throw new Error("enforceFeeType requires feeType to also be set.");
       }
@@ -864,7 +893,9 @@ function summarizeOperationForApproval(
       return {
         instructions: [],
         steps: [
-          `Sends ${fmt(operation.amount)} privately to ${shortId(operation.recipientWalletAddress)}.`,
+          operation.recipientName
+            ? `Sends ${fmt(operation.amount)} privately to ${operation.recipientName} (${shortId(operation.recipientWalletAddress)}).`
+            : `Sends ${fmt(operation.amount)} privately to ${shortId(operation.recipientWalletAddress)}.`,
           "The amount and recipient stay hidden on-chain.",
         ],
         warning: promiseWarning(operation.minimumValuePromise, "the recipient's new output", fmt),
@@ -1516,6 +1547,7 @@ async function previewTransactionRequest(requestId: string): Promise<Transaction
     outgoing,
     incoming,
     ownAccountCalls: raw.ownAccountCalls,
+    explained: raw.explained,
   };
   if (raw.htlc && record.operation.kind === "htlcClaim") {
     preview.htlcProblems = raw.htlc.problems;
@@ -1725,10 +1757,16 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       return fetchNftDetails(network, message.resourceAddress, message.tokenIds);
     }
 
+    case "popup-resolve-name": {
+      const { network } = await getState();
+      return resolveYatName(message.name, network);
+    }
+
     case "popup-claim-testnet-xtr": {
       const account = await getActiveAccount();
       if (!account) throw new Error("Wallet is locked.");
-      const { activeAccountId } = await getState();
+      const { activeAccountId, network } = await getState();
+      if (network === "mainnet") throw new Error("There is no faucet on mainnet.");
       return withHistory({ accountId: activeAccountId, kind: "claim" }, () => account.claimTestnetXtr());
     }
 
@@ -1847,7 +1885,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
         // outputs for, plus the native TARI resource (which may have received a direct UTXO-mint
         // from a template that bypasses StealthTransfer). Best-effort -- an indexer hiccup here
         // shouldn't surface as an error the user has to dismiss.
-        const indexerBaseUrl = defaultIndexerUrl(toOotleNetwork(network));
+        const indexerBaseUrl = indexerUrlFor(toOotleNetwork(network));
         const knownOutputs = await listShieldedOutputs(activeAccountId);
         const knownResources = [...new Set([TARI_RESOURCE_ADDRESS, ...knownOutputs.map((o) => o.resourceAddress)])];
         for (const resourceAddress of knownResources) {
