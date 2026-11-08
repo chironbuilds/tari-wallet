@@ -96,10 +96,9 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     mainnet: "主网",
     esmeralda: "Esmeralda（测试网）",
     igor: "Igor（测试网）",
-    mainnetShort: "主网",
-    esmeraldaShort: "Esmeralda",
-    igorShort: "Igor",
-    mainnetWarning: "主网使用真实的 TARI。在主网上的交易会花费真实资金，且无法撤销。",
+    mainnetNotLiveOption: "主网（尚未上线）",
+    mainnetNotLive: "主网尚未上线。上线后即可切换。",
+    checking: "正在检查主网…",
   },
 
   settings: {

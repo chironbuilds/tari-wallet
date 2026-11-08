@@ -370,7 +370,7 @@ const [accountAddress] = await window.tari.request({ method: "tari_requestAccoun
 // Read-only calls — no approval popup.
 await window.tari.request({ method: "tari_getAccounts" });   // -> string[] (already-connected accounts)
 await window.tari.request({ method: "tari_getNetwork" });    // -> "mainnet" | "esmeralda" | "igor"
-// Asks the user to switch (approval popup, real-money warning for mainnet); resolves to the new network.
+// Asks the user to switch (approval popup; refused while mainnet isn't live yet); resolves to the new network.
 await window.tari.request({ method: "tari_switchNetwork", params: { network: "mainnet" } });
 await window.tari.request({ method: "tari_getBalances" });   // -> { resourceAddress, kind, amount, confidentialAmount, privateVisible, divisibility, symbol }[]
 await window.tari.request({ method: "tari_getWalletAddress" }); // -> bech32m address to pay this account *privately*

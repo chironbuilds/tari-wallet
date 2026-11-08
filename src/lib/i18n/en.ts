@@ -98,10 +98,9 @@ const en = {
     mainnet: "Mainnet",
     esmeralda: "Esmeralda (testnet)",
     igor: "Igor (testnet)",
-    mainnetShort: "Mainnet",
-    esmeraldaShort: "Esmeralda",
-    igorShort: "Igor",
-    mainnetWarning: "Mainnet uses real TARI. Transactions there cost real money and can't be undone.",
+    mainnetNotLiveOption: "Mainnet (not live yet)",
+    mainnetNotLive: "Mainnet isn't live yet. You can switch to it once it launches.",
+    checking: "Checking mainnet…",
   },
 
   settings: {

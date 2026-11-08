@@ -624,24 +624,50 @@ button + button {
 .account-pill:active {
   transform: scale(0.97);
 }
-/* Which network the wallet is on, beside the account pill. Testnets read as amber "practice"
-   money; mainnet as the accent, since that is where real value lives. Opens Settings. */
-.network-pill {
+/* The title block: "Sapient Wallet" with the network as a quiet second line under it, so the
+   header row only carries the account pill and Settings. */
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+/* Which network the wallet is on: a dot and the name, under the title. Testnets get an amber
+   dot, mainnet the accent. Opens Settings. */
+.network-line {
   width: auto;
-  margin-top: 0;
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
   font-family: inherit;
-  padding: 4px 8px;
-  border-radius: 100px;
-  border: 1px solid var(--fair);
-  color: var(--fair);
+  color: var(--muted);
   background: transparent;
+  border: none;
   cursor: pointer;
   white-space: nowrap;
 }
-.network-pill.network-pill-mainnet {
-  border-color: var(--accent);
-  color: var(--accent);
+.network-line:hover {
+  color: var(--text);
+}
+.network-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fair);
+  flex: none;
+}
+.network-line.network-line-mainnet .network-dot {
+  background: var(--accent);
+}
+/* A long account label must not push Settings off the row. */
+.account-pill .account-pill-label {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .hero {
   display: flex;

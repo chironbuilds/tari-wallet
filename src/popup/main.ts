@@ -649,8 +649,8 @@ function goHome(): void {
 
 async function renderHome(status: WalletStatus) {
   const activeLabel = activeAccountSummary(status)?.label ?? t("home.accountFallback");
-  const accountPill = h("button", { class: "account-pill", "aria-label": t("home.switchAccountAria", { label: activeLabel }) }, [
-    activeLabel,
+  const accountPill = h("button", { class: "account-pill", "aria-label": t("home.switchAccountAria", { label: activeLabel }), title: activeLabel }, [
+    h("span", { class: "account-pill-label" }, [activeLabel]),
     icon(ICON_CHEVRON_DOWN),
   ]);
   const settingsBtn = h(
@@ -658,20 +658,20 @@ async function renderHome(status: WalletStatus) {
     { class: "secondary", id: "settingsBtn", style: "width:auto;padding:6px 10px;margin-top:0", "aria-label": t("home.settingsAria") },
     [icon(ICON_SETTINGS)]
   );
-  const networkPill = h(
+  const networkLine = h(
     "button",
     {
-      class: `network-pill${status.network === "mainnet" ? " network-pill-mainnet" : ""}`,
+      class: `network-line${status.network === "mainnet" ? " network-line-mainnet" : ""}`,
       title: networkLabel(status.network),
       "aria-label": `${t("settings.network")}: ${networkLabel(status.network)}`,
     },
-    [t(status.network === "mainnet" ? "network.mainnetShort" : status.network === "esmeralda" ? "network.esmeraldaShort" : "network.igorShort")]
+    [h("span", { class: "network-dot", "aria-hidden": "true" }), networkLabel(status.network)]
   );
   const nav = h("div", { class: "top-nav" }, [
-    h("h1", {}, ["Sapient", h("span", {}, [" Wallet"])]),
-    h("div", { class: "row", style: "gap:6px" }, [networkPill, accountPill, settingsBtn]),
+    h("div", { class: "brand" }, [h("h1", {}, ["Sapient", h("span", {}, [" Wallet"])]), networkLine]),
+    h("div", { class: "row", style: "gap:6px" }, [accountPill, settingsBtn]),
   ]);
-  networkPill.addEventListener("click", () => renderSettings(status));
+  networkLine.addEventListener("click", () => renderSettings(status));
   accountPill.addEventListener("click", () => renderAccountSwitcher(status));
   settingsBtn.addEventListener("click", () => renderSettings(status));
 
@@ -1059,11 +1059,38 @@ function renderSettings(status: WalletStatus) {
     const feeType = (e.target as HTMLInputElement).checked ? "private" : "transparent";
     void send({ kind: "popup-set-fee-privacy-default", feeType });
   });
-  networkSelect.addEventListener("change", () => {
+  // Until mainnet launches its option says so, and choosing it explains instead of offering a
+  // switch. Checked live (see isNetworkLive), so this store version needs no update at launch.
+  const mainnetOption = (networkSelect as HTMLSelectElement).querySelector<HTMLOptionElement>('option[value="mainnet"]');
+  if (status.network !== "mainnet") {
+    void send<{ live: boolean }>({ kind: "popup-network-live", network: "mainnet" })
+      .then(({ live }) => {
+        if (!live && mainnetOption) mainnetOption.textContent = t("network.mainnetNotLiveOption");
+      })
+      .catch(() => {});
+  }
+  networkSelect.addEventListener("change", async () => {
     const chosen = (networkSelect as HTMLSelectElement).value as WalletStatus["network"];
     if (chosen === status.network) {
       networkConfirmEl.style.display = "none";
       return;
+    }
+    if (chosen === "mainnet") {
+      networkConfirmEl.className = "status";
+      networkConfirmEl.style.display = "block";
+      networkConfirmEl.textContent = t("network.checking");
+      const live = await send<{ live: boolean }>({ kind: "popup-network-live", network: "mainnet" })
+        .then((r) => r.live)
+        .catch(() => false);
+      // The user may have picked something else while the check ran.
+      if ((networkSelect as HTMLSelectElement).value !== "mainnet") return;
+      if (!live) {
+        (networkSelect as HTMLSelectElement).value = status.network;
+        if (mainnetOption) mainnetOption.textContent = t("network.mainnetNotLiveOption");
+        networkConfirmEl.className = "status";
+        networkConfirmEl.textContent = t("network.mainnetNotLive");
+        return;
+      }
     }
     // .primary, not .danger -- switching networks is a reversible settings change, not a
     // destructive action (unlike Lock/Reset, which genuinely warrant the red danger styling).
@@ -1075,9 +1102,6 @@ function renderSettings(status: WalletStatus) {
       h("p", { style: "margin:0 0 8px" }, [
         t("settings.networkSwitchWarning", { from: networkLabel(status.network), to: networkLabel(chosen) }),
       ]),
-      // Moving onto mainnet is the one switch that puts real money in play: said outright, in the
-      // warning box, before the Switch button rather than after it.
-      ...(chosen === "mainnet" ? [h("div", { class: "approval-warning", style: "margin:0 0 8px" }, [t("network.mainnetWarning")])] : []),
       confirmBtn,
       cancelBtn
     );
@@ -2827,7 +2851,6 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
       h("button", { class: "secondary", id: "reject" }, [t("approval.rejectButton")])
     );
   } else if (approval.kind === "switchNetwork") {
-    const toMainnet = approval.to === "mainnet";
     render(
       h("h1", {}, [t("approval.switchNetworkTitle")]),
       h("p", { class: "muted" }, [
@@ -2838,7 +2861,6 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
         h("b", {}, [networkLabel(approval.to)]),
         t("approval.periodSuffix"),
       ]),
-      ...(toMainnet ? [h("div", { class: "approval-warning" }, [t("network.mainnetWarning")])] : []),
       h("div", { class: "view-access-grants" }, [
         h("div", { class: "view-access-grant" }, [t("approval.switchNetworkKeepsSite")]),
         h("div", { class: "view-access-grant deny" }, [t("approval.switchNetworkDisconnects")]),

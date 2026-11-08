@@ -31,8 +31,9 @@ if ((await window.tari.request({ method: "tari_getNetwork" })) !== "mainnet") {
 }
 ```
 
-The wallet never switches on a site's say-so: every request opens an approval prompt, with a
-real-money warning when the target is mainnet. When the user approves, every other connected site
+The wallet never switches on a site's say-so: every request opens an approval prompt. Until
+mainnet launches, a request for it is refused with "Mainnet isn't live yet" and no prompt (the
+wallet checks the mainnet indexer, so this lifts on its own at launch). When the user approves, every other connected site
 is disconnected; the site that asked stays connected but loses private view access (a grant made on
 one network never carries to another), and every page gets `accountsChanged` with `[]` followed by
 `networkChanged`. The same events fire when the user switches in Settings, where no site is kept.

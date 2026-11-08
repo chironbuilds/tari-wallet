@@ -507,8 +507,8 @@ export interface ProviderRequestParams {
 
   /**
    * Asks the user to switch the wallet to `network` -- the counterpart of MetaMask's
-   * `wallet_switchEthereumChain`. Always opens an approval popup (with a real-money warning when the
-   * target is `"mainnet"`); a site can never switch the network on its own. Resolves to the new
+   * `wallet_switchEthereumChain`. Always opens an approval popup; a site can never switch the
+   * network on its own. Refused with no popup while mainnet isn't live yet. Resolves to the new
    * network name once the user approves, or immediately when the wallet is already on it; rejects
    * when the user declines. On a switch every connected site is disconnected except the one that
    * asked (its private view access is dropped, though: a grant made on one network never carries to
@@ -829,6 +829,8 @@ export type PopupRequest =
   | { kind: "popup-add-address-book-entry"; label: string; address: string }
   | { kind: "popup-remove-address-book-entry"; id: string }
   | { kind: "popup-set-network"; network: NetworkName }
+  /** `{ live }`: whether `network` can be switched to yet (mainnet only once its indexer is up). */
+  | { kind: "popup-network-live"; network: NetworkName }
   | { kind: "popup-get-transaction-history" };
 
 export interface AccountSummary {

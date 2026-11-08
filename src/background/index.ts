@@ -236,6 +236,8 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       const { network: from, vault } = await getState();
       if (!vault) throw new Error("No wallet set up in the Tari extension yet.");
       if (from === target) return target;
+      // Refused before any popup: there is nothing to approve while the network isn't up.
+      if (!(await isNetworkLive(target))) throw new Error(MAINNET_NOT_LIVE);
       const approved = await requestApproval({ kind: "switchNetwork", origin, from, to: target });
       if (!approved) throw new Error("Network switch rejected.");
       // The prompt can sit open for a while. If the network moved some other way meanwhile, the
@@ -1401,6 +1403,37 @@ async function switchNetworkTo(network: NetworkName, keepOrigin?: string): Promi
   await broadcastNetworkChanged(network);
 }
 
+/**
+ * Whether `network` can be used yet. Testnets always can. Mainnet can once its indexer answers
+ * `GET /identity` with its key -- before launch the host is up behind Cloudflare but the origin
+ * isn't (523). Checked live rather than by a flag in the build, so the version in the store starts
+ * offering mainnet the moment it launches. A yes is kept for the session; a no is re-checked after
+ * 30 s, so a launch is picked up quickly without hammering the indexer while it's down.
+ */
+let mainnetLiveCheck: { live: boolean; at: number } | null = null;
+const MAINNET_NOT_LIVE_RECHECK_MS = 30_000;
+
+async function isNetworkLive(network: NetworkName): Promise<boolean> {
+  if (network !== "mainnet") return true;
+  if (mainnetLiveCheck && (mainnetLiveCheck.live || Date.now() - mainnetLiveCheck.at < MAINNET_NOT_LIVE_RECHECK_MS)) {
+    return mainnetLiveCheck.live;
+  }
+  let live = false;
+  try {
+    const res = await fetch(`${indexerUrlFor(toOotleNetwork("mainnet"))}/identity`, { signal: AbortSignal.timeout(6000) });
+    if (res.ok) {
+      const body = (await res.json()) as { public_key?: unknown };
+      live = typeof body?.public_key === "string" && body.public_key.length > 0;
+    }
+  } catch {
+    live = false;
+  }
+  mainnetLiveCheck = { live, at: Date.now() };
+  return live;
+}
+
+const MAINNET_NOT_LIVE = "Mainnet isn't live yet. You can switch once it launches.";
+
 /** `tari-network-changed` to every tab, forwarded into the page as `networkChanged` (see inject.ts). */
 async function broadcastNetworkChanged(network: NetworkName): Promise<void> {
   const tabs = await chrome.tabs.query({});
@@ -2180,8 +2213,14 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
 
     case "popup-set-network": {
       if (!isNetworkName(message.network)) throw new Error(`Unknown network: ${String(message.network)}`);
+      if (!(await isNetworkLive(message.network))) throw new Error(MAINNET_NOT_LIVE);
       await switchNetworkTo(message.network);
       return {};
+    }
+
+    case "popup-network-live": {
+      if (!isNetworkName(message.network)) throw new Error(`Unknown network: ${String(message.network)}`);
+      return { live: await isNetworkLive(message.network) };
     }
 
     default:
