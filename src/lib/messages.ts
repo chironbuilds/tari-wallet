@@ -1,6 +1,7 @@
 // Shared message shapes for the three extension contexts:
 //   injected page script <-> content script <-> background service worker
 // and separately: popup UI <-> background service worker.
+import type { NetworkName } from "@chironbuilder/ootle-sdk";
 import type { Instruction, SubstateRequirement } from "@tari-project/ootle-ts-bindings";
 
 // ---- Page (window.tari) <-> content script <-> background ----
@@ -9,6 +10,7 @@ export type ProviderMethod =
   | "tari_requestAccounts"
   | "tari_getAccounts"
   | "tari_getNetwork"
+  | "tari_switchNetwork"
   | "tari_getWalletAddress"
   | "tari_getBalances"
   | "tari_getSubstate"
@@ -503,6 +505,17 @@ export interface ProviderRequestParams {
    */
   tari_signWalletOwnershipChallenge: { challenge: string };
 
+  /**
+   * Asks the user to switch the wallet to `network` -- the counterpart of MetaMask's
+   * `wallet_switchEthereumChain`. Always opens an approval popup (with a real-money warning when the
+   * target is `"mainnet"`); a site can never switch the network on its own. Resolves to the new
+   * network name once the user approves, or immediately when the wallet is already on it; rejects
+   * when the user declines. On a switch every connected site is disconnected except the one that
+   * asked (its private view access is dropped, though: a grant made on one network never carries to
+   * another), and every page gets a `networkChanged` event.
+   */
+  tari_switchNetwork: { network: NetworkName };
+
   tari_disconnect: undefined;
 }
 
@@ -726,6 +739,10 @@ export interface WalletCapabilities {
    * witness data (e.g. a future ScriptPath preimage) should not be dry-run through this wallet
    * until this is true. */
   dryRunIsLocal: boolean;
+  /** The network the wallet is on right now (same as `tari_getNetwork`). */
+  network: NetworkName;
+  /** `tari_switchNetwork` and the `networkChanged` event exist. */
+  switchNetwork: boolean;
 }
 
 /**
@@ -739,6 +756,14 @@ export interface WalletCapabilities {
 export interface AccountsChangedBroadcast {
   kind: "tari-accounts-changed";
   accounts: string[];
+}
+
+/** Unsolicited push sent to every tab when the wallet's network changes (from Settings or an
+ * approved `tari_switchNetwork`), forwarded into the page as a `tari#networkChanged` DOM event and
+ * the provider's `networkChanged` event -- mirrors EIP-1193's `chainChanged`. */
+export interface NetworkChangedBroadcast {
+  kind: "tari-network-changed";
+  network: NetworkName;
 }
 
 // ---- Popup <-> background ----
@@ -803,7 +828,7 @@ export type PopupRequest =
   | { kind: "popup-set-fee-privacy-default"; feeType: "private" | "transparent" }
   | { kind: "popup-add-address-book-entry"; label: string; address: string }
   | { kind: "popup-remove-address-book-entry"; id: string }
-  | { kind: "popup-set-network"; network: "esmeralda" | "igor" }
+  | { kind: "popup-set-network"; network: NetworkName }
   | { kind: "popup-get-transaction-history" };
 
 export interface AccountSummary {
@@ -822,7 +847,7 @@ export interface WalletStatus {
   /** A created wallet whose recovery phrase has not been verified yet. */
   backupPending: boolean;
   isUnlocked: boolean;
-  network: "esmeralda" | "igor";
+  network: NetworkName;
   activeAccountId: string;
   accountCount: number;
   address: string | null;
@@ -933,7 +958,10 @@ export type PendingApproval =
   | { kind: "signOwnershipProof"; id: string; origin: string; accountId: string; resourceAddress: string; substateId: string; challenge: string }
   /** `tari_signWalletOwnershipChallenge`'s prompt -- same idea as `signOwnershipProof` but for the
    * wallet address itself, not one output, so no resource/substate to show. */
-  | { kind: "signWalletOwnershipProof"; id: string; origin: string; accountId: string; walletAddress: string; challenge: string };
+  | { kind: "signWalletOwnershipProof"; id: string; origin: string; accountId: string; walletAddress: string; challenge: string }
+  /** `tari_switchNetwork`'s prompt. `from` is the network the wallet was on when the site asked;
+   * approving switches only if the wallet is still on it (see the handler). */
+  | { kind: "switchNetwork"; id: string; origin: string; from: NetworkName; to: NetworkName };
 
 // `Omit<PendingApproval, "id">` does not distribute over the union the way you'd want (it loses
 // the discriminant), so this is spelled out by hand for requestApproval()'s input.
@@ -953,7 +981,8 @@ export type PendingApprovalInput =
       feeChoice?: { enforced: boolean; initial: "private" | "transparent" };
     }
   | { kind: "signOwnershipProof"; origin: string; accountId: string; resourceAddress: string; substateId: string; challenge: string }
-  | { kind: "signWalletOwnershipProof"; origin: string; accountId: string; walletAddress: string; challenge: string };
+  | { kind: "signWalletOwnershipProof"; origin: string; accountId: string; walletAddress: string; challenge: string }
+  | { kind: "switchNetwork"; origin: string; from: NetworkName; to: NetworkName };
 
 /** What a pending transaction request does to the signing account, found by simulating it
  * (`popup-preview-transaction-request`). Amounts are already formatted for display. */

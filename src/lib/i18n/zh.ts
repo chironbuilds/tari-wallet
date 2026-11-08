@@ -92,6 +92,16 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     assets: "资产",
   },
 
+  network: {
+    mainnet: "主网",
+    esmeralda: "Esmeralda（测试网）",
+    igor: "Igor（测试网）",
+    mainnetShort: "主网",
+    esmeraldaShort: "Esmeralda",
+    igorShort: "Igor",
+    mainnetWarning: "主网使用真实的 TARI。在主网上的交易会花费真实资金，且无法撤销。",
+  },
+
   settings: {
     title: "设置",
     addAccount: "添加账户",
@@ -172,7 +182,7 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
 
   send: {
     title: "发送",
-    noTokensYet: "您还没有持有任何代币——请先领取一些测试网 TARI。",
+    noTokensYet: "您还没有持有任何代币。请先接收一些。",
     tabSend: "发送",
     tabSendPrivately: "隐私发送",
     onlyNftsYet: "您目前只持有 NFT——暂不支持在此发送 NFT。",
@@ -190,6 +200,7 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     privateFeeHint: "隐私模式从另一笔隐私输出支付手续费，你的账户不会出现在链上。需要另一笔足够支付手续费的隐私输出——如果因此发送失败，请多屏蔽一些。",
     privateFeeUnavailable: "此账户从公开余额支付手续费，会在链上暴露你的账户。请使用本地账户以隐私方式支付。",
     errInvalidAddress: "请输入有效的 Ootle 钱包地址（以 otl_ 开头）。",
+    errWrongNetwork: "该地址属于 {addressNetwork}，但此钱包当前在 {network}。请检查地址，或在设置中切换网络。",
     errExceedsBalance: "金额超过您的可用余额。",
     errExceedsPrivateBalance: "金额超过您的隐私余额。",
     errZeroAmount: "请输入大于零的金额。",
@@ -230,7 +241,7 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
   },
 
   balances: {
-    empty: "暂无代币——请先在上方领取一些测试网 TARI。",
+    empty: "暂无代币。使用“接收”获取您的地址。",
     nft: "个 NFT",
     nfts: "个 NFT",
     plusPrivate: "+{amount} 隐私",
@@ -386,6 +397,14 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     walletOwnershipPrefix: " 想要您证明您持有此钱包地址——",
     walletAddressLine: "钱包地址：{address}",
     walletDeny1: "它将无法动用任何资金。",
+
+    switchNetworkTitle: "切换网络？",
+    switchNetworkPrefix: " 想要将 Sapient 从 ",
+    switchNetworkMiddle: " 切换到 ",
+    switchNetworkKeepsSite: "此站点在新网络上保持连接。",
+    switchNetworkDisconnects: "所有其他已连接的站点都会断开，且任何站点都不会保留隐私查看权限。",
+    switchNetworkNoSpend: "切换网络不会发送或签署任何内容。您的账户和助记词保持不变。",
+    switchNetworkButton: "切换到 {network}",
 
     transactionTitle: "交易请求",
     transactionDescriptionSuffix: " 想要您签名并提交一笔交易。",

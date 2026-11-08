@@ -15,7 +15,9 @@ import {
   formatBalanceAmount,
   formatBalanceAmountGrouped,
   isValidComponentAddress,
+  isOotleWalletAddressOn,
   isValidOotleWalletAddress,
+  networkOfOotleWalletAddress,
   normalizeDaemonUrl,
   parseDecimalToRaw,
   resourceLabel,
@@ -656,10 +658,20 @@ async function renderHome(status: WalletStatus) {
     { class: "secondary", id: "settingsBtn", style: "width:auto;padding:6px 10px;margin-top:0", "aria-label": t("home.settingsAria") },
     [icon(ICON_SETTINGS)]
   );
+  const networkPill = h(
+    "button",
+    {
+      class: `network-pill${status.network === "mainnet" ? " network-pill-mainnet" : ""}`,
+      title: networkLabel(status.network),
+      "aria-label": `${t("settings.network")}: ${networkLabel(status.network)}`,
+    },
+    [t(status.network === "mainnet" ? "network.mainnetShort" : status.network === "esmeralda" ? "network.esmeraldaShort" : "network.igorShort")]
+  );
   const nav = h("div", { class: "top-nav" }, [
     h("h1", {}, ["Sapient", h("span", {}, [" Wallet"])]),
-    h("div", { class: "row", style: "gap:6px" }, [accountPill, settingsBtn]),
+    h("div", { class: "row", style: "gap:6px" }, [networkPill, accountPill, settingsBtn]),
   ]);
+  networkPill.addEventListener("click", () => renderSettings(status));
   accountPill.addEventListener("click", () => renderAccountSwitcher(status));
   settingsBtn.addEventListener("click", () => renderSettings(status));
 
@@ -966,15 +978,12 @@ function renderSettings(status: WalletStatus) {
     autoLockSelect,
   ]);
 
-  const NETWORK_OPTIONS: { value: "esmeralda" | "igor"; label: string }[] = [
-    { value: "esmeralda", label: "Esmeralda" },
-    { value: "igor", label: "Igor" },
-  ];
+  const NETWORK_OPTIONS: WalletStatus["network"][] = ["mainnet", "esmeralda", "igor"];
   const networkSelect = h(
     "select",
     { id: "network", class: "settings-row-select", "aria-label": t("settings.network") },
-    NETWORK_OPTIONS.map((opt) =>
-      h("option", { value: opt.value, ...(opt.value === status.network ? { selected: "true" } : {}) }, [opt.label])
+    NETWORK_OPTIONS.map((value) =>
+      h("option", { value, ...(value === status.network ? { selected: "true" } : {}) }, [networkLabel(value)])
     )
   );
   const networkRow = h("div", { class: "settings-row settings-row-static" }, [h("span", {}, [t("settings.network")]), networkSelect]);
@@ -1051,7 +1060,7 @@ function renderSettings(status: WalletStatus) {
     void send({ kind: "popup-set-fee-privacy-default", feeType });
   });
   networkSelect.addEventListener("change", () => {
-    const chosen = (networkSelect as HTMLSelectElement).value as "esmeralda" | "igor";
+    const chosen = (networkSelect as HTMLSelectElement).value as WalletStatus["network"];
     if (chosen === status.network) {
       networkConfirmEl.style.display = "none";
       return;
@@ -1063,7 +1072,12 @@ function renderSettings(status: WalletStatus) {
     networkConfirmEl.className = "status";
     networkConfirmEl.style.display = "block";
     networkConfirmEl.replaceChildren(
-      h("p", { style: "margin:0 0 8px" }, [t("settings.networkSwitchWarning", { from: status.network, to: chosen })]),
+      h("p", { style: "margin:0 0 8px" }, [
+        t("settings.networkSwitchWarning", { from: networkLabel(status.network), to: networkLabel(chosen) }),
+      ]),
+      // Moving onto mainnet is the one switch that puts real money in play: said outright, in the
+      // warning box, before the Switch button rather than after it.
+      ...(chosen === "mainnet" ? [h("div", { class: "approval-warning", style: "margin:0 0 8px" }, [t("network.mainnetWarning")])] : []),
       confirmBtn,
       cancelBtn
     );
@@ -1389,9 +1403,16 @@ const HISTORY_KIND_ICON: Record<TransactionHistoryEntry["kind"], string> = {
  */
 /** Ootle explorer for a network, or null where none exists (Igor) -- the id is still shown. */
 const EXPLORER_BASE: Record<WalletStatus["network"], string | null> = {
+  // No mainnet explorer link until one serves mainnet; History still shows the transaction id.
+  mainnet: null,
   esmeralda: "https://explorer.tari.mw",
   igor: null,
 };
+
+/** "Mainnet" / "Esmeralda (testnet)" / "Igor (testnet)" in the current language. */
+function networkLabel(network: WalletStatus["network"]): string {
+  return t(network === "mainnet" ? "network.mainnet" : network === "esmeralda" ? "network.esmeralda" : "network.igor");
+}
 
 /** "Tx 1a2b3c4d…5e6f7a8b · View on explorer ↗", with the full id on hover. */
 function historyTransactionLine(transactionId: string, network: WalletStatus["network"]): HTMLElement {
@@ -1505,7 +1526,7 @@ function renderSend(
   if (!isLocalAccount && !isDaemonAccount) {
     render(h("h1", {}, [t("send.title")]), publicSection, back);
     document.getElementById("back")!.addEventListener("click", onBack);
-    buildPublicSendForm(publicSection, balances, status.addressBook);
+    buildPublicSendForm(publicSection, balances, status.addressBook, status.network);
     return;
   }
 
@@ -1527,9 +1548,9 @@ function renderSend(
   render(h("h1", {}, [t("send.title")]), tabRow, publicSection, privateSection, back);
   document.getElementById("back")!.addEventListener("click", onBack);
 
-  buildPublicSendForm(publicSection, balances, status.addressBook);
+  buildPublicSendForm(publicSection, balances, status.addressBook, status.network);
   const activeIsLocal = status.accounts.find((a) => a.id === status.activeAccountId)?.kind !== "daemon";
-  buildPrivateSendForm(privateSection, balances, status.addressBook, activeIsLocal, options?.initialResourceAddress);
+  buildPrivateSendForm(privateSection, balances, status.addressBook, status.network, activeIsLocal, options?.initialResourceAddress);
   setTab(options?.initialTab ?? "public");
 }
 
@@ -1554,7 +1575,16 @@ function buildAddressPicker(
   return select;
 }
 
-function buildPublicSendForm(container: HTMLElement, balances: Balance[], addressBook: { id: string; label: string; address: string }[]) {
+/** `t()` text for a recipient that isn't an `otl_` address on `network`, or `null` when it is. */
+function recipientAddressError(address: string, network: WalletStatus["network"]): string | null {
+  if (isOotleWalletAddressOn(address, network)) return null;
+  const theirs = networkOfOotleWalletAddress(address);
+  return theirs
+    ? t("send.errWrongNetwork", { addressNetwork: networkLabel(theirs), network: networkLabel(network) })
+    : t("send.errInvalidAddress");
+}
+
+function buildPublicSendForm(container: HTMLElement, balances: Balance[], addressBook: { id: string; label: string; address: string }[], network: WalletStatus["network"]) {
   // NonFungible resources are excluded: this form sends a decimal amount of a divisible resource,
   // and an NFT holding's `amount` is a token count with no divisibility to parse a decimal against
   // -- sending a specific token id is a different flow, out of scope here.
@@ -1575,8 +1605,9 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
   const balanceHint = h("div", { class: "muted", style: "margin-top:6px" }, [""]);
 
   const toInput = h("input", { type: "text", placeholder: "otl_…", maxlength: "200" });
-  wireLiveValidation(toInput as HTMLInputElement, isValidOotleWalletAddress);
-  const addressPicker = buildAddressPicker(addressBook, isValidOotleWalletAddress, toInput);
+  const onNetwork = (v: string) => isOotleWalletAddressOn(v, network);
+  wireLiveValidation(toInput as HTMLInputElement, onNetwork);
+  const addressPicker = buildAddressPicker(addressBook, onNetwork, toInput);
   const amountInput = h("input", { type: "text", placeholder: "0.0", maxlength: "40", inputmode: "decimal" });
   const maxBtn = h("button", { class: "max-btn" }, [t("send.max")]);
   const amountField = h("div", { class: "amount-field" }, [amountInput, maxBtn]);
@@ -1618,8 +1649,9 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
   sendBtn.addEventListener("click", async () => {
     const b = selected();
     const toAddress = (toInput as HTMLInputElement).value.trim();
-    if (!isValidOotleWalletAddress(toAddress)) {
-      showStatus(t("send.errInvalidAddress"), "err");
+    const addressError = recipientAddressError(toAddress, network);
+    if (addressError) {
+      showStatus(addressError, "err");
       return;
     }
     let raw: bigint;
@@ -1670,6 +1702,7 @@ function buildPrivateSendForm(
   container: HTMLElement,
   balances: Balance[],
   addressBook: { id: string; label: string; address: string }[],
+  network: WalletStatus["network"],
   canPayPrivateFee: boolean,
   initialResourceAddress?: string
 ) {
@@ -1715,8 +1748,9 @@ function buildPrivateSendForm(
 
   const buildForm = (balance: Balance, label: string, maxAmount: bigint) => {
     const recipientInput = h("input", { type: "text", placeholder: "otl_…", maxlength: "200" });
-    wireLiveValidation(recipientInput as HTMLInputElement, isValidOotleWalletAddress);
-    const addressPicker = buildAddressPicker(addressBook, isValidOotleWalletAddress, recipientInput);
+    const onNetwork = (v: string) => isOotleWalletAddressOn(v, network);
+    wireLiveValidation(recipientInput as HTMLInputElement, onNetwork);
+    const addressPicker = buildAddressPicker(addressBook, onNetwork, recipientInput);
     const amountInput = h("input", { type: "text", placeholder: "0.0", maxlength: "40", inputmode: "decimal" });
     const maxBtn = h("button", { class: "max-btn" }, [t("send.max")]);
     const amountField = h("div", { class: "amount-field" }, [amountInput, maxBtn]);
@@ -1741,8 +1775,9 @@ function buildPrivateSendForm(
 
     submitBtn.addEventListener("click", async () => {
       const recipientWalletAddress = (recipientInput as HTMLInputElement).value.trim();
-      if (!isValidOotleWalletAddress(recipientWalletAddress)) {
-        showStatus(t("send.errInvalidAddress"), "err");
+      const addressError = recipientAddressError(recipientWalletAddress, network);
+      if (addressError) {
+        showStatus(addressError, "err");
         return;
       }
       let raw: bigint;
@@ -2790,6 +2825,28 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
       statusEl,
       h("button", { class: "primary", id: "approve" }, [t("approval.signButton")]),
       h("button", { class: "secondary", id: "reject" }, [t("approval.rejectButton")])
+    );
+  } else if (approval.kind === "switchNetwork") {
+    const toMainnet = approval.to === "mainnet";
+    render(
+      h("h1", {}, [t("approval.switchNetworkTitle")]),
+      h("p", { class: "muted" }, [
+        h("b", {}, [approval.origin]),
+        t("approval.switchNetworkPrefix"),
+        h("b", {}, [networkLabel(approval.from)]),
+        t("approval.switchNetworkMiddle"),
+        h("b", {}, [networkLabel(approval.to)]),
+        t("approval.periodSuffix"),
+      ]),
+      ...(toMainnet ? [h("div", { class: "approval-warning" }, [t("network.mainnetWarning")])] : []),
+      h("div", { class: "view-access-grants" }, [
+        h("div", { class: "view-access-grant" }, [t("approval.switchNetworkKeepsSite")]),
+        h("div", { class: "view-access-grant deny" }, [t("approval.switchNetworkDisconnects")]),
+        h("div", { class: "view-access-grant deny" }, [t("approval.switchNetworkNoSpend")]),
+      ]),
+      statusEl,
+      h("button", { class: "primary", id: "approve" }, [t("approval.switchNetworkButton", { network: networkLabel(approval.to) })]),
+      h("button", { class: "secondary", id: "reject" }, [t("approval.cancelButton")])
     );
   } else if (approval.kind === "signWalletOwnershipProof") {
     render(

@@ -77,6 +77,15 @@ window.addEventListener("message", (event) => {
     // dApp coded against either one sees it.
     window.dispatchEvent(new CustomEvent<string[]>("tari#accountsChanged", { detail: data.accounts }));
     emit("accountsChanged", data.accounts);
+    return;
+  }
+
+  if (data.type === "tari-network-changed") {
+    // Mirrors EIP-1193's `chainChanged`: the wallet moved to another network (from its own Settings
+    // or an approved `switchNetwork`). Balances, addresses and pending requests from the old
+    // network no longer apply; an `accountsChanged` with an empty array arrives just before this.
+    window.dispatchEvent(new CustomEvent<string>("tari#networkChanged", { detail: data.network }));
+    emit("networkChanged", data.network);
   }
 });
 
@@ -85,6 +94,9 @@ export interface TariProvider {
   info: { name: string; rdns: string; embedded: false };
   request(args: { method: ProviderMethod; params?: unknown }): Promise<unknown>;
   on(event: "accountsChanged", handler: (accounts: string[]) => void): () => void;
+  on(event: "networkChanged", handler: (network: "mainnet" | "esmeralda" | "igor") => void): () => void;
+  /** Asks the user to switch networks (see `tari_switchNetwork`); resolves to the new network. */
+  switchNetwork(network: "mainnet" | "esmeralda" | "igor"): Promise<unknown>;
 
   // Sugar. Each is exactly the `request` call a dApp could make itself — mirrors the web wallet's
   // `public/tari-connector.js` so a dApp targeting both never loses the nicer API on either one.
@@ -131,6 +143,7 @@ const provider: TariProvider = {
   requestAccounts: () => request("tari_requestAccounts"),
   getAccounts: () => request("tari_getAccounts"),
   getNetwork: () => request("tari_getNetwork"),
+  switchNetwork: (network) => request("tari_switchNetwork", { network }),
   getBalances: () => request("tari_getBalances"),
   getCapabilities: () => request("tari_getCapabilities"),
   getWalletAddress: () => request("tari_getWalletAddress"),

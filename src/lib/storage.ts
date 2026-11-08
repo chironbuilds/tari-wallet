@@ -2,6 +2,7 @@
 // restarts. The encrypted vault blob and every daemon connection's API key are the sensitive
 // pieces here — see vault.ts and secretAtRest.ts respectively for how each is protected;
 // everything else in this file is plain metadata.
+import { isNetworkName, type NetworkName } from "@chironbuilder/ootle-sdk";
 import type { TransactionRequestOperation } from "./messages";
 import type { EncryptedVault } from "./vault";
 import type { EncryptedSecret } from "./secretAtRest";
@@ -187,7 +188,7 @@ export interface WalletState {
   /** Stable id of whichever account (local or daemon) is currently active — see
    * `localAccountId`/`daemonAccountId`/`parseAccountId`. */
   activeAccountId: string;
-  network: "esmeralda" | "igor";
+  network: NetworkName;
   connectedSites: ConnectedSite[];
   daemonConnections: DaemonConnectionConfig[];
   daemonAccounts: DaemonAccountRef[];
@@ -274,7 +275,11 @@ export function parseAccountId(id: string): AccountId {
 
 export async function getState(): Promise<WalletState> {
   const stored = await chrome.storage.local.get(Object.keys(DEFAULTS));
-  return { ...DEFAULTS, ...stored } as WalletState;
+  const state = { ...DEFAULTS, ...stored } as WalletState;
+  // A value this build doesn't know (written by a newer build, or corrupted) falls back to the
+  // default testnet -- never to mainnet, where a wrong guess would put real funds in play.
+  if (!isNetworkName(state.network)) state.network = DEFAULTS.network;
+  return state;
 }
 
 export async function setState(patch: Partial<WalletState>): Promise<void> {
@@ -376,6 +381,23 @@ export async function removeConnectedSite(origin: string): Promise<void> {
 export async function removeAllConnectedSites(): Promise<void> {
   await serialized(async () => {
     await setState({ connectedSites: [] });
+  });
+}
+
+/**
+ * A network switch: disconnects every site except `keepOrigin` (the site whose `tari_switchNetwork`
+ * the user just approved, if any), and drops that one's private view access. A view grant reveals
+ * the confidential position on the network it was made on; carrying it onto another network --
+ * worst of all from a testnet onto mainnet -- would hand over a position the user never saw a
+ * prompt for. Keeping the connection itself is what the user approved: that site asked for this
+ * switch by name. Returns whether `keepOrigin` was connected (and so still is).
+ */
+export async function disconnectSitesForNetworkSwitch(keepOrigin?: string): Promise<boolean> {
+  return serialized(async () => {
+    const state = await getState();
+    const kept = keepOrigin ? state.connectedSites.find((s) => s.origin === keepOrigin) : undefined;
+    await setState({ connectedSites: kept ? [{ origin: kept.origin, accountId: kept.accountId, connectedAt: kept.connectedAt }] : [] });
+    return !!kept;
   });
 }
 

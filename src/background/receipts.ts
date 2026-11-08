@@ -7,8 +7,8 @@
 // is a receipt, unless it is one of this wallet's own (already in History, or its fee was paid
 // from that same vault -- a sender pays the fee from their own vault, never the recipient's).
 
-import { defaultIndexerUrl, getVaultIdsForAccount } from "@tari-project/ootle";
-import { OotleAccount, toOotleNetwork, type NetworkName } from "@chironbuilder/ootle-sdk";
+import { getVaultIdsForAccount } from "@tari-project/ootle";
+import { OotleAccount, indexerUrlFor, toOotleNetwork, type NetworkName } from "@chironbuilder/ootle-sdk";
 import { addTransactionHistoryEntry, listTransactionHistory } from "../lib/storage";
 import { decodeEvent, decodeSubstateValue } from "../lib/bor";
 
@@ -52,7 +52,7 @@ export async function syncPublicReceipts(
     const backfill = stored === undefined;
     const seen = new Set(stored ?? []);
 
-    const base = defaultIndexerUrl(toOotleNetwork(network));
+    const base = indexerUrlFor(toOotleNetwork(network));
     const provider = await account.getProvider();
     const component = await account.getComponentAddress();
     const deposits = await fetchDeposits(base, provider, component);

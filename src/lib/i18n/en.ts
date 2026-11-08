@@ -94,6 +94,16 @@ const en = {
     assets: "Assets",
   },
 
+  network: {
+    mainnet: "Mainnet",
+    esmeralda: "Esmeralda (testnet)",
+    igor: "Igor (testnet)",
+    mainnetShort: "Mainnet",
+    esmeraldaShort: "Esmeralda",
+    igorShort: "Igor",
+    mainnetWarning: "Mainnet uses real TARI. Transactions there cost real money and can't be undone.",
+  },
+
   settings: {
     title: "Settings",
     addAccount: "Add account",
@@ -178,7 +188,7 @@ const en = {
 
   send: {
     title: "Send",
-    noTokensYet: "You don't hold any tokens yet — claim some testnet TARI first.",
+    noTokensYet: "You don't hold any tokens yet. Receive some first.",
     tabSend: "Send",
     tabSendPrivately: "Send privately",
     onlyNftsYet: "You only hold NFTs right now -- sending an NFT isn't supported here yet.",
@@ -197,6 +207,7 @@ const en = {
       "Private pays the fee from a separate private output, so your account never appears on-chain. Needs a second private output big enough for the fee — shield a little extra if the send fails for lack of one.",
     privateFeeUnavailable: "This account pays fees from its public balance, which shows your account on-chain. Use a local account to pay privately.",
     errInvalidAddress: "Enter a valid Ootle wallet address (starts with otl_).",
+    errWrongNetwork: "That address is for {addressNetwork}, but this wallet is on {network}. Check the address, or switch networks in Settings.",
     errExceedsBalance: "Amount exceeds your available balance.",
     errExceedsPrivateBalance: "Amount exceeds your private balance.",
     errZeroAmount: "Enter an amount greater than zero.",
@@ -237,7 +248,7 @@ const en = {
   },
 
   balances: {
-    empty: "No tokens yet — claim some testnet TARI above to get started.",
+    empty: "No tokens yet. Use Receive to get your address.",
     nft: "NFT",
     nfts: "NFTs",
     plusPrivate: "+{amount} private",
@@ -399,6 +410,15 @@ const en = {
     walletOwnershipPrefix: " wants you to prove you hold this wallet address — ",
     walletAddressLine: "Wallet address: {address}",
     walletDeny1: "It will NOT be able to spend anything.",
+
+    switchNetworkTitle: "Switch network?",
+    // Rendered as: <b>origin</b> + prefix + <b>from</b> + middle + <b>to</b> + periodSuffix.
+    switchNetworkPrefix: " wants to switch Sapient from ",
+    switchNetworkMiddle: " to ",
+    switchNetworkKeepsSite: "This site stays connected on the new network.",
+    switchNetworkDisconnects: "Every other connected site is disconnected, and no site keeps private view access.",
+    switchNetworkNoSpend: "Switching sends and signs nothing. Your accounts and recovery phrase stay the same.",
+    switchNetworkButton: "Switch to {network}",
 
     transactionTitle: "Transaction request",
     transactionDescriptionSuffix: " wants you to sign and submit a transaction.",

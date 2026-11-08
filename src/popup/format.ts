@@ -150,9 +150,35 @@ export function isValidComponentAddress(address: string): boolean {
   return /^component_[0-9a-f]{64}$/i.test(address);
 }
 
-/** A bech32m Ootle wallet address ("otl_<network>_<data>", e.g. "otl_esm_1v3sn...") — a loose
- * shape check, not full bech32m checksum validation (that happens wasm-side on submission
- * regardless); this just catches an obviously wrong or truncated paste before it gets that far. */
+/** A bech32m Ootle wallet address: "otl_1…" on mainnet (its prefix carries no network tag) and
+ * "otl_<net>_1…" on a testnet ("otl_esm_1v3sn…", "otl_igr_1…") -- tari-ootle's
+ * `crates/ootle_address/src/hrp.rs`. A loose shape check, not full bech32m checksum validation
+ * (that happens wasm-side on submission regardless); this just catches an obviously wrong or
+ * truncated paste before it gets that far. */
 export function isValidOotleWalletAddress(address: string): boolean {
-  return /^otl_[a-z0-9]+_[a-z0-9]{20,}$/i.test(address.trim());
+  return OOTLE_ADDRESS_SHAPE.test(address.trim());
+}
+
+const OOTLE_ADDRESS_SHAPE = /^otl_(?:([a-z]+)_)?1[a-z0-9]{20,}$/i;
+
+/** The network an `otl_` address is for, read from its prefix, or `undefined` for a shape this
+ * wallet doesn't know (including LocalNet/NextNet/StageNet prefixes). */
+export function networkOfOotleWalletAddress(address: string): "mainnet" | "esmeralda" | "igor" | undefined {
+  const m = OOTLE_ADDRESS_SHAPE.exec(address.trim());
+  if (!m) return undefined;
+  switch ((m[1] ?? "").toLowerCase()) {
+    case "":
+      return "mainnet";
+    case "esm":
+      return "esmeralda";
+    case "igr":
+      return "igor";
+    default:
+      return undefined;
+  }
+}
+
+/** An `otl_` address on exactly `network`: what a Send form on that network should accept. */
+export function isOotleWalletAddressOn(address: string, network: string): boolean {
+  return networkOfOotleWalletAddress(address) === network;
 }

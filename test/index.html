@@ -25,6 +25,10 @@
     <button id="getNetwork">tari_getNetwork</button>
     <button id="disconnect">tari_disconnect</button>
   </div>
+  <div class="row">
+    <button id="switchMainnet">tari_switchNetwork → mainnet</button>
+    <button id="switchEsmeralda">tari_switchNetwork → esmeralda</button>
+  </div>
   <button id="dryRun">tari_signAndSubmitTransaction (dry run, no-op instructions)</button>
   <h2>Log</h2>
   <pre id="log"></pre>
@@ -61,6 +65,10 @@
     document.getElementById("getAccounts").addEventListener("click", () => call("tari_getAccounts"));
     document.getElementById("getNetwork").addEventListener("click", () => call("tari_getNetwork"));
     document.getElementById("disconnect").addEventListener("click", () => call("tari_disconnect"));
+    document.getElementById("switchMainnet").addEventListener("click", () => call("tari_switchNetwork", { network: "mainnet" }));
+    document.getElementById("switchEsmeralda").addEventListener("click", () => call("tari_switchNetwork", { network: "esmeralda" }));
+    window.addEventListener("tari#networkChanged", (e) => log("event networkChanged", e.detail));
+    window.addEventListener("tari#accountsChanged", (e) => log("event accountsChanged", e.detail));
     document.getElementById("dryRun").addEventListener("click", () =>
       call("tari_signAndSubmitTransaction", { instructions: [], dryRun: true })
     );

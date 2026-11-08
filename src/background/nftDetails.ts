@@ -1,5 +1,4 @@
-import { defaultIndexerUrl } from "@tari-project/ootle";
-import { toOotleNetwork, type NetworkName } from "@chironbuilder/ootle-sdk";
+import { indexerUrlFor, toOotleNetwork, type NetworkName } from "@chironbuilder/ootle-sdk";
 import { decodeSubstateValue } from "../lib/bor";
 
 export type NftDetail = { tokenId: string; attributes: Array<[string, string]> };
@@ -46,7 +45,7 @@ async function fetchJson(url: string): Promise<unknown | null> {
 export async function fetchNftDetails(network: NetworkName, resourceAddress: string, tokenIds: string[]): Promise<NftDetail[]> {
   const hex = /^resource_([0-9a-f]{64})$/.exec(resourceAddress)?.[1];
   if (!hex) throw new Error("Invalid resource address.");
-  const base = defaultIndexerUrl(toOotleNetwork(network));
+  const base = indexerUrlFor(toOotleNetwork(network));
   return Promise.all(
     tokenIds.slice(0, MAX_TOKENS).map(async (tokenId): Promise<NftDetail> => {
       for (const candidate of nftIdCandidates(tokenId)) {

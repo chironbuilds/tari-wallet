@@ -17,6 +17,7 @@ import {
   listTransactionHistory,
   parseAccountId,
   removeAddressBookEntry,
+  disconnectSitesForNetworkSwitch,
   removeAllConnectedSites,
   removeConnectedSite,
   removeDaemonAccount,
@@ -39,6 +40,7 @@ import { classifyProviderError } from "../lib/messages";
 import type {
   AccountSummary,
   AccountsChangedBroadcast,
+  NetworkChangedBroadcast,
   DaemonAccountOption,
   DappTokenBalance,
   PageRequestMessage,
@@ -55,7 +57,7 @@ import type {
   WalletStatus,
 } from "../lib/messages";
 import type { Instruction, SubstateRequirement } from "@tari-project/ootle-ts-bindings";
-import { defaultIndexerUrl, isStealthTransferInstruction } from "@tari-project/ootle";
+import { isStealthTransferInstruction } from "@tari-project/ootle";
 import {
   OotleAccount,
   chromeStorageAdapter,
@@ -63,6 +65,8 @@ import {
   parseConsoleWalletBurnProof,
   toHex,
   toOotleNetwork,
+  indexerUrlFor,
+  isNetworkName,
   configureOotleStorage,
   getPrivatePaymentScanCursor,
   localAccountId,
@@ -70,6 +74,7 @@ import {
   resetKnownVersions,
   wipeOotleState,
   type FeeType,
+  type NetworkName,
   type WalletAccountApi,
 } from "@chironbuilder/ootle-sdk";
 import { DaemonAccount } from "../lib/daemonAccount";
@@ -220,6 +225,26 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       // No connected-site check on purpose: any page can ask which network this is.
       const { network } = await getState();
       return network;
+    }
+
+    case "tari_switchNetwork": {
+      // MetaMask's wallet_switchEthereumChain: a site may ask, only the user decides. No
+      // connected-site check, same as tari_getNetwork -- the approval prompt is the gate, and a
+      // site often needs to be on the right network before it asks to connect at all.
+      const target = (params as { network?: unknown } | undefined)?.network;
+      if (!isNetworkName(target)) throw new Error('tari_switchNetwork needs { network: "mainnet" | "esmeralda" | "igor" }.');
+      const { network: from, vault } = await getState();
+      if (!vault) throw new Error("No wallet set up in the Tari extension yet.");
+      if (from === target) return target;
+      const approved = await requestApproval({ kind: "switchNetwork", origin, from, to: target });
+      if (!approved) throw new Error("Network switch rejected.");
+      // The prompt can sit open for a while. If the network moved some other way meanwhile, the
+      // user approved a switch from a starting point that no longer holds -- don't apply it.
+      const now = (await getState()).network;
+      if (now === target) return target;
+      if (now !== from) throw new Error("The wallet's network changed while this request was open. Ask again.");
+      await switchNetworkTo(target, origin);
+      return target;
     }
 
     case "tari_getAccounts": {
@@ -397,7 +422,7 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       const p = params as { resourceAddress: string; mode?: "delta" | "full" };
       if (!p?.resourceAddress) throw new Error("resourceAddress is required.");
       const { network } = await getState();
-      const indexerBaseUrl = defaultIndexerUrl(toOotleNetwork(network));
+      const indexerBaseUrl = indexerUrlFor(toOotleNetwork(network));
       const { newOutputs, markedSpent } = await account.scanForOwnedUtxos(p.resourceAddress, indexerBaseUrl, { mode: p.mode });
       return { newOutputs, markedSpent };
     }
@@ -537,6 +562,8 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
         confidentialDeposit: isLocal,
         supportsPrivateFees: isLocal,
         dryRunIsLocal: false,
+        network: (await getState()).network,
+        switchNetwork: true,
       };
       return capabilities;
     }
@@ -1349,6 +1376,41 @@ async function createAndWaitToSubmit(origin: string, accountId: string, operatio
  * would need either the `tabs` permission or a host-permission match, and a page that was never
  * connected simply has nothing listening for this event, so there's no harm in it arriving.
  */
+/**
+ * Moves the wallet to `network`: the one place both Settings and an approved `tari_switchNetwork`
+ * go through. Connections and approvals are per network -- a site approved on one must ask again on
+ * the other (submitApprovedTransactionRequest also refuses a cross-network submit) -- so every site
+ * is disconnected except `keepOrigin`, the site whose switch request the user just approved, which
+ * keeps its connection but not its private view access (see disconnectSitesForNetworkSwitch).
+ * A no-op when the wallet is already on `network`.
+ */
+async function switchNetworkTo(network: NetworkName, keepOrigin?: string): Promise<void> {
+  if ((await getState()).network === network) return;
+  await disconnectSitesForNetworkSwitch(keepOrigin);
+  await setState({ network });
+  // Local accounts are cached by "network:index" (see accounts.ts's getLocalAccount), so they
+  // already pick up the new network on their own -- but a daemon-relayed account's cache key
+  // has no network component, and getDaemonAccount() only reads the current network when
+  // constructing a *fresh* instance, so a cached one would otherwise keep talking to the old
+  // network's indexer silently. Clearing forces everything to rebuild against the new network.
+  clearAccountCache();
+  // Every page hears "no accounts" (each was just disconnected), then the network change. The
+  // kept site hears it too and simply asks tari_requestAccounts again, which returns at once for a
+  // site that is still connected -- so no page ever keeps a stale account from the old network.
+  await broadcastAccountsChanged([]);
+  await broadcastNetworkChanged(network);
+}
+
+/** `tari-network-changed` to every tab, forwarded into the page as `networkChanged` (see inject.ts). */
+async function broadcastNetworkChanged(network: NetworkName): Promise<void> {
+  const tabs = await chrome.tabs.query({});
+  const message: NetworkChangedBroadcast = { kind: "tari-network-changed", network };
+  for (const tab of tabs) {
+    if (tab.id === undefined) continue;
+    chrome.tabs.sendMessage(tab.id, message).catch(() => {});
+  }
+}
+
 async function broadcastAccountsChanged(accounts: string[]): Promise<void> {
   const tabs = await chrome.tabs.query({});
   const message: AccountsChangedBroadcast = { kind: "tari-accounts-changed", accounts };
@@ -1731,7 +1793,8 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     case "popup-claim-testnet-xtr": {
       const account = await getActiveAccount();
       if (!account) throw new Error("Wallet is locked.");
-      const { activeAccountId } = await getState();
+      const { activeAccountId, network } = await getState();
+      if (network === "mainnet") throw new Error("There is no faucet on mainnet.");
       return withHistory({ accountId: activeAccountId, kind: "claim" }, () => account.claimTestnetXtr());
     }
 
@@ -1850,7 +1913,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
         // outputs for, plus the native TARI resource (which may have received a direct UTXO-mint
         // from a template that bypasses StealthTransfer). Best-effort -- an indexer hiccup here
         // shouldn't surface as an error the user has to dismiss.
-        const indexerBaseUrl = defaultIndexerUrl(toOotleNetwork(network));
+        const indexerBaseUrl = indexerUrlFor(toOotleNetwork(network));
         const knownOutputs = await listShieldedOutputs(activeAccountId);
         const knownResources = [...new Set([TARI_RESOURCE_ADDRESS, ...knownOutputs.map((o) => o.resourceAddress)])];
         for (const resourceAddress of knownResources) {
@@ -2116,19 +2179,8 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     }
 
     case "popup-set-network": {
-      // Connections and approvals are per network: a site approved on one network must ask again
-      // on the other (submitApprovedTransactionRequest also refuses a cross-network submit).
-      if ((await getState()).network !== message.network) {
-        await removeAllConnectedSites();
-        await broadcastAccountsChanged([]);
-      }
-      await setState({ network: message.network });
-      // Local accounts are cached by "network:index" (see accounts.ts's getLocalAccount), so they
-      // already pick up the new network on their own -- but a daemon-relayed account's cache key
-      // has no network component, and getDaemonAccount() only reads the current network when
-      // constructing a *fresh* instance, so a cached one would otherwise keep talking to the old
-      // network's indexer silently. Clearing forces everything to rebuild against the new network.
-      clearAccountCache();
+      if (!isNetworkName(message.network)) throw new Error(`Unknown network: ${String(message.network)}`);
+      await switchNetworkTo(message.network);
       return {};
     }
 

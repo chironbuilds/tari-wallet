@@ -11,13 +11,34 @@ resolves immediately (subject to the account being connected/unlocked).
 | `tari_requestAccounts` | none | `string[]` | **Approval** the first time per origin; a no-op afterward. |
 | `tari_getAccounts` | none | `string[]` | Already-connected accounts for this origin, `[]` if none. |
 | `tari_disconnect` | none | `null` | Drops this origin's connection. |
-| `tari_getNetwork` | none | `"esmeralda" \| "igor"` | Never touches activity/auto-lock — safe to poll. |
+| `tari_getNetwork` | none | `"mainnet" \| "esmeralda" \| "igor"` | Never touches activity/auto-lock — safe to poll. |
+| `tari_switchNetwork` | `{ network }` | the new network name | **Approval** every time (MetaMask's `wallet_switchEthereumChain`); resolves at once if already on it, rejects if the user declines. Needs no connection. |
 | `tari_getWalletAddress` | none | `string` | The connected account's **bech32m wallet address** — what you address a stealth (private) output to. Not the same value as, nor derivable from, the component address `tari_requestAccounts` returns. |
 
 `tari_getWalletAddress` is what a dApp needs to pay the user *privately* — a stealth output's
 `destination` decodes as this address, never as a component address. It carries only public keys
 (owner + view), so anyone holding it can pay this account privately and no one can read its
 payments; it needs a connection, not view access.
+
+### Networks
+
+`"mainnet"` holds real value; `"esmeralda"` and `"igor"` are testnets. A dApp that moves real value
+should check `tari_getNetwork` and, if it's on the wrong one, ask with `tari_switchNetwork`:
+
+```js
+if ((await window.tari.request({ method: "tari_getNetwork" })) !== "mainnet") {
+  await window.tari.request({ method: "tari_switchNetwork", params: { network: "mainnet" } });
+}
+```
+
+The wallet never switches on a site's say-so: every request opens an approval prompt, with a
+real-money warning when the target is mainnet. When the user approves, every other connected site
+is disconnected; the site that asked stays connected but loses private view access (a grant made on
+one network never carries to another), and every page gets `accountsChanged` with `[]` followed by
+`networkChanged`. The same events fire when the user switches in Settings, where no site is kept.
+
+Addresses carry their network: `otl_1…` on mainnet, `otl_esm_1…` on Esmeralda, `otl_igr_1…` on
+Igor. The wallet refuses to pay an address for a different network from the one it's on.
 
 ## Reading state
 
@@ -360,3 +381,4 @@ regardless of which method you use for the real submission afterward.
 |---|---|---|
 | `tari#initialized` | none | The provider has finished injecting — listen for this if `window.tari` isn't present yet at your load time. |
 | `tari#accountsChanged` | `[]` | The wallet drops this page's connection out from under it (e.g. the user switched accounts). Treat as a signal to re-run `tari_requestAccounts`, not as carrying the new account list. |
+| `tari#networkChanged` | `"mainnet" \| "esmeralda" \| "igor"` | The wallet moved to another network (Settings, or an approved `tari_switchNetwork`). Like EIP-1193's `chainChanged`: drop balances, addresses and pending requests from the old network. Also delivered through `window.tari.on("networkChanged", handler)`. |

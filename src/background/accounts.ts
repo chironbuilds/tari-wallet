@@ -7,7 +7,7 @@
 // all. The cold-start race this was working around is instead absorbed by the retry-with-backoff
 // in content-script.ts / popup/main.ts's `send()` helpers.
 import { WalletDaemonClient } from "@tari-project/ootle-wallet-daemon-signer";
-import { OotleAccount, type WalletAccountApi } from "@chironbuilder/ootle-sdk";
+import { OotleAccount, type NetworkName, type WalletAccountApi } from "@chironbuilder/ootle-sdk";
 import { DaemonAccount } from "../lib/daemonAccount";
 import { type AccountId, getState, parseAccountId } from "../lib/storage";
 import { fromHex } from "../lib/vault";
@@ -64,7 +64,7 @@ async function getImportedAccount(masterSeed: Uint8Array, id: string): Promise<O
   return account;
 }
 
-function getLocalAccount(seed: Uint8Array, network: "esmeralda" | "igor", index: number): OotleAccount {
+function getLocalAccount(seed: Uint8Array, network: NetworkName, index: number): OotleAccount {
   const key = `${network}:${index}`;
   let account = localCache.get(key);
   if (!account) {
