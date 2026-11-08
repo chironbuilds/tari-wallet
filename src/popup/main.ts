@@ -1,3 +1,4 @@
+import type { NetworkName } from "@chironbuilder/ootle-sdk";
 import "./styles.css";
 import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest, TransactionHistoryEntry, TransactionPreview, WalletStatus } from "../lib/messages";
 import { LANGUAGE_LABELS, getLanguage, setLanguage, t, type Language } from "../lib/i18n";
@@ -5,6 +6,8 @@ import { isPlausibleMnemonic } from "../lib/cipherSeed";
 import { AUTO_LOCK_OPTIONS, formatAutoLockOption } from "../lib/autoLock";
 import { summarizeArgs, summarizeInstruction } from "../lib/instructionSummary";
 import { avatarSvg } from "../lib/avatar";
+import { looksLikeYat } from "../lib/yatName";
+import type { ResolvedName } from "../lib/yatResolver";
 import { estimatePasswordStrength, isBlockedPassword } from "../lib/passwordStrength";
 import { qrCodeSvg } from "../lib/qr";
 import {
@@ -269,6 +272,22 @@ function confirmThenRun(button: HTMLButtonElement, message: string, confirmLabel
  * wrong recipient address here is unrecoverable-funds territory, so catching it before submit
  * (rather than only on click) is worth the couple of lines. Empty stays neutral (no judgment on a
  * field nobody's touched yet). */
+/** A Send recipient may be an `otl_` address or an emoji name (a Yat) the wallet resolves. */
+function isAddressOrName(value: string): boolean {
+  return isValidOotleWalletAddress(value) || looksLikeYat(value);
+}
+
+/** The address to pay: the input itself when it is an address, else the name's resolved address.
+ * Reports the lookup in the status line so the user sees which address their name resolved to
+ * before the transaction goes out. Throws the resolver's own message on failure. */
+async function resolveRecipient(recipient: string, showStatus: (text: string, kind: "ok" | "err") => void): Promise<string> {
+  if (!looksLikeYat(recipient)) return recipient;
+  showStatus(t("send.resolvingName", { name: recipient }), "ok");
+  const r = await send<ResolvedName>({ kind: "popup-resolve-name", name: recipient });
+  showStatus(t("send.resolvedName", { name: r.canonical, address: shortAddr(r.walletAddress) }), "ok");
+  return r.walletAddress;
+}
+
 function wireLiveValidation(input: HTMLInputElement, isValid: (value: string) => boolean) {
   const update = () => {
     const value = input.value.trim();
@@ -926,9 +945,10 @@ function renderSettings(status: WalletStatus) {
     autoLockSelect,
   ]);
 
-  const NETWORK_OPTIONS: { value: "esmeralda" | "igor"; label: string }[] = [
-    { value: "esmeralda", label: "Esmeralda" },
-    { value: "igor", label: "Igor" },
+  const NETWORK_OPTIONS: { value: NetworkName; label: string }[] = [
+    { value: "mainnet", label: "Mainnet" },
+    { value: "esmeralda", label: "Esmeralda (testnet)" },
+    { value: "igor", label: "Igor (testnet)" },
   ];
   const networkSelect = h(
     "select",
@@ -1011,7 +1031,7 @@ function renderSettings(status: WalletStatus) {
     void send({ kind: "popup-set-fee-privacy-default", feeType });
   });
   networkSelect.addEventListener("change", () => {
-    const chosen = (networkSelect as HTMLSelectElement).value as "esmeralda" | "igor";
+    const chosen = (networkSelect as HTMLSelectElement).value as NetworkName;
     if (chosen === status.network) {
       networkConfirmEl.style.display = "none";
       return;
@@ -1024,6 +1044,7 @@ function renderSettings(status: WalletStatus) {
     networkConfirmEl.style.display = "block";
     networkConfirmEl.replaceChildren(
       h("p", { style: "margin:0 0 8px" }, [t("settings.networkSwitchWarning", { from: status.network, to: chosen })]),
+      ...(chosen === "mainnet" ? [h("div", { class: "approval-warning", style: "margin:0 0 8px" }, [t("settings.mainnetWarning")])] : []),
       confirmBtn,
       cancelBtn
     );
@@ -1349,6 +1370,7 @@ const HISTORY_KIND_ICON: Record<TransactionHistoryEntry["kind"], string> = {
  */
 /** Ootle explorer for a network, or null where none exists (Igor) -- the id is still shown. */
 const EXPLORER_BASE: Record<WalletStatus["network"], string | null> = {
+  mainnet: null, // no public Ootle mainnet explorer known yet; the id is still shown
   esmeralda: "https://explorer.tari.mw",
   igor: null,
 };
@@ -1534,8 +1556,8 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
   );
   const balanceHint = h("div", { class: "muted", style: "margin-top:6px" }, [""]);
 
-  const toInput = h("input", { type: "text", placeholder: "otl_…", maxlength: "200" });
-  wireLiveValidation(toInput as HTMLInputElement, isValidOotleWalletAddress);
+  const toInput = h("input", { type: "text", placeholder: "otl_… or 🦄🚀", maxlength: "200" });
+  wireLiveValidation(toInput as HTMLInputElement, isAddressOrName);
   const addressPicker = buildAddressPicker(addressBook, isValidOotleWalletAddress, toInput);
   const amountInput = h("input", { type: "text", placeholder: "0.0", maxlength: "40", inputmode: "decimal" });
   const maxBtn = h("button", { class: "max-btn" }, [t("send.max")]);
@@ -1577,9 +1599,9 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
 
   sendBtn.addEventListener("click", async () => {
     const b = selected();
-    const toAddress = (toInput as HTMLInputElement).value.trim();
-    if (!isValidOotleWalletAddress(toAddress)) {
-      showStatus(t("send.errInvalidAddress"), "err");
+    const recipient = (toInput as HTMLInputElement).value.trim();
+    if (!isAddressOrName(recipient)) {
+      showStatus(t("send.errInvalidRecipient"), "err");
       return;
     }
     let raw: bigint;
@@ -1595,6 +1617,14 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
     }
 
     setBusy(sendBtn as HTMLButtonElement, true, t("send.sending"));
+    let toAddress: string;
+    try {
+      toAddress = await resolveRecipient(recipient, showStatus);
+    } catch (e) {
+      showStatus(e instanceof Error ? e.message : String(e), "err");
+      setBusy(sendBtn as HTMLButtonElement, false);
+      return;
+    }
     showStatus(t("send.submitting"), "ok");
     try {
       await send({ kind: "popup-send", recipientWalletAddress: toAddress, resourceAddress: b.resourceAddress, amount: raw.toString() });
@@ -1674,8 +1704,8 @@ function buildPrivateSendForm(
   container.replaceChildren(h("label", {}, [t("send.assetLabel")]), resourceSelect, formSection, statusEl);
 
   const buildForm = (balance: Balance, label: string, maxAmount: bigint) => {
-    const recipientInput = h("input", { type: "text", placeholder: "otl_…", maxlength: "200" });
-    wireLiveValidation(recipientInput as HTMLInputElement, isValidOotleWalletAddress);
+    const recipientInput = h("input", { type: "text", placeholder: "otl_… or 🦄🚀", maxlength: "200" });
+    wireLiveValidation(recipientInput as HTMLInputElement, isAddressOrName);
     const addressPicker = buildAddressPicker(addressBook, isValidOotleWalletAddress, recipientInput);
     const amountInput = h("input", { type: "text", placeholder: "0.0", maxlength: "40", inputmode: "decimal" });
     const maxBtn = h("button", { class: "max-btn" }, [t("send.max")]);
@@ -1700,9 +1730,9 @@ function buildPrivateSendForm(
     });
 
     submitBtn.addEventListener("click", async () => {
-      const recipientWalletAddress = (recipientInput as HTMLInputElement).value.trim();
-      if (!isValidOotleWalletAddress(recipientWalletAddress)) {
-        showStatus(t("send.errInvalidAddress"), "err");
+      const recipient = (recipientInput as HTMLInputElement).value.trim();
+      if (!isAddressOrName(recipient)) {
+        showStatus(t("send.errInvalidRecipient"), "err");
         return;
       }
       let raw: bigint;
@@ -1721,6 +1751,14 @@ function buildPrivateSendForm(
         return;
       }
       setBusy(submitBtn as HTMLButtonElement, true, t("send.sending"));
+      let recipientWalletAddress: string;
+      try {
+        recipientWalletAddress = await resolveRecipient(recipient, showStatus);
+      } catch (e) {
+        showStatus(e instanceof Error ? e.message : String(e), "err");
+        setBusy(submitBtn as HTMLButtonElement, false);
+        return;
+      }
       showStatus(t("send.submitting"), "ok");
       const memo = (memoInput as HTMLInputElement).value.trim();
       try {
@@ -2838,6 +2876,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
         if (!p) return previewBlock.remove();
         const lines: (Node | string)[] = [h("div", { style: "font-weight:600" }, [t("approval.previewTitle")])];
         const warn = (text: string) => h("div", { class: "approval-warning" }, [text]);
+        for (const text of p.explained) lines.push(h("div", { class: "approval-step approval-explained" }, [t("approval.previewExplained", { text })]));
         if (p.htlcValue) lines.push(h("div", { class: "approval-step" }, [t("approval.previewHtlcValue", { amount: p.htlcValue })]));
         for (const problem of p.htlcProblems ?? []) lines.push(warn(t("approval.previewHtlcProblem", { problem })));
         if (p.simulated) {

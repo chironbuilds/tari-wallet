@@ -114,6 +114,8 @@ const en = {
       "Switching from {from} to {to} changes which chain your balances and transactions are read from. Your accounts and recovery phrase stay the same.",
     switchButton: "Switch",
     switchingNetwork: "Switching network…",
+    mainnetWarning:
+      "Mainnet holds real value. The same recovery phrase controls your mainnet accounts, so keep it backed up, and double-check every address and amount before you approve. Testnet faucets do not exist here.",
   },
 
   receive: {
@@ -197,6 +199,9 @@ const en = {
       "Private pays the fee from a separate private output, so your account never appears on-chain. Needs a second private output big enough for the fee — shield a little extra if the send fails for lack of one.",
     privateFeeUnavailable: "This account pays fees from its public balance, which shows your account on-chain. Use a local account to pay privately.",
     errInvalidAddress: "Enter a valid Ootle wallet address (starts with otl_).",
+    errInvalidRecipient: "Enter an Ootle wallet address (starts with otl_) or an emoji name (1 to 6 emoji).",
+    resolvingName: "Looking up {name}…",
+    resolvedName: "{name} is {address}",
     errExceedsBalance: "Amount exceeds your available balance.",
     errExceedsPrivateBalance: "Amount exceeds your private balance.",
     errZeroAmount: "Enter an amount greater than zero.",
@@ -418,6 +423,7 @@ const en = {
     previewUnavailable: "Couldn't simulate this transaction ({error}). The wallet can't show what it will move — only approve if you trust this site.",
     previewWouldFail: "This transaction would fail if submitted: {error}",
     previewOwnAccountCall: "Calls \"{method}\" on your own account.",
+    previewExplained: "{text}",
     previewHtlcValue: "HTLC amount: {amount}",
     previewHtlcProblem: "Problem: {problem}",
     simulateButton: "Simulate",

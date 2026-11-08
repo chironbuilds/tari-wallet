@@ -2,6 +2,7 @@
 // restarts. The encrypted vault blob and every daemon connection's API key are the sensitive
 // pieces here — see vault.ts and secretAtRest.ts respectively for how each is protected;
 // everything else in this file is plain metadata.
+import type { NetworkName } from "@chironbuilder/ootle-sdk";
 import type { TransactionRequestOperation } from "./messages";
 import type { EncryptedVault } from "./vault";
 import type { EncryptedSecret } from "./secretAtRest";
@@ -187,7 +188,7 @@ export interface WalletState {
   /** Stable id of whichever account (local or daemon) is currently active — see
    * `localAccountId`/`daemonAccountId`/`parseAccountId`. */
   activeAccountId: string;
-  network: "esmeralda" | "igor";
+  network: NetworkName;
   connectedSites: ConnectedSite[];
   daemonConnections: DaemonConnectionConfig[];
   daemonAccounts: DaemonAccountRef[];
