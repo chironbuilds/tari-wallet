@@ -87,6 +87,16 @@ interface RaddishResolve {
   visibility?: string;
 }
 
+/** raddish's API wraps every answer as `{ ok: true, data: … }` (yat-market/api/contracts.mjs); an
+ * error is `{ ok: false, error }`. Unwraps the envelope, tolerating a bare body. */
+function raddishData(body: unknown): RaddishResolve | null {
+  if (!body || typeof body !== "object") return null;
+  const env = body as { ok?: unknown; data?: unknown };
+  if (env.ok === false) return null;
+  const data = "data" in env ? env.data : body;
+  return data && typeof data === "object" ? (data as RaddishResolve) : null;
+}
+
 /**
  * Resolve a Yat to a wallet address on `network`. Throws `NameResolutionError`; never returns an
  * address for a different network.
@@ -116,7 +126,7 @@ export async function resolveYatName(name: string, network: ResolveNetwork, opti
 
   if (candidates.length === 0) {
     try {
-      const r = (await fetchJson(fetchImpl, `${options.raddishApiBase ?? RADDISH_API_BASE}/resolve/${id}?category=ootle`, timeoutMs)) as RaddishResolve | null;
+      const r = raddishData(await fetchJson(fetchImpl, `${options.raddishApiBase ?? RADDISH_API_BASE}/resolve/${id}?category=ootle`, timeoutMs));
       if (r?.found && r.disclosed && typeof r.value === "string" && isValidOotleWalletAddress(r.value)) {
         candidates.push({ address: r.value.trim(), source: "raddish" });
       } else if (r?.found && r.disclosed === false) {

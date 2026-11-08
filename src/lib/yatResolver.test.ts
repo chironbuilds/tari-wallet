@@ -47,7 +47,8 @@ describe("resolveYatName", () => {
     const fetch = fakeFetch(
       {
         yat: () => ({ status: 200, body: { result: { "0x0104": { address: "f2a9…" } } } }),
-        raddish: (u) => (u.searchParams.get("category") === "ootle" ? { status: 200, body: { found: true, disclosed: true, value: ESM, visibility: "public" } } : { status: 400 }),
+        // the real envelope: raddish wraps every answer as { ok: true, data }
+        raddish: (u) => (u.searchParams.get("category") === "ootle" ? { status: 200, body: { ok: true, data: { found: true, disclosed: true, value: ESM, visibility: "public" } } } : { status: 400 }),
       },
       calls
     );
@@ -71,7 +72,7 @@ describe("resolveYatName", () => {
   it("distinguishes not found, not disclosed, unreachable and invalid", async () => {
     await expect(code(resolveYatName("🦄", "esmeralda", { fetch: fakeFetch({}) }))).resolves.toBe("not-found");
     await expect(
-      code(resolveYatName("🦄", "esmeralda", { fetch: fakeFetch({ raddish: () => ({ status: 200, body: { found: true, disclosed: false, visibility: "private" } }) }) }))
+      code(resolveYatName("🦄", "esmeralda", { fetch: fakeFetch({ raddish: () => ({ status: 200, body: { ok: true, data: { found: true, disclosed: false, visibility: "private" } } }) }) }))
     ).resolves.toBe("not-disclosed");
     await expect(code(resolveYatName("🦄", "esmeralda", { fetch: fakeFetch({ yat: () => new Error("down"), raddish: () => ({ status: 503 }) }) }))).resolves.toBe("unreachable");
     // One source down and the other says no: that is "not found", since the one that answered is authoritative for its own records.
@@ -81,7 +82,12 @@ describe("resolveYatName", () => {
   });
 
   it("never trusts a raddish value that is not an address", async () => {
-    const fetch = fakeFetch({ raddish: () => ({ status: 200, body: { found: true, disclosed: true, value: "javascript:alert(1)" } }) });
+    const fetch = fakeFetch({ raddish: () => ({ status: 200, body: { ok: true, data: { found: true, disclosed: true, value: "javascript:alert(1)" } } }) });
     await expect(code(resolveYatName("🦄", "esmeralda", { fetch }))).resolves.toBe("not-found");
+  });
+
+  it("treats raddish's error envelope and a bare (unwrapped) body sensibly", async () => {
+    await expect(code(resolveYatName("🦄", "esmeralda", { fetch: fakeFetch({ raddish: () => ({ status: 200, body: { ok: false, error: "nope" } }) }) }))).resolves.toBe("not-found");
+    await expect(resolveYatName("🦄", "esmeralda", { fetch: fakeFetch({ raddish: () => ({ status: 200, body: { found: true, disclosed: true, value: ESM } }) }) })).resolves.toMatchObject({ walletAddress: ESM, source: "raddish" });
   });
 });
