@@ -2,10 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localAccountId } from "@chironbuilder/ootle-sdk";
 import {
   addAddressBookEntry,
+  addTransactionHistoryEntry,
   addTransactionRequest,
   beginTransactionRequestSubmit,
   daemonAccountId,
+  disconnectSitesForNetworkSwitch,
   getState,
+  listTransactionHistory,
+  setState,
   getConnectedSite,
   getTransactionRequest,
   hasViewAccess,
@@ -42,6 +46,67 @@ function installChromeStorageStub(): Record<string, unknown> {
   });
   return store;
 }
+
+describe("keeping networks apart", () => {
+  const id = localAccountId(0);
+  const entry = (name: string, network?: "mainnet" | "esmeralda" | "igor") => ({
+    id: name,
+    accountId: id,
+    network,
+    kind: "send" as const,
+    status: "confirmed" as const,
+    createdAt: 1,
+  });
+
+  beforeEach(() => {
+    installChromeStorageStub();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("lists only the history of the network asked for", async () => {
+    await addTransactionHistoryEntry(entry("main", "mainnet"));
+    await addTransactionHistoryEntry(entry("esme", "esmeralda"));
+    expect((await listTransactionHistory(id, "mainnet")).map((e) => e.id)).toEqual(["main"]);
+    expect((await listTransactionHistory(id, "esmeralda")).map((e) => e.id)).toEqual(["esme"]);
+  });
+
+  it("treats an entry with no network as a testnet one, never a mainnet one", async () => {
+    await addTransactionHistoryEntry(entry("old"));
+    expect((await listTransactionHistory(id, "esmeralda")).map((e) => e.id)).toEqual(["old"]);
+    expect((await listTransactionHistory(id, "igor")).map((e) => e.id)).toEqual(["old"]);
+    expect(await listTransactionHistory(id, "mainnet")).toEqual([]);
+  });
+
+  it("falls back to the default testnet for a stored network it doesn't know", async () => {
+    await setState({ network: "stagenet" as never });
+    expect((await getState()).network).toBe("esmeralda");
+  });
+
+  it("keeps a stored mainnet choice", async () => {
+    await setState({ network: "mainnet" });
+    expect((await getState()).network).toBe("mainnet");
+  });
+
+  it("on a switch keeps only the asking site, without its view access", async () => {
+    await addConnectedSite("https://asks.example", id);
+    await addConnectedSite("https://other.example", id);
+    await setViewAccess("https://asks.example", true);
+
+    expect(await disconnectSitesForNetworkSwitch("https://asks.example")).toBe(true);
+    expect(await getConnectedSite("https://other.example")).toBeUndefined();
+    const kept = await getConnectedSite("https://asks.example");
+    expect(kept?.accountId).toBe(id);
+    expect(await hasViewAccess("https://asks.example")).toBe(false);
+  });
+
+  it("disconnects everyone when no site asked (a switch from Settings)", async () => {
+    await addConnectedSite("https://a.example", id);
+    expect(await disconnectSitesForNetworkSwitch()).toBe(false);
+    expect((await getState()).connectedSites).toEqual([]);
+  });
+});
 
 describe("localAccountId / parseAccountId round-trip", () => {
   it("round-trips a local account id", () => {

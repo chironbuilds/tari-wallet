@@ -117,8 +117,6 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     defaultFeePrivacy: "默认手续费隐私（Ootle）",
     feePrivacyTransparent: "公开",
     feePrivacyPrivate: "隐私",
-    networkSwitchWarning: "从 {from} 切换到 {to} 会改变读取余额和交易记录的链。您的账户和助记词保持不变。",
-    switchButton: "切换",
     switchingNetwork: "正在切换网络…",
   },
 

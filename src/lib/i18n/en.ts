@@ -119,9 +119,6 @@ const en = {
     defaultFeePrivacy: "Default fee privacy (Ootle)",
     feePrivacyTransparent: "Transparent",
     feePrivacyPrivate: "Private",
-    networkSwitchWarning:
-      "Switching from {from} to {to} changes which chain your balances and transactions are read from. Your accounts and recovery phrase stay the same.",
-    switchButton: "Switch",
     switchingNetwork: "Switching network…",
   },
 

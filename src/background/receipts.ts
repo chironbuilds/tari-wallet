@@ -47,7 +47,9 @@ export async function syncPublicReceipts(
   if (running || busy()) return 0;
   running = true;
   try {
-    const seenKey = SEEN_PREFIX + accountId;
+    // The same account id exists on every network; mainnet's receipts are remembered apart.
+    // Testnets keep the key every earlier build used.
+    const seenKey = SEEN_PREFIX + (network === "mainnet" ? `mainnet:${accountId}` : accountId);
     const stored = (await chrome.storage.local.get(seenKey))[seenKey] as string[] | undefined;
     const backfill = stored === undefined;
     const seen = new Set(stored ?? []);
@@ -62,7 +64,7 @@ export async function syncPublicReceipts(
       return 0;
     }
 
-    const history = await listTransactionHistory(accountId);
+    const history = await listTransactionHistory(accountId, network);
     const logged = new Set(history.map((e) => e.transactionId).filter(Boolean));
     if (busy()) return 0;
     const times = await recentTransactionTimes(base, new Set(fresh.map((d) => d.transactionId)));
@@ -78,6 +80,7 @@ export async function syncPublicReceipts(
       await addTransactionHistoryEntry({
         id: crypto.randomUUID(),
         accountId,
+        network,
         kind: "received",
         resourceAddress: d.resourceAddress ?? undefined,
         amount: d.net.toString(),

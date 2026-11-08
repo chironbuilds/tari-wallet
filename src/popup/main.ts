@@ -1092,56 +1092,38 @@ function renderSettings(status: WalletStatus) {
         return;
       }
     }
-    // .primary, not .danger -- switching networks is a reversible settings change, not a
-    // destructive action (unlike Lock/Reset, which genuinely warrant the red danger styling).
-    const confirmBtn = h("button", { class: "primary btn-compact", style: "margin-right:8px" }, [t("settings.switchButton")]);
-    const cancelBtn = h("button", { class: "secondary btn-compact" }, [t("common.cancel")]);
-    networkConfirmEl.className = "status";
-    networkConfirmEl.style.display = "block";
-    networkConfirmEl.replaceChildren(
-      h("p", { style: "margin:0 0 8px" }, [
-        t("settings.networkSwitchWarning", { from: networkLabel(status.network), to: networkLabel(chosen) }),
-      ]),
-      confirmBtn,
-      cancelBtn
-    );
-    cancelBtn.addEventListener("click", () => {
+    // Picking a network is the switch: it's reversible, keeps the accounts and recovery phrase,
+    // and the select itself is the deliberate choice, so there's no second confirmation.
+    (networkSelect as HTMLSelectElement).disabled = true;
+    try {
+      await send({ kind: "popup-set-network", network: chosen });
+    } catch (e) {
+      // Still on this screen: put the select back and say why, so the user can try again.
+      (networkSelect as HTMLSelectElement).disabled = false;
       (networkSelect as HTMLSelectElement).value = status.network;
-      networkConfirmEl.style.display = "none";
-    });
-    confirmBtn.addEventListener("click", async () => {
-      confirmBtn.setAttribute("disabled", "true");
-      cancelBtn.setAttribute("disabled", "true");
-      try {
-        await send({ kind: "popup-set-network", network: chosen });
-      } catch (e) {
-        // Still on this screen (renderLoading hasn't fired yet) -- re-enable rather than leaving
-        // both buttons permanently disabled with no way to retry or cancel.
-        networkConfirmEl.className = "status err";
-        networkConfirmEl.textContent = e instanceof Error ? e.message : String(e);
-        confirmBtn.removeAttribute("disabled");
-        cancelBtn.removeAttribute("disabled");
-        return;
-      }
-      renderLoading(t("settings.switchingNetwork"));
-      try {
-        const newStatus = await getStatus();
-        renderSettings(newStatus);
-      } catch (e) {
-        // The network switch itself already succeeded server-side -- only the status refetch
-        // failed. Offer a retry rather than stranding the user on a loading screen forever.
-        const retryBtn = h("button", { class: "primary" }, [t("common.tryAgain")]);
-        retryBtn.addEventListener("click", async () => {
-          try {
-            const newStatus = await getStatus();
-            renderSettings(newStatus);
-          } catch (e2) {
-            render(h("div", { class: "status err" }, [e2 instanceof Error ? e2.message : String(e2)]), retryBtn);
-          }
-        });
-        render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]), retryBtn);
-      }
-    });
+      networkConfirmEl.className = "status err";
+      networkConfirmEl.style.display = "block";
+      networkConfirmEl.textContent = e instanceof Error ? e.message : String(e);
+      return;
+    }
+    renderLoading(t("settings.switchingNetwork"));
+    try {
+      const newStatus = await getStatus();
+      renderSettings(newStatus);
+    } catch (e) {
+      // The switch itself already succeeded -- only the status refetch failed. Offer a retry
+      // rather than stranding the user on a loading screen forever.
+      const retryBtn = h("button", { class: "primary" }, [t("common.tryAgain")]);
+      retryBtn.addEventListener("click", async () => {
+        try {
+          const newStatus = await getStatus();
+          renderSettings(newStatus);
+        } catch (e2) {
+          render(h("div", { class: "status err" }, [e2 instanceof Error ? e2.message : String(e2)]), retryBtn);
+        }
+      });
+      render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]), retryBtn);
+    }
   });
   document.getElementById("addAccount")!.addEventListener("click", async () => {
     renderLoading(t("common.derivingAccount"));

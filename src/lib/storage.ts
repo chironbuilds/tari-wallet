@@ -100,6 +100,10 @@ export interface AddressBookEntry {
 export interface TransactionHistoryEntry {
   id: string;
   accountId: string;
+  /** The network this happened on. Account ids repeat across networks (one seed, same `local:N`),
+   * so History filters on this too. Absent on entries written before mainnet existed, which are all
+   * testnet ones and show on testnets only. */
+  network?: NetworkName;
   kind: "send" | "shield" | "unshield" | "send-privately" | "claim" | "private-payment-received" | "received" | "burn-claim" | "dapp-transaction";
   resourceAddress?: string;
   /** Raw, resource-native units (matches ShieldedOutputRecord.amount's convention). */
@@ -459,9 +463,11 @@ export async function addTransactionHistoryEntry(entry: TransactionHistoryEntry)
   });
 }
 
-export async function listTransactionHistory(accountId: string): Promise<TransactionHistoryEntry[]> {
+/** This account's history on `network` only. An entry with no network predates mainnet, so it is a
+ * testnet entry: shown on testnets, never on mainnet. */
+export async function listTransactionHistory(accountId: string, network: NetworkName): Promise<TransactionHistoryEntry[]> {
   const { transactionHistory } = await getState();
-  return transactionHistory.filter((e) => e.accountId === accountId);
+  return transactionHistory.filter((e) => e.accountId === accountId && (e.network ? e.network === network : network !== "mainnet"));
 }
 
 /** Newest-first; entries beyond MAX_TRANSACTION_REQUESTS are dropped (oldest first) -- these are

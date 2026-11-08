@@ -1493,7 +1493,8 @@ async function buildStatus(): Promise<WalletStatus> {
         // (shield() already writes the record itself right after polling, in the same call).
         if (account instanceof OotleAccount) {
           try {
-            await recoverPendingShields(await account.getProvider());
+            // Only this network's pending shields: the other network's indexer can't answer them.
+            await recoverPendingShields(await account.getProvider(), account.network);
           } catch {
             // Don't let a recovery hiccup (indexer down, etc.) break the whole status fetch.
           }
@@ -1654,10 +1655,13 @@ async function withHistory<T>(
   // them from on failure.
   deriveOnSuccess?: (result: T) => Partial<Omit<TransactionHistoryEntry, "id" | "createdAt" | "status">>
 ): Promise<T> {
+  // Captured before the action: one still running when the user switches networks belongs to the
+  // network it started on, not the one current when it finishes.
+  const { network } = await getState();
   const record = async (status: TransactionHistoryEntry["status"], extra?: Partial<TransactionHistoryEntry>) => {
     try {
       const meta = base.resourceAddress ? await resolveResourceMeta(base.resourceAddress) : undefined;
-      await addTransactionHistoryEntry({ ...base, ...meta, ...extra, status, id: crypto.randomUUID(), createdAt: Date.now() });
+      await addTransactionHistoryEntry({ network, ...base, ...meta, ...extra, status, id: crypto.randomUUID(), createdAt: Date.now() });
     } catch {
       // Best-effort -- see doc comment above.
     }
@@ -1691,6 +1695,7 @@ async function recordPrivatePaymentHistory(accountId: string, found: { resourceA
   // One shared balances fetch for the whole batch (see resolveResourceMeta's doc comment for why
   // this gets snapshotted at all) rather than one per output -- a claim-everything rescan can
   // surface a handful of outputs at once.
+  const { network } = await getState();
   const balances = await getActiveAccount()
     .then((a) => a?.getBalances())
     .catch(() => undefined);
@@ -1699,6 +1704,7 @@ async function recordPrivatePaymentHistory(accountId: string, found: { resourceA
     try {
       await addTransactionHistoryEntry({
         accountId,
+        network,
         kind: "private-payment-received",
         resourceAddress: output.resourceAddress,
         amount: output.amount.toString(),
@@ -1924,7 +1930,9 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       const account = await getActiveAccount();
       if (!account || !(account instanceof OotleAccount)) return { claimed: 0 };
       const { activeAccountId, walletOrigin, network } = await getState();
-      const hasCursor = (await getPrivatePaymentScanCursor(activeAccountId)) !== null;
+      // The SDK keeps this account's records under its own ledger id, which names the network
+      // (and an imported seed's ledger slot) -- not Sapient's account id.
+      const hasCursor = (await getPrivatePaymentScanCursor(account.ledgerId)) !== null;
       // A wallet this extension generated cannot have received a private payment before the moment
       // it was created -- there is no seed, therefore no view key, therefore nothing to have been
       // encrypted to. Its first scan can use the same shallow window every later scan does. An
@@ -1947,7 +1955,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
         // from a template that bypasses StealthTransfer). Best-effort -- an indexer hiccup here
         // shouldn't surface as an error the user has to dismiss.
         const indexerBaseUrl = indexerUrlFor(toOotleNetwork(network));
-        const knownOutputs = await listShieldedOutputs(activeAccountId);
+        const knownOutputs = await listShieldedOutputs(account.ledgerId);
         const knownResources = [...new Set([TARI_RESOURCE_ADDRESS, ...knownOutputs.map((o) => o.resourceAddress)])];
         for (const resourceAddress of knownResources) {
           await account.scanForOwnedUtxos(resourceAddress, indexerBaseUrl).catch(() => undefined);
@@ -2207,8 +2215,8 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
     case "popup-get-transaction-history": {
       // Catch up on public payments first, but never hold History up for long on a slow indexer.
       await Promise.race([syncActivePublicReceipts(), new Promise((resolve) => setTimeout(resolve, 8000))]);
-      const { activeAccountId } = await getState();
-      return listTransactionHistory(activeAccountId);
+      const { activeAccountId, network } = await getState();
+      return listTransactionHistory(activeAccountId, network);
     }
 
     case "popup-set-network": {
