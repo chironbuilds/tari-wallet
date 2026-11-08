@@ -754,7 +754,8 @@ export type PopupRequest =
   | { kind: "popup-unlock"; password: string }
   | { kind: "popup-lock" }
   | { kind: "popup-reveal-mnemonic"; password: string }
-  | { kind: "popup-get-balances" }
+  /** `background`: Home's periodic refresh, which must not count as user activity for auto-lock. */
+  | { kind: "popup-get-balances"; background?: true }
   | { kind: "popup-get-nft-details"; resourceAddress: string; tokenIds: string[] }
   | { kind: "popup-claim-testnet-xtr" }
   | { kind: "popup-send"; recipientWalletAddress: string; resourceAddress: string; amount: string }

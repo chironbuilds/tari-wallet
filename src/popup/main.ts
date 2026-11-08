@@ -850,17 +850,57 @@ async function renderHome(status: WalletStatus) {
     })();
   }
 
+  let shownBalances = "";
   try {
     const balances = await send<Balance[]>({ kind: "popup-get-balances" });
     renderBalances(balancesCard, balances, status);
     updateHeroBalance(balances);
+    shownBalances = JSON.stringify(balances);
   } catch (e) {
     balancesCard.replaceChildren(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
     heroBalanceAmount.className = "hero-balance-amount";
     heroBalanceAmount.removeAttribute("style");
     heroBalanceAmount.textContent = "—";
   }
+
+  // Without this, Home showed whatever the balance was when the popup opened: a payment arriving
+  // while it stayed open (or a send finalizing after it was opened) never appeared until the user
+  // closed and reopened it. Polls only while this Home screen is still the one on show and the popup
+  // is visible, skips a tick while the previous fetch is still out, and redraws only on a real change
+  // so it never resets the list under the user's cursor. A failed poll keeps the last good figures.
+  let refreshing = false;
+  const refreshBalances = async () => {
+    if (refreshing || !balancesCard.isConnected || document.visibilityState !== "visible") return;
+    refreshing = true;
+    try {
+      const balances = await send<Balance[]>({ kind: "popup-get-balances", background: true });
+      const next = JSON.stringify(balances);
+      if (balancesCard.isConnected && next !== shownBalances) {
+        renderBalances(balancesCard, balances, status);
+        updateHeroBalance(balances);
+        shownBalances = next;
+      }
+    } catch {
+      // Best-effort: an indexer hiccup leaves the last balances shown, and the next tick retries.
+    } finally {
+      refreshing = false;
+    }
+  };
+  const onVisible = () => {
+    if (document.visibilityState === "visible") void refreshBalances();
+  };
+  const timer = setInterval(() => {
+    if (!balancesCard.isConnected) {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      return;
+    }
+    void refreshBalances();
+  }, HOME_BALANCE_REFRESH_MS);
+  document.addEventListener("visibilitychange", onVisible);
 }
+
+const HOME_BALANCE_REFRESH_MS = 15_000;
 
 function settingsRow(id: string, label: string, leadingIcon: string, trailing?: string): HTMLButtonElement {
   return h("button", { class: "settings-row", id }, [

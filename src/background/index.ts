@@ -1622,7 +1622,10 @@ async function recordPrivatePaymentHistory(accountId: string, found: { resourceA
 }
 
 async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
-  await touchActivity();
+  // Home's timed balance refresh isn't the user doing anything: counting it would keep a wallet left
+  // open in a tab or window unlocked forever, whatever the auto-lock setting says.
+  const isBackgroundPoll = message.kind === "popup-get-balances" && message.background === true;
+  if (!isBackgroundPoll) await touchActivity();
   switch (message.kind) {
     case "popup-get-status":
       return buildStatus();
