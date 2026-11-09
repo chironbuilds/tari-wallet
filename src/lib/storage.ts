@@ -193,6 +193,8 @@ export interface WalletState {
    * `localAccountId`/`daemonAccountId`/`parseAccountId`. */
   activeAccountId: string;
   network: NetworkName;
+  /** Set once the user has picked a network, or the wallet has made its one move to mainnet at launch. */
+  networkChosen: boolean;
   connectedSites: ConnectedSite[];
   daemonConnections: DaemonConnectionConfig[];
   daemonAccounts: DaemonAccountRef[];
@@ -245,6 +247,7 @@ const DEFAULTS: WalletState = {
   accountCount: 1,
   activeAccountId: "local:0",
   network: "esmeralda",
+  networkChosen: false,
   connectedSites: [],
   daemonConnections: [],
   daemonAccounts: [],

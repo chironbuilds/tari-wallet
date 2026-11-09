@@ -90,6 +90,7 @@ import { ownAccountCalls, previewOperation } from "./preview";
 import { isSecureDappOrigin } from "../lib/dappOrigin";
 import { setTransactionRequestPreviewedHtlcValue } from "../lib/storage";
 import type { TransactionPreview } from "../lib/messages";
+import { canMoveToMainnetDefault } from "../lib/networkDefault";
 
 /** Caps on the scan budgets a dApp may ask for -- each page is one or more indexer round trips. */
 const MAX_DAPP_SCAN_PAGES = 20;
@@ -246,6 +247,7 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (now === target) return target;
       if (now !== from) throw new Error("The wallet's network changed while this request was open. Ask again.");
       await switchNetworkTo(target, origin);
+      await setState({ networkChosen: true });
       return target;
     }
 
@@ -1434,6 +1436,19 @@ async function isNetworkLive(network: NetworkName): Promise<boolean> {
 
 const MAINNET_NOT_LIVE = "Mainnet isn't live yet. You can switch once it launches.";
 
+/**
+ * From launch, a wallet that never picked a network moves to mainnet, once. New installs start on
+ * the testnet default and take this same path, so nothing lands on mainnet before it is serving.
+ */
+async function applyMainnetDefault(): Promise<void> {
+  if (!canMoveToMainnetDefault(await getState(), Date.now())) return;
+  if (!(await isNetworkLive("mainnet"))) return;
+  // The live check can take seconds; the user may have picked a network meanwhile.
+  if (!canMoveToMainnetDefault(await getState(), Date.now())) return;
+  await switchNetworkTo("mainnet");
+  await setState({ networkChosen: true });
+}
+
 /** `tari-network-changed` to every tab, forwarded into the page as `networkChanged` (see inject.ts). */
 async function broadcastNetworkChanged(network: NetworkName): Promise<void> {
   const tabs = await chrome.tabs.query({});
@@ -1729,6 +1744,8 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
   if (!isBackgroundPoll) await touchActivity();
   switch (message.kind) {
     case "popup-get-status":
+      // Bounded so a slow mainnet indexer never holds up opening the popup; a late move shows on the next status.
+      await Promise.race([applyMainnetDefault(), new Promise((resolve) => setTimeout(resolve, 1500))]);
       return buildStatus();
 
     case "popup-set-language":
@@ -2223,6 +2240,7 @@ async function handlePopupRequest(message: PopupRequest): Promise<unknown> {
       if (!isNetworkName(message.network)) throw new Error(`Unknown network: ${String(message.network)}`);
       if (!(await isNetworkLive(message.network))) throw new Error(MAINNET_NOT_LIVE);
       await switchNetworkTo(message.network);
+      await setState({ networkChosen: true });
       return {};
     }
 
