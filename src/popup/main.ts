@@ -1409,9 +1409,8 @@ const HISTORY_KIND_ICON: Record<TransactionHistoryEntry["kind"], string> = {
  */
 /** Ootle explorer for a network, or null where none exists (Igor) -- the id is still shown. */
 const EXPLORER_BASE: Record<WalletStatus["network"], string | null> = {
-  // No mainnet explorer link until one serves mainnet; History still shows the transaction id.
-  mainnet: null,
-  esmeralda: "https://explorer.tari.mw",
+  mainnet: "https://explorer.tari.mw",
+  esmeralda: "https://testnet-explorer.tari.mw",
   igor: null,
 };
 
