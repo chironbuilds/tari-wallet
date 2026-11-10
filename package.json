@@ -37,7 +37,8 @@
     "@types/chrome": "^0.2.2",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
-    "vite": "~7.3.8",
+    "@swc/core": "1.15.46",
+    "vite": "8.1.5",
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.6.0",
     "vitest": "^4.1.10"
