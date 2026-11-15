@@ -60,6 +60,7 @@ const en = {
   mobile: {
     offline: "You're offline. Balances may be out of date.",
     backOnline: "Back online.",
+    connectDapp: "Connect a dApp",
     paste: "Paste",
     scanQr: "Scan QR",
     shareAddress: "Share address",

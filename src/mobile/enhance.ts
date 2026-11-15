@@ -76,6 +76,8 @@ function addressTools(input: HTMLInputElement): void {
 
 export interface EnhanceDeps {
   receiveAddress(): Promise<string | null>;
+  /** Opens the Connect-a-dApp sheet. */
+  connectDapp(): void;
 }
 
 export function installEnhancements(deps: EnhanceDeps): void {
@@ -83,9 +85,23 @@ export function installEnhancements(deps: EnhanceDeps): void {
 
   const enhance = () => {
     for (const el of app.querySelectorAll("input")) if (isAddressInput(el)) addressTools(el);
+    const h1 = app.querySelector("h1");
+
+    // dApps tab: start a connection from where connections are listed.
+    if (h1?.textContent === t("connectedSites.title") && !app.querySelector("#connectDappBtn")) {
+      const btn = document.createElement("button");
+      btn.id = "connectDappBtn";
+      btn.type = "button";
+      btn.className = "primary";
+      btn.textContent = t("mobile.connectDapp");
+      h1.after(btn);
+      btn.addEventListener("click", () => {
+        tick();
+        deps.connectDapp();
+      });
+    }
 
     // Receive: a native Share sheet next to Copy.
-    const h1 = app.querySelector("h1");
     if (h1?.textContent === t("receive.title") && !app.querySelector("#shareAddress")) {
       const share = document.createElement("button");
       share.id = "shareAddress";

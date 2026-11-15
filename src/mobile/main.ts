@@ -59,7 +59,7 @@ async function boot(): Promise<void> {
   // Back in the app: fresh balances / activity on a tab root (never disturbs a form or approval).
   App.addListener("resume", () => setTimeout(() => nav.refreshTabRoot(), 400));
   void installConnectivityBar(() => nav.refreshTabRoot());
-  installEnhancements({ receiveAddress: async () => (await popup.appNav.status()).receiveAddress });
+  installEnhancements({ receiveAddress: async () => (await popup.appNav.status()).receiveAddress, connectDapp: openPairingSheet });
 
   // "Request 1 of N" above an approval when more are waiting, with a Reject-all shortcut for a dApp
   // that floods requests. Refreshed when the queue changes or the screen re-renders.
