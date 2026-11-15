@@ -25,7 +25,7 @@ export function showPairingNotice(message: string, kind: "ok" | "err"): void {
   noticeTimer = setTimeout(() => (el!.hidden = true), 5000);
 }
 
-async function scanQr(): Promise<string | null> {
+export async function scanQr(): Promise<string | null> {
   const { available } = await BarcodeScanner.isGoogleBarcodeScannerModuleAvailable();
   if (!available) {
     // First use on a device: Play services downloads the scanner module in the background.

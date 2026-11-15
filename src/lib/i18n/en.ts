@@ -57,6 +57,14 @@ const en = {
     errMismatch: "One or more words don't match — double check what you wrote down, or go back to view the phrase again.",
   },
 
+  mobile: {
+    paste: "Paste",
+    scanQr: "Scan QR",
+    shareAddress: "Share address",
+    shareTitle: "My Tari Ootle address",
+    noAddressInClipboard: "No Tari address in the clipboard.",
+    noAddressInQr: "That QR code doesn't contain a Tari address.",
+  },
   tabs: {
     home: "Home",
     activity: "Activity",

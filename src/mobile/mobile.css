@@ -361,3 +361,45 @@ html.mobile .list-row-title {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* ---------------- Inner screens ---------------- */
+/* Paste / Scan QR under address fields. */
+.addr-tools {
+  display: flex;
+  gap: 8px;
+  margin-top: -4px;
+}
+.chip-btn {
+  width: auto !important;
+  min-height: 36px;
+  margin: 0 !important;
+  padding: 6px 14px !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--border) !important;
+  background: rgba(162, 89, 255, 0.1) !important;
+  color: #d9b8ff !important;
+  font-size: 13px !important;
+  font-weight: 600;
+}
+/* Comfortable touch targets on the denser popup controls. */
+html.mobile .icon-btn {
+  min-height: 44px;
+}
+html.mobile .settings-row {
+  min-height: 52px;
+}
+html.mobile .list-row {
+  min-height: 56px;
+}
+html.mobile input,
+html.mobile select,
+html.mobile textarea {
+  min-height: 48px;
+}
+/* Keyboard up: the tab bar steps aside so it never floats over the field being typed in. */
+html.mobile.kb-open #tab-bar {
+  display: none;
+}
+html.mobile.kb-open.has-tabs #app {
+  padding-bottom: 24px;
+}

@@ -56,6 +56,14 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     errMismatch: "一个或多个单词不匹配——请仔细核对您抄写的内容，或返回重新查看助记词。",
   },
 
+  mobile: {
+    paste: "粘贴",
+    scanQr: "扫码",
+    shareAddress: "分享地址",
+    shareTitle: "我的 Tari Ootle 地址",
+    noAddressInClipboard: "剪贴板中没有 Tari 地址。",
+    noAddressInQr: "该二维码不包含 Tari 地址。",
+  },
   tabs: {
     home: "首页",
     activity: "动态",

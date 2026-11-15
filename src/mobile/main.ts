@@ -6,6 +6,7 @@ import { setPlatform } from "../platform";
 import { createAndroidPlatform } from "./platform";
 import { closePairingSheet, openPairingSheet } from "./pairUi";
 import { installNav } from "./nav";
+import { installEnhancements } from "./enhance";
 import { initApprovalNotifications } from "./notifications";
 import { queuedWcRequestCount, rejectQueuedWcRequests, startWalletConnect } from "./wc";
 import { t } from "../lib/i18n";
@@ -53,6 +54,7 @@ async function boot(): Promise<void> {
 
   const popup = await import("../popup/main");
   navBack = installNav(popup.appNav, platform, openPairingSheet).back;
+  installEnhancements({ receiveAddress: async () => (await popup.appNav.status()).receiveAddress });
 
   // "Request 1 of N" above an approval when more are waiting, with a Reject-all shortcut for a dApp
   // that floods requests. Refreshed when the queue changes or the screen re-renders.
