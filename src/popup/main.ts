@@ -1,6 +1,6 @@
 import "./styles.css";
 import { platform } from "../platform";
-import { originDisplay } from "../lib/originLabels";
+import { originDisplay, originParts, originShort } from "../lib/originLabels";
 import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest, TransactionHistoryEntry, TransactionPreview, WalletStatus } from "../lib/messages";
 import { LANGUAGE_LABELS, getLanguage, setLanguage, t, type Language } from "../lib/i18n";
 import { isPlausibleMnemonic } from "../lib/cipherSeed";
@@ -2667,6 +2667,26 @@ async function renderConnectedSites() {
 // Approval popups (opened by the background service worker)
 // ---------------------------------------------------------------------------
 
+/** For a dApp identified by a label rather than a URL (a WalletConnect session), a card with its
+ * name, host and a colour-coded trust badge, shown at the top of every approval. Empty for a plain
+ * URL origin (the extension), whose origin text already says everything. */
+function siteCard(origin: string): HTMLElement | "" {
+  const parts = originParts(origin);
+  if (!parts) return "";
+  const badge = {
+    verified: t("siteCard.verified"),
+    unverified: t("siteCard.unverified"),
+    mismatch: t("siteCard.mismatch"),
+    scam: t("siteCard.scam"),
+  }[parts.trust];
+  return h("div", { class: `site-card site-card-${parts.trust}` }, [
+    h("div", { class: "site-card-name" }, [parts.name]),
+    h("div", { class: "site-card-host" }, [parts.host ?? t("siteCard.noWebsite")]),
+    h("div", { class: "site-card-badge" }, [badge]),
+    parts.trust === "verified" ? "" : h("div", { class: "site-card-note" }, [t(`siteCard.${parts.trust}Note`)]),
+  ]);
+}
+
 async function renderApprovalFlow(approvalId: string) {
   const status = await getStatus();
   if (!status.hasWallet) {
@@ -2769,7 +2789,8 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
   if (approval.kind === "connect") {
     render(
       h("h1", {}, [t("approval.connectTitle")]),
-      h("p", { class: "muted" }, [h("b", {}, [originDisplay(approval.origin)]), t("approval.connectDescriptionSuffix")]),
+      siteCard(approval.origin),
+      h("p", { class: "muted" }, [h("b", {}, [originShort(approval.origin)]), t("approval.connectDescriptionSuffix")]),
       approvalAccountChip(status, approval.accountId),
       statusEl,
       h("button", { class: "primary", id: "approve" }, [t("approval.connectButton")]),
@@ -2783,8 +2804,9 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     // assumes it does authorize spending would refuse grants they'd have been fine with.
     render(
       h("h1", {}, [t("approval.viewAccessTitle")]),
+      siteCard(approval.origin),
       h("p", { class: "muted" }, [
-        h("b", {}, [originDisplay(approval.origin)]),
+        h("b", {}, [originShort(approval.origin)]),
         t("approval.viewAccessPrefix"),
         h("b", {}, [t("approval.viewAccessBold")]),
         t("approval.viewAccessSuffix"),
@@ -2807,8 +2829,9 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     // never from anything the site supplies, but that's not what a human is evaluating here.
     render(
       h("h1", {}, [t("approval.ownershipTitle")]),
+      siteCard(approval.origin),
       h("p", { class: "muted" }, [
-        h("b", {}, [originDisplay(approval.origin)]),
+        h("b", {}, [originShort(approval.origin)]),
         t("approval.ownershipPrefix"),
         h("b", {}, [t("approval.noSpendBold")]),
         t("approval.periodSuffix"),
@@ -2829,8 +2852,9 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
   } else if (approval.kind === "switchNetwork") {
     render(
       h("h1", {}, [t("approval.switchNetworkTitle")]),
+      siteCard(approval.origin),
       h("p", { class: "muted" }, [
-        h("b", {}, [originDisplay(approval.origin)]),
+        h("b", {}, [originShort(approval.origin)]),
         t("approval.switchNetworkPrefix"),
         h("b", {}, [networkLabel(approval.from)]),
         t("approval.switchNetworkMiddle"),
@@ -2849,8 +2873,9 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
   } else if (approval.kind === "signWalletOwnershipProof") {
     render(
       h("h1", {}, [t("approval.walletOwnershipTitle")]),
+      siteCard(approval.origin),
       h("p", { class: "muted" }, [
-        h("b", {}, [originDisplay(approval.origin)]),
+        h("b", {}, [originShort(approval.origin)]),
         t("approval.walletOwnershipPrefix"),
         h("b", {}, [t("approval.noSpendBold")]),
         t("approval.periodSuffix"),
@@ -2950,7 +2975,8 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
 
     render(
       h("h1", {}, [t("approval.transactionTitle")]),
-      h("p", { class: "muted" }, [h("b", {}, [originDisplay(approval.origin)]), t("approval.transactionDescriptionSuffix")]),
+      siteCard(approval.origin),
+      h("p", { class: "muted" }, [h("b", {}, [originShort(approval.origin)]), t("approval.transactionDescriptionSuffix")]),
       approvalAccountChip(status, approval.accountId),
       stepsBlock,
       warningBlock,

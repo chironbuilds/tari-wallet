@@ -54,6 +54,10 @@ export interface AndroidPlatform extends Platform {
   currentApproval(): string | null;
   /** The user backed out of the approval screen without deciding. */
   dismissCurrentApproval(): void;
+  /** A dApp on this phone opened the app (deep link): hand back to it once the user has decided. */
+  expectReturnToCaller(): void;
+  /** True once, if a deep-linked caller is waiting and the user has finished every approval since. */
+  takeReturnToCaller(): boolean;
 }
 
 export interface AndroidPlatformDeps {
@@ -71,6 +75,11 @@ export async function createAndroidPlatform(deps: AndroidPlatformDeps): Promise<
   // re-renders on hashchange on Android), so showing one is just navigating to it.
   const queue: string[] = [];
   let dismissed: ((id: string) => void) | null = null;
+  // Deep-link return: armed by a link, satisfied once an approval completes, stale after 2 minutes
+  // (a link the user then ignored must not minimize the app on some unrelated later approval).
+  const RETURN_WINDOW_MS = 120_000;
+  let returnArmedAt = 0;
+  let approvalDoneSinceArmed = false;
 
   function showHead(): void {
     const head = queue[0];
@@ -89,7 +98,10 @@ export async function createAndroidPlatform(deps: AndroidPlatformDeps): Promise<
     },
     closeApproval(id) {
       const i = queue.indexOf(id);
-      if (i >= 0) queue.splice(i, 1);
+      if (i >= 0) {
+        queue.splice(i, 1);
+        approvalDoneSinceArmed = true;
+      }
       showHead();
     },
     onApprovalDismissed(handler) {
@@ -98,8 +110,20 @@ export async function createAndroidPlatform(deps: AndroidPlatformDeps): Promise<
     currentApproval: () => queue[0] ?? null,
     dismissCurrentApproval() {
       const id = queue.shift();
-      if (id) dismissed?.(id);
+      if (id) {
+        approvalDoneSinceArmed = true;
+        dismissed?.(id);
+      }
       showHead();
+    },
+    expectReturnToCaller() {
+      returnArmedAt = Date.now();
+      approvalDoneSinceArmed = false;
+    },
+    takeReturnToCaller() {
+      const ready = returnArmedAt > 0 && Date.now() - returnArmedAt < RETURN_WINDOW_MS && approvalDoneSinceArmed && queue.length === 0;
+      if (ready) returnArmedAt = 0;
+      return ready;
     },
 
     async broadcast(message) {

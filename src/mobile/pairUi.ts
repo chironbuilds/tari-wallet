@@ -5,6 +5,12 @@ import { BarcodeFormat, BarcodeScanner } from "@capacitor-mlkit/barcode-scanning
 import { platform } from "../platform";
 
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+let closeSheet: () => boolean = () => false;
+
+/** Closes the pairing sheet if it is open; returns whether it was (the back button uses this). */
+export function closePairingSheet(): boolean {
+  return closeSheet();
+}
 
 /** A short toast at the bottom of the screen. */
 export function showPairingNotice(message: string, kind: "ok" | "err"): void {
@@ -62,6 +68,15 @@ export function installPairingUi(pair: (uri: string) => Promise<void>, enabled: 
     sheet.hidden = true;
     input.value = "";
   };
+  closeSheet = () => {
+    if (sheet.hidden) return false;
+    close();
+    return true;
+  };
+  // Tapping the dimmed backdrop (not the card) dismisses the sheet, as on any Android bottom sheet.
+  sheet.addEventListener("click", (e) => {
+    if (e.target === sheet) close();
+  });
   const connect = async (uri: string | null) => {
     if (!uri) return;
     close();
@@ -104,6 +119,7 @@ export function installPairingUi(pair: (uri: string) => Promise<void>, enabled: 
     } catch {
       fab.hidden = true;
     } finally {
+      document.documentElement.classList.toggle("has-fab", !fab.hidden);
       checking = false;
     }
   };

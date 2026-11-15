@@ -62,3 +62,30 @@
 .wc-notice.ok {
   border-color: var(--accent);
 }
+
+/* ---- Touch ergonomics (phone, not the 320px extension popup) ---- */
+html.mobile body {
+  font-size: 15px;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Android's minimum touch target is 48dp; the popup's buttons were sized for a mouse. */
+html.mobile #app button.primary,
+html.mobile #app button.secondary:not(.btn-compact) {
+  min-height: 48px;
+}
+html.mobile button {
+  transition: transform 0.08s ease;
+}
+html.mobile button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+/* While the Connect dApp button floats over the screen, keep the last content scrollable clear of it. */
+html.mobile.has-fab #app {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+/* Approval screens: Approve/Reject sit at the bottom, within thumb reach. On a long request the
+   buttons still come after everything the user is approving (they scroll to them). */
+html.mobile.approving #app > #approve {
+  margin-top: auto;
+}

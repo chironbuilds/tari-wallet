@@ -4,6 +4,7 @@ import "./mobile.css";
 import { App } from "@capacitor/app";
 import { setPlatform } from "../platform";
 import { createAndroidPlatform } from "./platform";
+import { closePairingSheet } from "./pairUi";
 import { checkAutoLock, handlePopupRequest, initCore, onHostStartup, sanitizeForMessage } from "../background/core";
 
 const AUTO_LOCK_CHECK_MS = 60_000;
@@ -30,6 +31,7 @@ async function boot(): Promise<void> {
   // Hardware back: on an approval screen it means "reject".
   let lastBackMs = 0;
   App.addListener("backButton", () => {
+    if (closePairingSheet()) return;
     if (platform.currentApproval()) {
       platform.dismissCurrentApproval();
       return;
@@ -44,6 +46,11 @@ async function boot(): Promise<void> {
     lastBackMs = now;
     window.dispatchEvent(new HashChangeEvent("hashchange"));
   });
+
+  // Approval screens get their own layout (buttons at the bottom); see mobile.css.
+  const markApproving = () => document.documentElement.classList.toggle("approving", window.location.hash.startsWith("#/approve/"));
+  window.addEventListener("hashchange", markApproving);
+  markApproving();
 
   await import("../popup/main");
   const { startWalletConnect } = await import("./wc");

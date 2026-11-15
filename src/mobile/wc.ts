@@ -23,6 +23,15 @@ type Kit = Awaited<ReturnType<typeof WalletKit.init>>;
 const VERIFY_KEY = "wcSessionVerify";
 
 let kit: Kit | null = null;
+let host: AndroidPlatform | null = null;
+
+/** After a decision made for a dApp that opened us from this phone, hand the screen back to it.
+ * Called only once the reply is on its way, so backgrounding can't cut it off. */
+function returnToCallerIfDone(): void {
+  if (!host?.takeReturnToCaller()) return;
+  showPairingNotice("Done — returning to the dApp…", "ok");
+  setTimeout(() => void App.minimizeApp(), 900);
+}
 
 /** Session updates/events still being sent. A request's response waits for these, so e.g. a
  * tari_switchNetwork reply only reaches the dApp after its session has moved to the new chain. */
@@ -106,6 +115,7 @@ async function onProposal(k: Kit, proposal: WalletKitTypes.SessionProposal): Pro
   }
   if (!approved || !(await isUnlocked())) {
     await k.rejectSession({ id, reason: getSdkError("USER_REJECTED") });
+    returnToCallerIfDone();
     return;
   }
 
@@ -120,6 +130,7 @@ async function onProposal(k: Kit, proposal: WalletKitTypes.SessionProposal): Pro
   labelSession(session.topic, session.peer.metadata, verify);
   await saveVerify(session.topic, verify);
   showPairingNotice(`Connected to ${sanitizeDappName(session.peer.metadata.name ?? "")}.`, "ok");
+  returnToCallerIfDone();
 }
 
 async function onRequest(k: Kit, event: WalletKitTypes.SessionRequest): Promise<void> {
@@ -166,6 +177,7 @@ async function onRequest(k: Kit, event: WalletKitTypes.SessionRequest): Promise<
   }
   await Promise.allSettled([...inFlightForwards]);
   await send(response);
+  returnToCallerIfDone();
   // tari_disconnect (or any request that dropped the site) ends the transport session too.
   if (!(await getConnectedSite(origin))) await reconcile(k);
 }
@@ -247,7 +259,8 @@ export function wcUriFromDeepLink(url: string): string | null {
   return null;
 }
 
-export async function startWalletConnect(host: AndroidPlatform): Promise<void> {
+export async function startWalletConnect(androidHost: AndroidPlatform): Promise<void> {
+  host = androidHost;
   const projectId = import.meta.env.VITE_REOWN_PROJECT_ID as string | undefined;
   installPairingUi(pairWithUri, Boolean(projectId));
   if (!projectId) return;
@@ -269,8 +282,8 @@ export async function startWalletConnect(host: AndroidPlatform): Promise<void> {
   k.on("session_request", (r) => void onRequest(k, r).catch(() => {}));
   k.on("session_delete", ({ topic }) => void forgetSession(topic));
 
-  host.onBroadcast((m) => track(forward(k, m)));
-  host.onSitesChanged(() => void reconcile(k));
+  androidHost.onBroadcast((m) => track(forward(k, m)));
+  androidHost.onSitesChanged(() => void reconcile(k));
 
   // Restore labels for sessions that survived a restart, then drop anything stale.
   const verify = await loadVerify();
@@ -281,7 +294,11 @@ export async function startWalletConnect(host: AndroidPlatform): Promise<void> {
 
   const handleUrl = (url: string) => {
     const uri = wcUriFromDeepLink(url);
-    if (uri) void pairWithUri(uri).catch((e) => showPairingNotice(String(e?.message ?? e), "err"));
+    if (!uri) return;
+    // Opened by a dApp on this phone (to pair, or to bring us up for a request): it is waiting in
+    // its own app, so return there once the user has decided.
+    androidHost.expectReturnToCaller();
+    void pairWithUri(uri).catch((e) => showPairingNotice(String(e?.message ?? e), "err"));
   };
   App.addListener("appUrlOpen", ({ url }) => handleUrl(url));
   const launch = await App.getLaunchUrl();

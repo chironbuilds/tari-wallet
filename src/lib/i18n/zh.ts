@@ -353,6 +353,16 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     revokeButton: "撤销",
   },
 
+  siteCard: {
+    verified: "✓ 已验证",
+    unverified: "未验证",
+    mismatch: "⚠ 域名不符",
+    scam: "⛔ 已知诈骗",
+    noWebsite: "未提供网站",
+    unverifiedNote: "WalletConnect 无法确认此网站的地址。仅当您自己打开该网站时才继续。",
+    mismatchNote: "此 dApp 声称的网站与其实际运行的网站不符，可能在冒充该网站——请务必小心。",
+    scamNote: "此网站在已知诈骗名单中。请勿批准它的任何请求。",
+  },
   approval: {
     noWallet: "尚未设置钱包——请先正常打开扩展。",
     expired: "此请求已过期或已被处理。",

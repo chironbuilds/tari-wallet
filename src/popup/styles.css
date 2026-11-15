@@ -1474,3 +1474,64 @@ html.mobile textarea,
 html.mobile select {
   font-size: 16px;
 }
+
+/* Approval site card (WalletConnect dApps): who is asking, and how far to trust the claim. */
+.site-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: var(--card);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+}
+.site-card-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.site-card-host {
+  grid-column: 1;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.site-card-badge {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.site-card-note {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.site-card-verified .site-card-badge {
+  background: rgba(48, 164, 108, 0.18);
+  color: #4cc38a;
+}
+.site-card-unverified .site-card-badge {
+  background: rgba(255, 178, 36, 0.16);
+  color: #ffb224;
+}
+.site-card-unverified .site-card-note {
+  color: #e8c27a;
+}
+.site-card-mismatch,
+.site-card-scam {
+  border-color: #e5484d;
+}
+.site-card-mismatch .site-card-badge,
+.site-card-scam .site-card-badge {
+  background: rgba(229, 72, 77, 0.18);
+  color: #ff6369;
+}
+.site-card-mismatch .site-card-note,
+.site-card-scam .site-card-note {
+  color: #ff9592;
+}

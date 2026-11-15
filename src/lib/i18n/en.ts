@@ -362,6 +362,16 @@ const en = {
     revokeButton: "Revoke",
   },
 
+  siteCard: {
+    verified: "✓ Verified",
+    unverified: "Unverified",
+    mismatch: "⚠ Domain mismatch",
+    scam: "⛔ Known scam",
+    noWebsite: "No website given",
+    unverifiedNote: "WalletConnect couldn't confirm this site's address. Only continue if you opened it yourself.",
+    mismatchNote: "This dApp claims a website it isn't running on. It may be impersonating that site — be very careful.",
+    scamNote: "This site is on the known-scam list. Don't approve anything it asks for.",
+  },
   approval: {
     noWallet: "No wallet set up — open the extension normally first.",
     expired: "This request has expired or was already handled.",

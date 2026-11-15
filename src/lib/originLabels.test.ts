@@ -52,3 +52,22 @@ describe("originDisplay", () => {
     expect(originDisplay(origin(6))).toBe("“Demo” — flagged as a scam");
   });
 });
+
+describe("originParts / originShort", () => {
+  it("returns null / the origin itself for plain URLs", async () => {
+    const { originParts, originShort } = await import("./originLabels");
+    expect(originParts("https://voting.tari.mw")).toBeNull();
+    expect(originShort("https://voting.tari.mw")).toBe("https://voting.tari.mw");
+  });
+
+  it("splits a label into sanitized name, the right host and a trust level", async () => {
+    const { originParts, originShort } = await import("./originLabels");
+    setOriginLabel(origin(7), { name: "Demo ✓", url: "https://claimed.example", verify: "VALID", verifiedOrigin: "https://real.example" });
+    expect(originParts(origin(7))).toEqual({ name: "Demo", host: "real.example", trust: "verified" });
+    expect(originShort(origin(7))).toBe("“Demo”");
+    setOriginLabel(origin(8), { name: "Demo", url: "https://claimed.example", verify: "INVALID" });
+    expect(originParts(origin(8))?.trust).toBe("mismatch");
+    setOriginLabel(origin(9), { name: "Demo", url: "not a url", verify: "UNKNOWN" });
+    expect(originParts(origin(9))).toEqual({ name: "Demo", host: null, trust: "unverified" });
+  });
+});

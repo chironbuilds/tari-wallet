@@ -79,3 +79,31 @@ export function originDisplay(origin: string): string {
   if (label.verify === "INVALID") return `${name} — claims ${claimed} ⚠ domain mismatch`;
   return `${name} — claims ${claimed}, unverified`;
 }
+
+export type TrustLevel = "verified" | "unverified" | "mismatch" | "scam";
+
+export interface OriginParts {
+  /** Sanitized dApp name (see sanitizeDappName). */
+  name: string;
+  /** The Verify-attested host when verified, else the claimed host (or null if it has none). */
+  host: string | null;
+  trust: TrustLevel;
+}
+
+/** The pieces of a labelled origin for a structured display (approval site card); null for a plain
+ * URL origin, which needs no label. */
+export function originParts(origin: string): OriginParts | null {
+  const label = labels.get(origin);
+  if (!label) return null;
+  const name = sanitizeDappName(label.name);
+  if (label.isScam) return { name, host: hostOf(label.verifiedOrigin) ?? hostOf(label.url), trust: "scam" };
+  if (label.verify === "VALID") return { name, host: hostOf(label.verifiedOrigin) ?? hostOf(label.url), trust: "verified" };
+  return { name, host: hostOf(label.url), trust: label.verify === "INVALID" ? "mismatch" : "unverified" };
+}
+
+/** Short form for running text: the quoted dApp name for a labelled origin, else the origin. The
+ * approval screens pair it with a site card carrying the host and trust level. */
+export function originShort(origin: string): string {
+  const parts = originParts(origin);
+  return parts ? `“${parts.name}”` : origin;
+}
