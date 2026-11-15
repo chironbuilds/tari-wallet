@@ -47,6 +47,8 @@ async function preferencesArea(): Promise<StorageArea> {
 }
 
 export interface AndroidPlatform extends Platform {
+  /** Called when the launch intro has finished (see uiReady). */
+  markUiReady(): void;
   /** Subscribes to accounts/network changes (the WalletConnect bridge forwards them to sessions). */
   onBroadcast(listener: (message: WalletBroadcast) => void): () => void;
   /** Subscribes to "connected sites were removed" (the bridge ends sessions whose site is gone). */
@@ -75,6 +77,8 @@ export interface AndroidPlatformDeps {
 }
 
 export async function createAndroidPlatform(deps: AndroidPlatformDeps): Promise<AndroidPlatform> {
+  let resolveUiReady: () => void = () => {};
+  const uiReadyPromise = new Promise<void>((r) => (resolveUiReady = r));
   const local = await preferencesArea();
   const session = memoryArea();
   const broadcastListeners = new Set<(message: WalletBroadcast) => void>();
@@ -211,5 +215,7 @@ export async function createAndroidPlatform(deps: AndroidPlatformDeps): Promise<
     keepAliveWhileApproving() {},
     closeApprovalView: showHead,
     biometric: createBiometric(),
+    uiReady: () => uiReadyPromise,
+    markUiReady: () => resolveUiReady(),
   };
 }

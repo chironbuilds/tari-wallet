@@ -27,8 +27,12 @@
         <item name="android:background">@drawable/splash</item>
         <!-- Android 12+ system launch screen: Sapient's eye on the wallet's dark background. -->
         <item name="windowSplashScreenBackground">@color/sapientBackground</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_sapient_foreground</item>
-        <item name="windowSplashScreenIconBackgroundColor">@color/sapientPurple</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/avd_sapient_splash</item>
+        <item name="windowSplashScreenAnimationDuration">750</item>
+        <!-- Let the system's starting window extend behind the navigation bar, so it centres the
+             icon on the full screen exactly like the app's own splash view that replaces it
+             (otherwise the icon drops ~38px at that handoff). Launch theme only. -->
+        <item name="android:windowTranslucentNavigation">true</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

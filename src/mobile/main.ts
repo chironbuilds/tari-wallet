@@ -125,8 +125,22 @@ async function boot(): Promise<void> {
   // The first screen is up: drop the native launch screen, then start the background services
   // (notification channel, WalletConnect relay) without holding up the first paint.
   await firstRender;
-  void SplashScreen.hide({ fadeOutDuration: 220 }).catch(() => {});
-  await new Promise((r) => setTimeout(r, 150));
+  // Launch: the native splash (res/drawable/avd_sapient_splash.xml) pops in the icon and blinks
+  // once; now it is removed (instantly -- see capacitor.config.ts) and the app rises gently into
+  // place from the same dark background. Nothing has to line up, so nothing can jump or ghost.
+  void SplashScreen.hide().catch(() => {});
+  if (!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    await appEl
+      .animate(
+        [
+          { transform: "translateY(14px)", opacity: 0 },
+          { transform: "translateY(0)", opacity: 1 },
+        ],
+        { duration: 420, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "backwards" }
+      )
+      .finished.catch(() => {});
+  }
+  platform.markUiReady();
   await initApprovalNotifications(platform);
   await startWalletConnect(platform);
 }

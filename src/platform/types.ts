@@ -71,4 +71,6 @@ export interface Platform {
   closeApprovalView(): void;
   /** Biometric unlock, where the host supports it. */
   readonly biometric?: BiometricSupport;
+  /** Resolves once launch animations are over (Android), so system prompts don't cover them. */
+  uiReady?(): Promise<void>;
 }

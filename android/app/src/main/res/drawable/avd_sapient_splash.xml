@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ launch screen: the Sapient app icon (gradient tile + eye) pops in with a soft
+     spring, then the eye blinks once. Ends on the static icon, which the in-app intro
+     (src/mobile/intro.ts) continues from at the same size and place. The tile is 48 of the 108
+     viewport units (128dp of the 288dp icon area) so it stays inside the 192dp safe circle. -->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt">
+    <aapt:attr name="android:drawable">
+        <vector
+            android:width="108dp"
+            android:height="108dp"
+            android:viewportWidth="108"
+            android:viewportHeight="108">
+            <group
+                android:name="tile"
+                android:pivotX="54"
+                android:pivotY="54"
+                android:scaleX="0.4"
+                android:scaleY="0.4">
+                <!-- 128-unit icon (public/icons/icon.svg) scaled to 48 units, centred. -->
+                <group
+                    android:scaleX="0.375"
+                    android:scaleY="0.375"
+                    android:translateX="30"
+                    android:translateY="30">
+                    <path android:pathData="M28,0 H100 A28,28 0 0 1 128,28 V100 A28,28 0 0 1 100,128 H28 A28,28 0 0 1 0,100 V28 A28,28 0 0 1 28,0 Z">
+                        <aapt:attr name="android:fillColor">
+                            <gradient
+                                android:type="linear"
+                                android:startX="0" android:startY="0"
+                                android:endX="128" android:endY="128">
+                                <item android:offset="0" android:color="#FFFC72FF" />
+                                <item android:offset="1" android:color="#FFA259FF" />
+                            </gradient>
+                        </aapt:attr>
+                    </path>
+                    <group
+                        android:name="lid"
+                        android:pivotX="64"
+                        android:pivotY="64">
+                        <path
+                            android:fillColor="#180A20"
+                            android:pathData="M22,64 Q64,32 106,64 Q64,96 22,64 Z" />
+                        <path android:pathData="M64,49 a15,15 0 1,0 0.001,0 Z">
+                            <aapt:attr name="android:fillColor">
+                                <gradient
+                                    android:type="linear"
+                                    android:startX="49" android:startY="49"
+                                    android:endX="79" android:endY="79">
+                                    <item android:offset="0" android:color="#FFFC72FF" />
+                                    <item android:offset="1" android:color="#FFA259FF" />
+                                </gradient>
+                            </aapt:attr>
+                        </path>
+                        <path
+                            android:fillColor="#180A20"
+                            android:pathData="M64,58 a6,6 0 1,0 0.001,0 Z" />
+                    </group>
+                </group>
+            </group>
+        </vector>
+    </aapt:attr>
+    <!-- pop in with a gentle overshoot -->
+    <target android:name="tile">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator android:propertyName="scaleX" android:valueFrom="0.4" android:valueTo="1"
+                    android:duration="460" android:interpolator="@android:interpolator/overshoot" />
+                <objectAnimator android:propertyName="scaleY" android:valueFrom="0.4" android:valueTo="1"
+                    android:duration="460" android:interpolator="@android:interpolator/overshoot" />
+            </set>
+        </aapt:attr>
+    </target>
+    <!-- one quick, friendly blink -->
+    <target android:name="lid">
+        <aapt:attr name="android:animation">
+            <set android:ordering="sequentially">
+                <objectAnimator android:propertyName="scaleY" android:valueFrom="1" android:valueTo="0.12"
+                    android:startOffset="480" android:duration="90"
+                    android:interpolator="@android:interpolator/accelerate_quad" />
+                <objectAnimator android:propertyName="scaleY" android:valueFrom="0.12" android:valueTo="1"
+                    android:duration="130" android:interpolator="@android:interpolator/decelerate_quad" />
+            </set>
+        </aapt:attr>
+    </target>
+</animated-vector>

@@ -12,7 +12,10 @@ const config: CapacitorConfig = {
     SystemBars: { style: "DARK" },
     // Keep the native launch screen up until the first real screen has rendered (src/mobile/main.ts
     // hides it), instead of flashing an empty "Loading…" page while the wallet code starts.
-    SplashScreen: { launchAutoHide: false, backgroundColor: "#0D0812", showSpinner: false },
+    // launchFadeOutDuration 0: the splash is removed instantly when the app is ready (a fade makes
+    // Android re-attach and re-centre the splash view, which shows as a visible jump); the app's own
+    // rise-and-fade in src/mobile/main.ts carries the transition.
+    SplashScreen: { launchAutoHide: false, launchFadeOutDuration: 0, backgroundColor: "#0D0812", showSpinner: false },
     // Status-bar icon for approval notifications: the eye silhouette, tinted Sapient purple.
     LocalNotifications: { smallIcon: "ic_sapient_foreground", iconColor: "#A259FF" },
   },

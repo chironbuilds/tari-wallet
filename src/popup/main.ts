@@ -537,13 +537,15 @@ function renderUnlock(onUnlocked?: () => void, lastKnownAddress?: string | null)
     h("div", { class: "hero" }, [accountAvatar(lastKnownAddress ?? null)]),
     h("h1", { style: "text-align:center" }, [t("unlock.title")]),
     h("label", {}, [t("common.password")]),
-    h("input", { type: "password", id: "pw", maxlength: "256", autofocus: "true" }),
+    // No `autofocus` attribute: focusPasswordWhenReady decides (on Android it must not pop the
+    // keyboard during the launch animation or under a fingerprint prompt).
+    h("input", { type: "password", id: "pw", maxlength: "256" }),
     statusEl,
     h("button", { class: "primary", id: "unlock" }, [t("unlock.unlockButton")]),
     forgotLink
   );
   const pw = document.getElementById("pw") as HTMLInputElement;
-  pw.focus();
+  void focusPasswordWhenReady(pw);
   pw.addEventListener("keydown", (e) => {
     if (e.key === "Enter") document.getElementById("unlock")!.click();
   });
@@ -613,6 +615,21 @@ async function setupBiometricRow(row: HTMLElement, statusEl: HTMLElement) {
   });
 }
 
+/** Focuses the unlock password field -- at once in the extension; on Android only after the launch
+ * animation, and not at all when biometric unlock is on (the system prompt comes up instead, and a
+ * keyboard sliding up under it would just be noise). */
+async function focusPasswordWhenReady(pw: HTMLInputElement) {
+  const p = platform();
+  if (!p.uiReady) {
+    pw.focus();
+    return;
+  }
+  await p.uiReady();
+  const bio = p.biometric ? await p.biometric.status().catch(() => null) : null;
+  if (bio?.enabled && !biometricDeclined) return;
+  if (pw.isConnected) pw.focus();
+}
+
 /** Set when the user dismisses the biometric prompt: the lock screen then waits for them (button or
  * password) instead of popping the prompt again on every re-render. Cleared by any unlock. */
 let biometricDeclined = false;
@@ -652,7 +669,11 @@ async function offerBiometricUnlock(before: HTMLElement, showError: (m: string) 
     }
   };
   btn.addEventListener("click", () => void attempt());
-  if (!biometricDeclined) void attempt();
+  if (biometricDeclined) return;
+  // Don't pop the system prompt over the launch animation (Android); prompt once it has finished,
+  // if this lock screen is still the one showing.
+  await platform().uiReady?.();
+  if (btn.isConnected && !biometricDeclined) void attempt();
 }
 
 // A locked wallet with a forgotten password was previously a dead end — `popup-reset-wallet`
