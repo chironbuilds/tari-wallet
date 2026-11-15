@@ -5,13 +5,13 @@ import { App } from "@capacitor/app";
 import { Core } from "@walletconnect/core";
 import { WalletKit, type WalletKitTypes } from "@reown/walletkit";
 import { getSdkError } from "@walletconnect/utils";
-import { handlePageRequest, sanitizeForMessage } from "../background/core";
+import { checkAutoLock, handlePageRequest, sanitizeForMessage } from "../background/core";
 import { requestApproval } from "../background/approvals";
 import { getAccountById } from "../background/accounts";
 import { isUnlocked } from "../background/session";
 import { addConnectedSite, getConnectedSite, getState, removeConnectedSite } from "../lib/storage";
 import { classifyProviderError, type ProviderMethod } from "../lib/messages";
-import { removeOriginLabel, setOriginLabel, type VerifyStatus } from "../lib/originLabels";
+import { removeOriginLabel, sanitizeDappName, setOriginLabel, type VerifyStatus } from "../lib/originLabels";
 import { networkFromWcChainId, wcChainId, wcOrigin } from "../lib/wcNamespace";
 import { approvedNamespaces, checkRequest, evaluateProposal } from "./wcPolicy";
 import { platform } from "../platform";
@@ -28,29 +28,48 @@ let kit: Kit | null = null;
  * tari_switchNetwork reply only reaches the dApp after its session has moved to the new chain. */
 const inFlightForwards = new Set<Promise<void>>();
 
+/** Runs the auto-lock check; if it locked the wallet, re-renders so the UI shows the unlock screen. */
+async function lockIfDue(): Promise<void> {
+  if (await checkAutoLock()) window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
 function track(p: Promise<void>): void {
   inFlightForwards.add(p);
   void p.finally(() => inFlightForwards.delete(p));
 }
 
-/** Reown Verify's verdict per session topic, kept so labels survive an app restart. */
-async function loadVerify(): Promise<Record<string, { validation: VerifyStatus; isScam?: boolean }>> {
-  return ((await platform().local.get(VERIFY_KEY))[VERIFY_KEY] as Record<string, { validation: VerifyStatus; isScam?: boolean }>) ?? {};
+/** Reown Verify's verdict on a peer: whether its claimed domain checked out, the origin it was
+ * attested from, and whether that origin is on the scam list. */
+interface VerifyVerdict {
+  validation: VerifyStatus;
+  isScam?: boolean;
+  origin?: string;
 }
 
-async function saveVerify(topic: string, v: { validation: VerifyStatus; isScam?: boolean } | null): Promise<void> {
+function verdictOf(ctx: { verified: { validation: VerifyStatus; isScam?: boolean; origin: string } } | undefined): VerifyVerdict {
+  const v = ctx?.verified;
+  return v ? { validation: v.validation, isScam: v.isScam, origin: v.origin } : { validation: "UNKNOWN" };
+}
+
+/** Verify verdicts per session topic, kept so labels survive an app restart. */
+async function loadVerify(): Promise<Record<string, VerifyVerdict>> {
+  return ((await platform().local.get(VERIFY_KEY))[VERIFY_KEY] as Record<string, VerifyVerdict>) ?? {};
+}
+
+async function saveVerify(topic: string, v: VerifyVerdict | null): Promise<void> {
   const all = await loadVerify();
   if (v) all[topic] = v;
   else delete all[topic];
   await platform().local.set({ [VERIFY_KEY]: all });
 }
 
-function labelSession(topic: string, metadata: { name?: string; url?: string }, verify: { validation: VerifyStatus; isScam?: boolean }): void {
+function labelSession(topic: string, metadata: { name?: string; url?: string }, verify: VerifyVerdict): void {
   setOriginLabel(wcOrigin(topic), {
-    name: metadata.name?.trim() || "Unnamed dApp",
+    name: metadata.name ?? "",
     url: metadata.url ?? "",
     verify: verify.validation,
     isScam: verify.isScam,
+    verifiedOrigin: verify.origin,
   });
 }
 
@@ -63,13 +82,15 @@ async function forgetSession(topic: string): Promise<void> {
 
 async function onProposal(k: Kit, proposal: WalletKitTypes.SessionProposal): Promise<void> {
   const { id, params, verifyContext } = proposal;
-  const verify = { validation: verifyContext.verified.validation, isScam: verifyContext.verified.isScam };
+  const verify = verdictOf(verifyContext);
+  // An app resumed past its auto-lock deadline locks before acting on anything that arrived.
+  await lockIfDue();
   const { network, activeAccountId } = await getState();
 
   const verdict = evaluateProposal(params, verify, network);
   if (!verdict.ok) {
     await k.rejectSession({ id, reason: getSdkError("UNSUPPORTED_CHAINS", verdict.reason) });
-    showPairingNotice(verdict.reason, "err");
+    showPairingNotice(verdict.reason.slice(0, 200), "err");
     return;
   }
 
@@ -98,37 +119,55 @@ async function onProposal(k: Kit, proposal: WalletKitTypes.SessionProposal): Pro
   await addConnectedSite(wcOrigin(session.topic), activeAccountId);
   labelSession(session.topic, session.peer.metadata, verify);
   await saveVerify(session.topic, verify);
-  showPairingNotice(`Connected to ${session.peer.metadata.name || "dApp"}.`, "ok");
+  showPairingNotice(`Connected to ${sanitizeDappName(session.peer.metadata.name ?? "")}.`, "ok");
 }
 
 async function onRequest(k: Kit, event: WalletKitTypes.SessionRequest): Promise<void> {
-  const { id, topic, params } = event;
-  const respondError = (code: number, message: string) =>
-    k.respondSessionRequest({ topic, response: { id, jsonrpc: "2.0", error: { code, message } } });
+  const { id, topic, params, verifyContext } = event;
+  const origin = wcOrigin(topic);
+  const send = async (response: { result: unknown } | { error: { code: number; message: string } }) => {
+    try {
+      await k.respondSessionRequest({ topic, response: { id, jsonrpc: "2.0", ...response } });
+    } catch {
+      // The session ended while this request was being handled; there is no one left to tell.
+    }
+  };
+
+  // Scam status can change after a session was approved: check every request, and end the session.
+  if (verdictOf(verifyContext).isScam) {
+    await send({ error: { code: 4100, message: "This site is flagged as a known scam." } });
+    await removeConnectedSite(origin);
+    await reconcile(k);
+    return;
+  }
+  // A request that waited in the relay while the app was backgrounded must not be served after the
+  // auto-lock deadline: lock first, and the core then treats it as a locked-wallet request.
+  await lockIfDue();
 
   const { network } = await getState();
   const verdict = checkRequest(params.request.method, params.chainId, network);
   if (!verdict.ok) {
-    await respondError(4200, verdict.reason);
+    await send({ error: { code: 4200, message: verdict.reason } });
     return;
   }
 
+  let response: { result: unknown } | { error: { code: number; message: string } };
   try {
     const result = await handlePageRequest({
       kind: "tari-page-request",
-      origin: wcOrigin(topic),
+      origin,
       id: String(id),
       method: params.request.method as ProviderMethod,
       params: params.request.params,
     });
-    await Promise.allSettled([...inFlightForwards]);
-    await k.respondSessionRequest({ topic, response: { id, jsonrpc: "2.0", result: sanitizeForMessage(result) ?? null } });
+    response = { result: sanitizeForMessage(result) ?? null };
   } catch (err) {
-    const { code, message } = classifyProviderError(String((err as Error)?.message ?? err));
-    await respondError(code, message);
+    response = { error: classifyProviderError(String((err as Error)?.message ?? err)) };
   }
+  await Promise.allSettled([...inFlightForwards]);
+  await send(response);
   // tari_disconnect (or any request that dropped the site) ends the transport session too.
-  if (!(await getConnectedSite(wcOrigin(topic)))) await reconcile(k);
+  if (!(await getConnectedSite(origin))) await reconcile(k);
 }
 
 /** Brings WalletConnect sessions and connected "wc:" sites back in line after either side changed:
@@ -227,7 +266,7 @@ export async function startWalletConnect(host: AndroidPlatform): Promise<void> {
   kit = k;
 
   k.on("session_proposal", (p) => void onProposal(k, p).catch((e) => showPairingNotice(String(e?.message ?? e), "err")));
-  k.on("session_request", (r) => void onRequest(k, r));
+  k.on("session_request", (r) => void onRequest(k, r).catch(() => {}));
   k.on("session_delete", ({ topic }) => void forgetSession(topic));
 
   host.onBroadcast((m) => track(forward(k, m)));

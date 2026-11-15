@@ -308,3 +308,76 @@ trust boundaries this audit is actually about.
 
 *This document reflects the state of the codebase at the commit noted above. Re-verify
 against current source before relying on any specific claim after further changes land.*
+
+## Addendum — 2026-11-15: Android app + WalletConnect v2
+
+**Commit audited:** `0d7ee4c` (branch `android-walletconnect`)
+**Scope:** the new platform layer (`src/platform/`), the core/entry split
+(`src/background/core.ts`, `index.ts`), the Android host (`src/mobile/`, `android/`,
+`capacitor.config.ts`, `mobile.html`), the WalletConnect wallet bridge (`src/mobile/wc.ts`,
+`wcPolicy.ts`), origin labels (`src/lib/originLabels.ts`) and the dApp-side connector in
+`@chironbuilder/ootle-sdk/walletconnect`. Same method as above: each claim checked against the
+source and, where possible, exercised live — on the Android emulator over the real Reown relay
+(mainnet + Esmeralda) and in Playwright Chromium for the extension.
+
+### Threat model additions
+
+- **The WalletConnect peer is untrusted.** Its name, URL and icons are self-reported; only Reown
+  Verify's verdict (`VALID` / `INVALID` / `UNKNOWN`, `isScam`, attested origin) is independent.
+- **Any app or website on the phone can open `wc:` / `sapient://wc` links**, bringing Sapient to
+  the foreground with a connect prompt. This is inherent to mobile WalletConnect.
+- **Everything in the app's WebView is the wallet**: the seed is in that JS heap while unlocked,
+  so any script injection there is a full compromise.
+
+### Findings fixed
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| W1 | Medium | **Approval-label spoofing.** The dApp's self-reported name was shown verbatim, so a name such as `Uniswap (app.uniswap.org, ✓ verified)`, or one using bidi-override characters, could imitate the wallet's own verification marker; and the host shown was the claimed URL even when Verify attested a different origin. | `originLabels.ts`: names are stripped of control/bidi/zero-width characters, check-mark/warning glyphs and quote marks, capped at 40 chars and shown quoted; a verified label shows the **Verify-attested** host; hosts are punycode. Tests in `originLabels.test.ts`. |
+| W2 | Medium | **Domain mismatch indistinguishable from "unknown".** Verify `INVALID` (claimed domain ≠ actual origin — a phishing signal) got the same mild "unverified" wording as an unchecked peer. | Shown as `claims <host> ⚠ domain mismatch`; scam-flagged peers show `flagged as a scam` above all else. |
+| W3 | Medium (defense in depth) | **No Content-Security-Policy on the Android page.** The extension's pages inherit MV3's CSP; `mobile.html` had none, so any future injection bug would run with the seed in reach. | Meta CSP mirroring the extension's script policy (`script-src 'self' 'wasm-unsafe-eval'`, no inline/remote script), `connect-src` limited to `https:`/`wss:`, `object-src`/`frame-src`/`base-uri`/`form-action` none. Verified on device: no violations during boot, unlock, pairing, signing. |
+| W4 | Low | **Requests served past the auto-lock deadline.** A WalletConnect request queued at the relay while the app was backgrounded could be handled before the resume auto-lock check ran. Signing still needed a tap; read-only results (e.g. private balances under view access) could be served. | `wc.ts` runs the auto-lock check before handling every proposal and request, and re-renders to the unlock screen if it locked. |
+| W5 | Low | **Scam status only checked at proposal time**; a session whose peer is later flagged kept working. | Every request re-checks `verifyContext.isScam`; a flagged session is refused and ended. |
+| W6 | Low | **Unpatched WebView on old Android.** `minSdk 24` admitted Android 7–9, which no longer receive Chrome/WebView security updates. | `minSdkVersion = 29` (Android 10). |
+| W7 | Low | Responding to a request whose session had just ended threw an unhandled rejection. | Responses are sent once, failures swallowed; the handler is `.catch`-guarded. |
+| X1 | Low (pre-existing, extension) | **Approval window off-screen → silent rejection.** `chrome.windows.create` refuses bounds less than 50% on a visible screen (multi-monitor, window hanging off an edge); the approval then resolved as "rejected" with no prompt ever shown. Found by the Playwright smoke test. | `platform/chrome.ts` retries without a position. |
+
+### Verified sound
+
+- **Session isolation.** Every WalletConnect request reaches the core as origin `wc:<session topic>`
+  (64-hex, regex-checked in `isSecureDappOrigin`), never as the peer's claimed URL, so connection,
+  view access, transaction-request ownership (`record.origin === origin`) and approval caps are
+  per session. The extension entry rejects any page message claiming a `wc:` origin, and still
+  checks `sender.origin` before the core sees the request.
+- **No markup injection from peers.** All UI text goes through `h()`, which appends text nodes;
+  the only `innerHTML` uses are static strings, the wallet's own address QR and the
+  address-derived avatar.
+- **External links never load in the wallet WebView.** Tested on the emulator: both a
+  `target=_blank` link and a direct `location.href` navigation opened in Chrome; the app stayed on
+  `https://localhost`.
+- **Chain policy.** Proposals that require another namespace or another Tari network, or that
+  never offer the wallet's current chain, are refused before any prompt (live: a mainnet dApp
+  against an Esmeralda wallet got 5100 with the reason, no prompt). Requests naming another chain
+  are refused, never silently switched.
+- **Network switch.** The kept session is moved to the new chain before the switch reply is sent;
+  other sessions are disconnected along with their sites.
+- **Storage.** The unlocked seed is in a memory-only area; persistent data (already-encrypted
+  vault, connected sites, history) is app-private Preferences; `allowBackup=false` plus
+  data-extraction rules keep it out of cloud backup and device transfer; Capacitor plugin
+  logging (which printed stored values) is off in all builds; release builds set `FLAG_SECURE`
+  and disable WebView remote debugging.
+
+### Residual risk
+
+- Persistent app data is protected by the OS sandbox only (not Keystore-wrapped). The vault itself
+  is password-encrypted; metadata (connected sites, history) would be readable on a rooted device.
+  Candidate follow-up: Keystore-backed encryption of the Preferences store, biometric unlock.
+- **Debug APKs** have WebView debugging on and no `FLAG_SECURE`; never distribute them.
+- The WalletConnect relay (Reown) sees connection metadata (IPs, topics, timing); payloads are
+  end-to-end encrypted.
+- `@reown/walletkit` brings a large transitive dependency tree into the app bundle (supply chain);
+  pnpm's release-age gate and blocked install scripts apply.
+- Requests are delivered only while the app is open (no push); a dApp request made while the app
+  is closed waits at the relay until the next launch, subject to its expiry.
+- Not yet exercised on hardware: QR scanning, and proof generation / a funded transaction on a
+  real phone.
