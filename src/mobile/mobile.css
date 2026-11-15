@@ -462,3 +462,130 @@ html.mobile .settings-row-static {
     transform: none;
   }
 }
+
+/* ===================== Home (phone layout) =====================
+   The extension's home is a compact toolbar for a 320px popup. On a phone: a centered hero balance,
+   one row of round action buttons, and the assets as roomy list rows. Same markup, phone styles. */
+html.mobile .top-nav {
+  padding: 4px 2px 0;
+}
+html.mobile .account-summary.card {
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 26px 16px 22px;
+  border-radius: 24px;
+  background: radial-gradient(ellipse at 50% 0%, rgba(162, 89, 255, 0.28), rgba(162, 89, 255, 0) 70%), var(--card);
+}
+html.mobile .summary-head {
+  justify-content: center;
+}
+html.mobile .summary-balance {
+  align-items: center;
+}
+html.mobile .summary-label {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+html.mobile .hero-balance {
+  justify-content: center;
+}
+html.mobile .hero-balance-amount {
+  font-size: 44px;
+  line-height: 1.05;
+}
+html.mobile .hero-balance-unit {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--muted);
+}
+html.mobile .private-balance {
+  margin-top: 10px;
+  font-size: 13px;
+  padding: 5px 12px;
+}
+
+/* One row of round actions; History lives in the Activity tab. */
+html.mobile #historyAction {
+  display: none;
+}
+html.mobile .action-row {
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  margin-top: 4px;
+}
+html.mobile .action-row > button.action-btn {
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 2px 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.15;
+  white-space: normal;
+  text-align: center;
+}
+html.mobile .action-btn .action-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(162, 89, 255, 0.14);
+  border: 1px solid rgba(162, 89, 255, 0.3);
+  color: #d9b8ff;
+}
+html.mobile .action-btn .action-icon .icon-svg svg {
+  width: 24px;
+  height: 24px;
+}
+/* Send and Receive are the primary actions. */
+html.mobile #sendAction .action-icon,
+html.mobile #receiveAction .action-icon {
+  background: var(--accent-grad);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 6px 18px var(--accent-shadow);
+}
+html.mobile .action-row > button.action-btn:active:not(:disabled) .action-icon {
+  transform: scale(0.94);
+}
+
+/* Assets as list rows. */
+html.mobile .section-title {
+  font-size: 13px;
+  letter-spacing: 0.1em;
+}
+html.mobile .balances-card {
+  padding: 4px 14px;
+  border-radius: 20px;
+}
+html.mobile .balance-row {
+  min-height: 64px;
+  padding: 10px 0;
+  font-size: 16px;
+}
+html.mobile .balance-row .token-avatar {
+  width: 38px !important;
+  height: 38px !important;
+}
+html.mobile .balance-row .token-symbol {
+  font-weight: 700;
+}
+html.mobile .balance-row .token-amount {
+  font-size: 16px;
+  font-weight: 700;
+}
+html.mobile .balance-row .token-amount-private {
+  font-size: 12px;
+}
+/* Circles line up even when a label wraps to two lines. */
+html.mobile .action-row {
+  align-items: start;
+}
+html.mobile .action-row > button.action-btn {
+  justify-content: flex-start;
+  align-self: start;
+}
