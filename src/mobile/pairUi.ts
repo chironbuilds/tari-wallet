@@ -1,8 +1,6 @@
-// The Android-only "Connect dApp" entry point: a floating button over the wallet UI that opens a
-// sheet to scan a WalletConnect QR code or paste its link. Lives outside #app so the shared popup
-// screens don't need to know about it.
+// The Android-only "Connect a dApp" bottom sheet (opened from the Scan tab): scan a WalletConnect QR
+// code or paste its link. Lives outside #app so the shared popup screens don't need to know about it.
 import { BarcodeFormat, BarcodeScanner } from "@capacitor-mlkit/barcode-scanning";
-import { platform } from "../platform";
 
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 let closeSheet: () => boolean = () => false;
@@ -38,14 +36,14 @@ async function scanQr(): Promise<string | null> {
   return barcodes[0]?.rawValue ?? null;
 }
 
-export function installPairingUi(pair: (uri: string) => Promise<void>, enabled: boolean): void {
-  const fab = document.createElement("button");
-  fab.id = "wc-fab";
-  fab.type = "button";
-  fab.textContent = "Connect dApp";
-  fab.setAttribute("aria-haspopup", "dialog");
-  document.body.appendChild(fab);
+let openSheet: () => void = () => {};
 
+/** Opens the Connect-a-dApp sheet (the Scan tab). */
+export function openPairingSheet(): void {
+  openSheet();
+}
+
+export function installPairingUi(pair: (uri: string) => Promise<void>, enabled: boolean): void {
   const sheet = document.createElement("div");
   sheet.id = "wc-sheet";
   sheet.setAttribute("role", "dialog");
@@ -53,6 +51,7 @@ export function installPairingUi(pair: (uri: string) => Promise<void>, enabled: 
   sheet.hidden = true;
   sheet.innerHTML = `
     <div class="wc-sheet-card">
+      <div class="wc-sheet-handle"></div>
       <h2>Connect a dApp</h2>
       <p class="muted">On the dApp, choose WalletConnect, then scan its QR code or paste its link.</p>
       <button type="button" class="primary" id="wc-scan">Scan QR code</button>
@@ -65,13 +64,25 @@ export function installPairingUi(pair: (uri: string) => Promise<void>, enabled: 
 
   const input = sheet.querySelector<HTMLInputElement>("#wc-uri")!;
   const close = () => {
-    sheet.hidden = true;
-    input.value = "";
+    sheet.classList.remove("open");
+    setTimeout(() => {
+      sheet.hidden = true;
+      input.value = "";
+    }, 200);
   };
   closeSheet = () => {
     if (sheet.hidden) return false;
     close();
     return true;
+  };
+  openSheet = () => {
+    if (!enabled) {
+      showPairingNotice("WalletConnect isn't configured in this build.", "err");
+      return;
+    }
+    sheet.hidden = false;
+    // Next frame, so the slide-up transition runs.
+    requestAnimationFrame(() => sheet.classList.add("open"));
   };
   // Tapping the dimmed backdrop (not the card) dismisses the sheet, as on any Android bottom sheet.
   sheet.addEventListener("click", (e) => {
@@ -88,13 +99,6 @@ export function installPairingUi(pair: (uri: string) => Promise<void>, enabled: 
     }
   };
 
-  fab.addEventListener("click", () => {
-    if (!enabled) {
-      showPairingNotice("WalletConnect isn't configured in this build.", "err");
-      return;
-    }
-    sheet.hidden = false;
-  });
   sheet.querySelector("#wc-close")!.addEventListener("click", close);
   sheet.querySelector("#wc-paste-connect")!.addEventListener("click", () => void connect(input.value));
   sheet.querySelector("#wc-scan")!.addEventListener("click", async () => {
@@ -104,32 +108,5 @@ export function installPairingUi(pair: (uri: string) => Promise<void>, enabled: 
       showPairingNotice(e instanceof Error ? e.message : String(e), "err");
     }
   });
-
-  // Shown only on an unlocked wallet's own screens: there is nothing to connect before a wallet
-  // exists or while it is locked, and on an approval screen it would sit over Approve/Reject.
-  // Re-checked whenever the wallet UI re-renders (status is an in-process call, so this is cheap).
-  let checking = false;
-  const sync = async () => {
-    if (checking) return;
-    checking = true;
-    try {
-      const onApproval = window.location.hash.startsWith("#/approve/");
-      const status = onApproval ? null : await walletStatus();
-      fab.hidden = onApproval || !status?.hasWallet || !status.isUnlocked;
-    } catch {
-      fab.hidden = true;
-    } finally {
-      document.documentElement.classList.toggle("has-fab", !fab.hidden);
-      checking = false;
-    }
-  };
-  const app = document.getElementById("app");
-  if (app) new MutationObserver(() => void sync()).observe(app, { childList: true });
-  window.addEventListener("hashchange", () => void sync());
-  void sync();
 }
 
-async function walletStatus(): Promise<{ hasWallet: boolean; isUnlocked: boolean } | null> {
-  const res = await platform().sendPopupRequest<{ hasWallet: boolean; isUnlocked: boolean }>({ kind: "popup-get-status", background: true });
-  return res.ok ? (res.result ?? null) : null;
-}

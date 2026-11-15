@@ -4,7 +4,8 @@ import "./mobile.css";
 import { App } from "@capacitor/app";
 import { setPlatform } from "../platform";
 import { createAndroidPlatform } from "./platform";
-import { closePairingSheet } from "./pairUi";
+import { closePairingSheet, openPairingSheet } from "./pairUi";
+import { installNav } from "./nav";
 import { initApprovalNotifications } from "./notifications";
 import { queuedWcRequestCount, rejectQueuedWcRequests, startWalletConnect } from "./wc";
 import { t } from "../lib/i18n";
@@ -31,23 +32,18 @@ async function boot(): Promise<void> {
   setInterval(() => void lockCheck(), AUTO_LOCK_CHECK_MS);
   App.addListener("resume", () => void lockCheck());
 
-  // Hardware back: on an approval screen it means "reject".
-  let lastBackMs = 0;
+  // Hardware back, in order: close the pairing sheet; reject an approval on screen; go back one
+  // screen (or to the Home tab); from Home, background the app -- never exit it, so a WalletConnect
+  // session stays reachable.
+  let navBack: () => boolean = () => false;
   App.addListener("backButton", () => {
     if (closePairingSheet()) return;
     if (platform.currentApproval()) {
       platform.dismissCurrentApproval();
       return;
     }
-    // Screens aren't hash routes, so "back" re-renders the home screen; a second press within
-    // 1.5 s backgrounds the app (never exits it, so a WalletConnect session stays reachable).
-    const now = Date.now();
-    if (now - lastBackMs < 1500) {
-      void App.minimizeApp();
-      return;
-    }
-    lastBackMs = now;
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    if (navBack()) return;
+    void App.minimizeApp();
   });
 
   // Approval screens get their own layout (buttons at the bottom); see mobile.css.
@@ -55,7 +51,8 @@ async function boot(): Promise<void> {
   window.addEventListener("hashchange", markApproving);
   markApproving();
 
-  await import("../popup/main");
+  const popup = await import("../popup/main");
+  navBack = installNav(popup.appNav, platform, openPairingSheet).back;
 
   // "Request 1 of N" above an approval when more are waiting, with a Reject-all shortcut for a dApp
   // that floods requests. Refreshed when the queue changes or the screen re-renders.

@@ -37,6 +37,9 @@ public class BiometricVaultPlugin extends Plugin {
     private static final String TRANSFORMATION = "AES/GCM/NoPadding";
     private static final int GCM_TAG_BITS = 128;
 
+    /** The prompt on screen, if any, so the app can dismiss it (e.g. unlocked by password instead). */
+    private BiometricPrompt activePrompt;
+
     private interface CipherStep {
         JSObject run(Cipher cipher) throws Exception;
     }
@@ -111,6 +114,18 @@ public class BiometricVaultPlugin extends Plugin {
         }
     }
 
+    /** Dismisses the biometric prompt if one is showing; its pending call rejects as CANCELLED. */
+    @PluginMethod
+    public void cancel(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            if (activePrompt != null) {
+                activePrompt.cancelAuthentication();
+                activePrompt = null;
+            }
+            call.resolve();
+        });
+    }
+
     @PluginMethod
     public void deleteKey(PluginCall call) {
         deleteKeyQuietly();
@@ -133,6 +148,7 @@ public class BiometricVaultPlugin extends Plugin {
                 new BiometricPrompt.AuthenticationCallback() {
                     @Override
                     public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
+                        activePrompt = null;
                         BiometricPrompt.CryptoObject crypto = result.getCryptoObject();
                         if (crypto == null || crypto.getCipher() == null) {
                             call.reject("No cipher after authentication", "ERROR");
@@ -147,6 +163,7 @@ public class BiometricVaultPlugin extends Plugin {
 
                     @Override
                     public void onAuthenticationError(int code, @NonNull CharSequence message) {
+                        activePrompt = null;
                         boolean cancelled = code == BiometricPrompt.ERROR_NEGATIVE_BUTTON
                             || code == BiometricPrompt.ERROR_USER_CANCELED
                             || code == BiometricPrompt.ERROR_CANCELED;
@@ -156,6 +173,7 @@ public class BiometricVaultPlugin extends Plugin {
                     // onAuthenticationFailed (one non-matching attempt): the prompt stays up and
                     // lets the user retry; nothing to report yet.
                 });
+            activePrompt = prompt;
             prompt.authenticate(info.build(), new BiometricPrompt.CryptoObject(cipher));
         });
     }

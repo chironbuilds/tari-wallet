@@ -57,6 +57,13 @@ const en = {
     errMismatch: "One or more words don't match — double check what you wrote down, or go back to view the phrase again.",
   },
 
+  tabs: {
+    home: "Home",
+    activity: "Activity",
+    scan: "Scan",
+    dapps: "dApps",
+    settings: "Settings",
+  },
   notify: {
     channelName: "Approval requests",
     channelDescription: "When a connected dApp needs you to approve something",

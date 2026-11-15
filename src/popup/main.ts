@@ -575,6 +575,9 @@ function renderUnlock(onUnlocked?: () => void, lastKnownAddress?: string | null)
       return;
     }
     biometricDeclined = false;
+    // An auto-shown fingerprint prompt would otherwise stay up over the now-unlocked wallet.
+    passwordUnlocked = true;
+    void platform().biometric?.cancel();
     await continueUnlocked();
   });
   forgotLink.addEventListener("click", renderForgotPassword);
@@ -613,6 +616,9 @@ async function setupBiometricRow(row: HTMLElement, statusEl: HTMLElement) {
 /** Set when the user dismisses the biometric prompt: the lock screen then waits for them (button or
  * password) instead of popping the prompt again on every re-render. Cleared by any unlock. */
 let biometricDeclined = false;
+/** Set when the password unlocked the wallet while a biometric prompt was up: the app dismissed
+ * that prompt itself, so its "cancelled" result is not the user declining. */
+let passwordUnlocked = false;
 
 /** Android: if biometric unlock is on, adds its button to the lock screen and prompts right away. */
 async function offerBiometricUnlock(before: HTMLElement, showError: (m: string) => void, onUnlocked: () => Promise<void>) {
@@ -624,8 +630,10 @@ async function offerBiometricUnlock(before: HTMLElement, showError: (m: string) 
   before.before(btn);
   const attempt = async () => {
     btn.disabled = true;
+    passwordUnlocked = false;
     try {
       const result = await bio.unlock();
+      if (passwordUnlocked) return;
       if (result === "unlocked") {
         biometricDeclined = false;
         await onUnlocked();
@@ -3081,6 +3089,29 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
   document.getElementById("approve")!.addEventListener("click", () => resolve(true));
   document.getElementById("reject")!.addEventListener("click", () => resolve(false));
 }
+
+/** Entry points for the Android tab bar (src/mobile/nav.ts). Each fetches fresh wallet status, so a
+ * tab tap always shows current data. Not used by the extension. */
+export const appNav = {
+  status: () => getStatus(),
+  async home() {
+    await renderHome(await getStatus());
+  },
+  async activity() {
+    await renderHistory(await getStatus());
+  },
+  async settings() {
+    renderSettings(await getStatus());
+  },
+  async dapps() {
+    await renderConnectedSites();
+  },
+  titles: () => ({
+    activity: t("history.title"),
+    settings: t("settings.title"),
+    dapps: t("connectedSites.title"),
+  }),
+};
 
 function start(): void {
   main().catch((e) => {

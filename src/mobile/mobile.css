@@ -1,60 +1,321 @@
-/* Android-only chrome around the shared wallet UI: the WalletConnect button, pairing sheet and
-   notice toast (src/mobile/pairUi.ts). Uses the popup's own color tokens from styles.css. */
-#wc-fab {
-  position: fixed;
-  right: 16px;
-  bottom: calc(16px + env(safe-area-inset-bottom));
-  width: auto;
-  padding: 12px 18px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--accent-grad);
-  color: #fff;
-  font-weight: 600;
-  box-shadow: 0 6px 18px var(--accent-shadow);
-  z-index: 20;
-}
-#wc-fab[hidden],
+/* Android-only chrome around the shared wallet UI: top app bar, bottom tab bar, pairing sheet,
+   notice toast, pull-to-refresh, screen transitions and touch ergonomics (src/mobile/nav.ts,
+   pairUi.ts). Uses the popup's own color tokens from styles.css. */
+
 #wc-sheet[hidden],
-#wc-notice[hidden] {
+#wc-notice[hidden],
+#tab-bar[hidden],
+#app-bar[hidden],
+.app-bar-back[hidden] {
   display: none;
 }
+
+/* ---------------- Touch ergonomics ---------------- */
+html.mobile body {
+  font-size: 15px;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Chrome-like UI never selects or pops a long-press menu; text the user may copy (inputs,
+   addresses in content) still can. */
+html.mobile button,
+html.mobile .tab,
+html.mobile .settings-row,
+html.mobile .list-row,
+html.mobile h1,
+html.mobile label {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* Android's minimum touch target is 48dp; the popup's buttons were sized for a mouse. */
+html.mobile #app button.primary,
+html.mobile #app button.secondary:not(.btn-compact) {
+  min-height: 48px;
+}
+html.mobile button {
+  transition: transform 0.08s ease, background-color 0.15s ease;
+}
+html.mobile button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+html.mobile .settings-row:active,
+html.mobile .list-row:active {
+  background: rgba(162, 89, 255, 0.1);
+}
+
+/* ---------------- Layout with app bar + tab bar ---------------- */
+html.mobile.has-app-bar #app {
+  padding-top: calc(64px + env(safe-area-inset-top));
+}
+html.mobile.has-tabs #app {
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+}
+/* The screen's own title and Back button live in the app bar instead. */
+html.mobile.has-app-bar #app h1.lifted,
+html.mobile.has-app-bar #app .lifted#back {
+  display: none;
+}
+
+#app-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 25;
+  height: calc(56px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(13, 8, 18, 0.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.app-bar-back {
+  width: 44px !important;
+  height: 44px;
+  min-height: 44px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.app-bar-back:active {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+.app-bar-back svg,
+.tab svg {
+  width: 24px;
+  height: 24px;
+}
+.app-bar-title {
+  flex: 1;
+  padding-left: 6px;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#app-bar .app-bar-back[hidden] + .app-bar-title {
+  padding-left: 12px;
+}
+
+#tab-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 25;
+  height: calc(68px + env(safe-area-inset-bottom));
+  padding: 0 6px env(safe-area-inset-bottom);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  align-items: center;
+  background: rgba(16, 10, 22, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+#tab-bar .tab {
+  width: auto;
+  height: 60px;
+  min-height: 0;
+  margin: 0;
+  padding: 6px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+#tab-bar .tab .tab-icon {
+  width: 56px;
+  height: 30px;
+  border-radius: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+}
+#tab-bar .tab.active {
+  color: var(--text);
+}
+/* Material-3 style pill behind the active tab's icon. */
+#tab-bar .tab.active .tab-icon {
+  background: rgba(162, 89, 255, 0.22);
+  color: #d9b8ff;
+}
+/* The raised center Scan button. */
+#tab-bar .tab-scan .tab-icon {
+  width: 56px;
+  height: 56px;
+  margin-top: -26px;
+  border-radius: 18px;
+  background: var(--accent-grad);
+  color: #fff;
+  box-shadow: 0 8px 22px var(--accent-shadow), 0 0 0 5px rgba(16, 10, 22, 0.92);
+}
+#tab-bar .tab-scan .tab-icon svg {
+  width: 28px;
+  height: 28px;
+}
+#tab-bar .tab-scan {
+  color: var(--text);
+}
+
+/* ---------------- Screen transitions ---------------- */
+html.mobile #app.view-enter {
+  animation: m-forward 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+html.mobile.nav-back #app.view-enter {
+  animation-name: m-back;
+}
+html.mobile.nav-tab #app.view-enter {
+  animation: m-fade 0.18s ease-out;
+}
+@keyframes m-forward {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes m-back {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes m-fade {
+  from {
+    opacity: 0;
+    transform: scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------------- Pull to refresh ---------------- */
+#ptr {
+  position: fixed;
+  top: calc(-44px + env(safe-area-inset-top));
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  margin-left: -20px;
+  z-index: 24;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  pointer-events: none;
+}
+.ptr-spinner {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(162, 89, 255, 0.3);
+  border-top-color: var(--accent);
+}
+#ptr.armed .ptr-spinner {
+  border-color: var(--accent);
+}
+#ptr.spinning .ptr-spinner {
+  animation: ptr-spin 0.8s linear infinite;
+  border-color: rgba(162, 89, 255, 0.3);
+  border-top-color: var(--accent);
+}
+@keyframes ptr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------------- Pairing bottom sheet ---------------- */
 #wc-sheet {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  z-index: 30;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  z-index: 30;
+  background: rgba(0, 0, 0, 0);
+  transition: background-color 0.22s ease;
+}
+#wc-sheet.open {
+  background: rgba(0, 0, 0, 0.6);
 }
 .wc-sheet-card {
   width: 100%;
   max-width: 520px;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 16px 16px 0 0;
-  padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  border-bottom: 0;
+  border-radius: 24px 24px 0 0;
+  padding: 10px 18px calc(22px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 10px;
+  transform: translateY(100%);
+  transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+#wc-sheet.open .wc-sheet-card {
+  transform: none;
+}
+.wc-sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.22);
+  margin: 0 auto 10px;
 }
 .wc-sheet-card h2 {
   margin: 0;
 }
+
+/* ---------------- Toast ---------------- */
 .wc-notice {
   position: fixed;
   left: 16px;
   right: 16px;
-  bottom: calc(80px + env(safe-area-inset-bottom));
+  bottom: calc(88px + env(safe-area-inset-bottom));
   max-width: 488px;
   margin: 0 auto;
   padding: 12px 14px;
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--card);
   border: 1px solid var(--border);
   color: var(--text);
   z-index: 40;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 .wc-notice.err {
   border-color: #e5484d;
@@ -63,33 +324,12 @@
   border-color: var(--accent);
 }
 
-/* ---- Touch ergonomics (phone, not the 320px extension popup) ---- */
-html.mobile body {
-  font-size: 15px;
-  overscroll-behavior: none;
-  -webkit-tap-highlight-color: transparent;
-}
-/* Android's minimum touch target is 48dp; the popup's buttons were sized for a mouse. */
-html.mobile #app button.primary,
-html.mobile #app button.secondary:not(.btn-compact) {
-  min-height: 48px;
-}
-html.mobile button {
-  transition: transform 0.08s ease;
-}
-html.mobile button:active:not(:disabled) {
-  transform: scale(0.98);
-}
-/* While the Connect dApp button floats over the screen, keep the last content scrollable clear of it. */
-html.mobile.has-fab #app {
-  padding-bottom: calc(96px + env(safe-area-inset-bottom));
-}
-/* Approval screens: Approve/Reject sit at the bottom, within thumb reach. On a long request the
-   buttons still come after everything the user is approving (they scroll to them). */
+/* ---------------- Approvals ---------------- */
+/* Approve/Reject sit at the bottom, within thumb reach. On a long request the buttons still come
+   after everything the user is approving (they scroll to them). */
 html.mobile.approving #app > #approve {
   margin-top: auto;
 }
-
 /* "Request 1 of N" bar on approval screens when more requests are waiting. */
 .approval-counter {
   display: flex;
@@ -104,11 +344,20 @@ html.mobile.approving #app > #approve {
   font-weight: 600;
 }
 .approval-counter .link-btn {
-  font-size: 13px;
-}
-.approval-counter .link-btn {
   width: auto;
   margin: 0;
   padding: 4px 0;
+  font-size: 13px;
   color: var(--accent);
+}
+
+/* Home's own settings gear duplicates the Settings tab. */
+html.mobile.has-tabs #settingsBtn {
+  display: none;
+}
+
+/* Connected-site labels carry the dApp name, host and trust level: wrap instead of truncating. */
+html.mobile .list-row-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

@@ -14,6 +14,7 @@ interface BiometricVaultPlugin {
   encrypt(options: { secret: string; title: string; subtitle: string; cancel: string }): Promise<{ ciphertext: string; iv: string }>;
   decrypt(options: { ciphertext: string; iv: string; title: string; subtitle: string; cancel: string }): Promise<{ secret: string }>;
   deleteKey(): Promise<void>;
+  cancel(): Promise<void>;
 }
 
 const Native = registerPlugin<BiometricVaultPlugin>("BiometricVault");
@@ -90,6 +91,10 @@ export function createBiometric(): BiometricSupport {
       const check = seedCheck(seed);
       const { ciphertext, iv } = await Native.encrypt({ secret, ...promptText(), title: t("biometric.enableTitle") });
       await platform().local.set({ [STORE_KEY]: { ciphertext, iv, check } satisfies StoredUnlock });
+    },
+
+    async cancel() {
+      await Native.cancel().catch(() => {});
     },
 
     async disable() {

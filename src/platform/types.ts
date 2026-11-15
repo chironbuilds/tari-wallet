@@ -30,6 +30,8 @@ export interface BiometricSupport {
   disable(): Promise<void>;
   /** Shows the biometric prompt and, on a match, unlocks the wallet. */
   unlock(): Promise<BiometricUnlockResult>;
+  /** Dismisses a prompt still on screen (the wallet was unlocked another way). */
+  cancel(): Promise<void>;
 }
 
 export interface Platform {

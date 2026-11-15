@@ -56,6 +56,13 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     errMismatch: "一个或多个单词不匹配——请仔细核对您抄写的内容，或返回重新查看助记词。",
   },
 
+  tabs: {
+    home: "首页",
+    activity: "动态",
+    scan: "扫码",
+    dapps: "dApp",
+    settings: "设置",
+  },
   notify: {
     channelName: "审批请求",
     channelDescription: "已连接的 dApp 需要您批准某项操作时",
