@@ -709,3 +709,39 @@ html.scanning #ptr {
 @media (prefers-reduced-motion: reduce) {
   #qr-scanner .qr-line { animation: none; top: 50%; }
 }
+
+/* ---------------- Pre-wallet screens (welcome, create, backup, unlock) ----------------
+   Without the tab bar these are short, single-purpose screens: centre them vertically on a tall
+   phone instead of stacking at the top. Auto margins (not justify-content:center) so a screen
+   taller than the display -- the 24-word recovery phrase -- still scrolls from its top. */
+html.mobile:not(.has-tabs):not(.approving) #app > :first-child {
+  margin-top: auto;
+}
+html.mobile:not(.has-tabs):not(.approving) #app > :last-child {
+  margin-bottom: auto;
+}
+html.mobile:not(.has-tabs):not(.approving) #app {
+  padding-left: 22px;
+  padding-right: 22px;
+}
+/* Welcome: the popup-sized hero scaled up for a phone. */
+html.mobile .welcome-hero img {
+  width: 88px !important;
+  height: 88px !important;
+  border-radius: 22px;
+  filter: drop-shadow(0 10px 28px rgba(162, 89, 255, 0.5));
+}
+html.mobile .welcome-hero h1 {
+  font-size: 28px;
+  margin-top: 14px;
+}
+html.mobile .welcome-hero p {
+  font-size: 15px;
+  line-height: 1.5;
+  max-width: 320px;
+  margin-left: auto;
+  margin-right: auto;
+}
+html.mobile .welcome-hero {
+  margin-bottom: 18px;
+}
