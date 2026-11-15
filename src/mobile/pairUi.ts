@@ -25,15 +25,92 @@ export function showPairingNotice(message: string, kind: "ok" | "err"): void {
   noticeTimer = setTimeout(() => (el!.hidden = true), 5000);
 }
 
+/**
+ * Scans one QR code. Prefers Google's code scanner (polished, no camera permission needed) when its
+ * Play-services module is already on the device; otherwise scans at once with the built-in scanner
+ * (ML Kit model bundled in the app, live camera behind a framed overlay) while the Google module
+ * downloads in the background for next time. Resolves null if the user cancels.
+ */
 export async function scanQr(): Promise<string | null> {
-  const { available } = await BarcodeScanner.isGoogleBarcodeScannerModuleAvailable();
-  if (!available) {
-    // First use on a device: Play services downloads the scanner module in the background.
-    await BarcodeScanner.installGoogleBarcodeScannerModule();
-    throw new Error("Installing the QR scanner. Try again in a moment, or paste the link instead.");
+  try {
+    const { available } = await BarcodeScanner.isGoogleBarcodeScannerModuleAvailable();
+    if (available) {
+      const { barcodes } = await BarcodeScanner.scan({ formats: [BarcodeFormat.QrCode] });
+      return barcodes[0]?.rawValue ?? null;
+    }
+  } catch (e) {
+    // The user backing out of Google's scanner is a cancel, not a reason to open another one.
+    if (/cancel/i.test(String((e as Error)?.message ?? e))) return null;
   }
-  const { barcodes } = await BarcodeScanner.scan({ formats: [BarcodeFormat.QrCode] });
-  return barcodes[0]?.rawValue ?? null;
+  void BarcodeScanner.installGoogleBarcodeScannerModule().catch(() => {});
+  return builtInScan();
+}
+
+let cancelActiveScan: (() => void) | null = null;
+
+/** Closes the built-in scanner if it is open (the back button); returns whether it was. */
+export function cancelScan(): boolean {
+  if (!cancelActiveScan) return false;
+  cancelActiveScan();
+  return true;
+}
+
+async function builtInScan(): Promise<string | null> {
+  let perm = await BarcodeScanner.checkPermissions();
+  if (perm.camera !== "granted") perm = await BarcodeScanner.requestPermissions();
+  if (perm.camera !== "granted") throw new Error("Sapient needs camera access to scan. You can paste the link instead.");
+
+  const root = document.documentElement;
+  const ui = document.createElement("div");
+  ui.id = "qr-scanner";
+  ui.innerHTML = `
+    <div class="qr-top"><div class="qr-title">Scan a QR code</div><div class="qr-sub">Point the camera at the code</div></div>
+    <div class="qr-frame"><i></i><i></i><i></i><i></i><div class="qr-line"></div></div>
+    <div class="qr-actions">
+      <button type="button" class="qr-btn" id="qr-torch" hidden>Flashlight</button>
+      <button type="button" class="qr-btn" id="qr-cancel">Cancel</button>
+    </div>`;
+  document.body.append(ui);
+  root.classList.add("scanning");
+
+  return new Promise<string | null>((resolve, reject) => {
+    let finished = false;
+    let handle: { remove(): Promise<void> } | null = null;
+    const finish = async (value: string | null, error?: unknown) => {
+      if (finished) return;
+      finished = true;
+      cancelActiveScan = null;
+      await handle?.remove().catch(() => {});
+      await BarcodeScanner.stopScan().catch(() => {});
+      root.classList.remove("scanning");
+      ui.remove();
+      if (error) reject(error);
+      else resolve(value);
+    };
+    cancelActiveScan = () => void finish(null);
+    ui.querySelector("#qr-cancel")!.addEventListener("click", () => void finish(null));
+
+    void (async () => {
+      try {
+        handle = await BarcodeScanner.addListener("barcodesScanned", (event) => {
+          const value = event.barcodes.find((b) => b.rawValue)?.rawValue;
+          if (value) void finish(value);
+        });
+        await BarcodeScanner.startScan({ formats: [BarcodeFormat.QrCode] });
+        const { available } = await BarcodeScanner.isTorchAvailable().catch(() => ({ available: false }));
+        if (available && !finished) {
+          const torch = ui.querySelector<HTMLButtonElement>("#qr-torch")!;
+          torch.hidden = false;
+          torch.addEventListener("click", async () => {
+            await BarcodeScanner.toggleTorch().catch(() => {});
+            torch.classList.toggle("on");
+          });
+        }
+      } catch (e) {
+        void finish(null, e);
+      }
+    })();
+  });
 }
 
 let openSheet: () => void = () => {};

@@ -610,3 +610,102 @@ html.mobile #app {
   touch-action: pan-y;
 }
 
+
+/* ---------------- Built-in QR scanner (src/mobile/pairUi.ts) ---------------- */
+/* The camera preview is drawn behind the WebView, so everything else becomes transparent. */
+html.scanning,
+html.scanning body {
+  background: transparent !important;
+}
+html.scanning #app,
+html.scanning #tab-bar,
+html.scanning #app-bar,
+html.scanning #wc-sheet,
+html.scanning #net-bar,
+html.scanning #ptr {
+  visibility: hidden;
+}
+#qr-scanner {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(28px + env(safe-area-inset-top)) 24px calc(28px + env(safe-area-inset-bottom));
+  color: #fff;
+}
+#qr-scanner .qr-top {
+  text-align: center;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
+#qr-scanner .qr-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+#qr-scanner .qr-sub {
+  margin-top: 4px;
+  font-size: 14px;
+  opacity: 0.85;
+}
+/* The square window; the huge spread shadow dims everything around it. */
+#qr-scanner .qr-frame {
+  position: relative;
+  width: min(72vw, 300px);
+  aspect-ratio: 1;
+  border-radius: 24px;
+  box-shadow: 0 0 0 200vmax rgba(8, 4, 12, 0.62);
+}
+#qr-scanner .qr-frame i {
+  position: absolute;
+  width: 42px;
+  height: 42px;
+  border: 4px solid #d9b8ff;
+  filter: drop-shadow(0 0 6px rgba(162, 89, 255, 0.9));
+}
+#qr-scanner .qr-frame i:nth-child(1) { left: -2px; top: -2px; border-right: 0; border-bottom: 0; border-top-left-radius: 24px; }
+#qr-scanner .qr-frame i:nth-child(2) { right: -2px; top: -2px; border-left: 0; border-bottom: 0; border-top-right-radius: 24px; }
+#qr-scanner .qr-frame i:nth-child(3) { left: -2px; bottom: -2px; border-right: 0; border-top: 0; border-bottom-left-radius: 24px; }
+#qr-scanner .qr-frame i:nth-child(4) { right: -2px; bottom: -2px; border-left: 0; border-top: 0; border-bottom-right-radius: 24px; }
+#qr-scanner .qr-line {
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, transparent, #fc72ff, transparent);
+  box-shadow: 0 0 12px #fc72ff;
+  animation: qr-sweep 2s ease-in-out infinite alternate;
+}
+@keyframes qr-sweep {
+  from { top: 12%; }
+  to { top: 86%; }
+}
+#qr-scanner .qr-actions {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+}
+#qr-scanner .qr-btn {
+  flex: 1;
+  min-height: 52px;
+  margin: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(20, 12, 28, 0.75);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+}
+#qr-scanner .qr-btn[hidden] {
+  display: none;
+}
+#qr-scanner .qr-btn.on {
+  background: #fff;
+  color: #120b18;
+}
+@media (prefers-reduced-motion: reduce) {
+  #qr-scanner .qr-line { animation: none; top: 50%; }
+}

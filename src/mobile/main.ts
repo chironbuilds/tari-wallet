@@ -5,7 +5,7 @@ import { App } from "@capacitor/app";
 import { SplashScreen } from "@capacitor/splash-screen";
 import { setPlatform } from "../platform";
 import { createAndroidPlatform } from "./platform";
-import { closePairingSheet, openPairingSheet } from "./pairUi";
+import { cancelScan, closePairingSheet, openPairingSheet } from "./pairUi";
 import { installNav } from "./nav";
 import { installEnhancements } from "./enhance";
 import { installConnectivityBar } from "./connectivity";
@@ -40,6 +40,7 @@ async function boot(): Promise<void> {
   // session stays reachable.
   let navBack: () => boolean = () => false;
   App.addListener("backButton", () => {
+    if (cancelScan()) return;
     if (closePairingSheet()) return;
     if (platform.currentApproval()) {
       platform.dismissCurrentApproval();
