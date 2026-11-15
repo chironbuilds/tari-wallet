@@ -7,6 +7,7 @@ import { createAndroidPlatform } from "./platform";
 import { closePairingSheet, openPairingSheet } from "./pairUi";
 import { installNav } from "./nav";
 import { installEnhancements } from "./enhance";
+import { installConnectivityBar } from "./connectivity";
 import { initApprovalNotifications } from "./notifications";
 import { queuedWcRequestCount, rejectQueuedWcRequests, startWalletConnect } from "./wc";
 import { t } from "../lib/i18n";
@@ -53,7 +54,11 @@ async function boot(): Promise<void> {
   markApproving();
 
   const popup = await import("../popup/main");
-  navBack = installNav(popup.appNav, platform, openPairingSheet).back;
+  const nav = installNav(popup.appNav, platform, openPairingSheet);
+  navBack = nav.back;
+  // Back in the app: fresh balances / activity on a tab root (never disturbs a form or approval).
+  App.addListener("resume", () => setTimeout(() => nav.refreshTabRoot(), 400));
+  void installConnectivityBar(() => nav.refreshTabRoot());
   installEnhancements({ receiveAddress: async () => (await popup.appNav.status()).receiveAddress });
 
   // "Request 1 of N" above an approval when more are waiting, with a Reject-all shortcut for a dApp

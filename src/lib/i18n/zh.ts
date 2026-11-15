@@ -57,6 +57,8 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
   },
 
   mobile: {
+    offline: "您已离线。余额可能不是最新的。",
+    backOnline: "已恢复联网。",
     paste: "粘贴",
     scanQr: "扫码",
     shareAddress: "分享地址",

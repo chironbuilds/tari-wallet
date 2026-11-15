@@ -43,7 +43,7 @@ function setDirection(dir: Direction): void {
   root.classList.add(`nav-${dir}`);
 }
 
-export function installNav(nav: AppNav, host: AndroidPlatform, openScanner: () => void): { back(): boolean } {
+export function installNav(nav: AppNav, host: AndroidPlatform, openScanner: () => void): { back(): boolean; refreshTabRoot(): void } {
   const app = document.getElementById("app")!;
   let activeTab: Tab = "home";
 
@@ -204,7 +204,13 @@ export function installNav(nav: AppNav, host: AndroidPlatform, openScanner: () =
     true
   );
 
-  // ---------------- pull to refresh (Home) ----------------
+  /** On a tab's own root screen (Home, Activity, dApps, Settings) -- not a sub-screen or approval. */
+  function isTabRoot(): boolean {
+    if (!showChrome || window.location.hash.startsWith("#/approve/")) return false;
+    return topBar.hidden === true || backBtn.hidden === true;
+  }
+
+  // ---------------- pull to refresh (any tab root) ----------------
   const ptr = document.createElement("div");
   ptr.id = "ptr";
   ptr.innerHTML = '<div class="ptr-spinner"></div>';
@@ -215,9 +221,7 @@ export function installNav(nav: AppNav, host: AndroidPlatform, openScanner: () =
   app.addEventListener(
     "touchstart",
     (e) => {
-      // Home only: the tab bar is up and no app bar (i.e. not a sub-screen).
-      const onHome = showChrome && activeTab === "home" && topBar.hidden;
-      startY = onHome && app.scrollTop <= 0 ? e.touches[0]!.clientY : null;
+      startY = isTabRoot() && app.scrollTop <= 0 ? e.touches[0]!.clientY : null;
       pulled = 0;
     },
     { passive: true }
@@ -249,7 +253,7 @@ export function installNav(nav: AppNav, host: AndroidPlatform, openScanner: () =
       ptr.classList.add("spinning");
       ptr.style.transform = `translateY(${THRESHOLD}px)`;
       setDirection("tab");
-      void nav.home().finally(() => {
+      void nav[activeTab]().finally(() => {
         ptr.classList.remove("spinning", "armed");
         ptr.style.transform = "";
         ptr.style.opacity = "0";
@@ -262,6 +266,13 @@ export function installNav(nav: AppNav, host: AndroidPlatform, openScanner: () =
     pulled = 0;
   });
 
+  /** Re-renders the current tab root with fresh data (app resumed); leaves sub-screens and forms alone. */
+  function refreshTabRoot(): void {
+    if (!isTabRoot() || activeTab === "settings") return;
+    setDirection("tab");
+    void nav[activeTab]();
+  }
+
   void host;
-  return { back: goBack };
+  return { back: goBack, refreshTabRoot };
 }

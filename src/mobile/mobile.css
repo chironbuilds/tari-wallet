@@ -403,3 +403,38 @@ html.mobile.kb-open #tab-bar {
 html.mobile.kb-open.has-tabs #app {
   padding-bottom: 24px;
 }
+
+/* ---------------- Connectivity bar ---------------- */
+#net-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: env(safe-area-inset-top);
+  z-index: 26;
+  padding: 8px 16px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+#net-bar[hidden] {
+  display: none;
+}
+#net-bar.offline {
+  background: #3a2400;
+  color: #ffcf7a;
+  border-bottom: 1px solid #6b4500;
+}
+#net-bar.online {
+  background: #0f2e1d;
+  color: #6ee7a8;
+  border-bottom: 1px solid #1f5c3b;
+}
+html.mobile.has-app-bar #net-bar {
+  top: calc(56px + env(safe-area-inset-top));
+}
+html.mobile.offline #app {
+  padding-top: calc(48px + env(safe-area-inset-top));
+}
+html.mobile.offline.has-app-bar #app {
+  padding-top: calc(100px + env(safe-area-inset-top));
+}
