@@ -1,7 +1,7 @@
 // Native-app chrome for the Android build, layered over the shared popup screens without changing
 // them: a bottom tab bar (Home · Activity · Scan · dApps · Settings), a top app bar with a back
 // arrow on sub-screens (lifted from each screen's own "Back" button and <h1>), directional screen
-// transitions, pull-to-refresh on Home, and haptic feedback.
+// transitions, pull-to-refresh on the tab roots, and haptic feedback.
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import type { AndroidPlatform } from "./platform";
 import { t } from "../lib/i18n";
@@ -10,6 +10,7 @@ export type Tab = "home" | "activity" | "dapps" | "settings";
 
 export interface AppNav {
   status(): Promise<{ hasWallet: boolean; isUnlocked: boolean; backupPending?: boolean }>;
+  lockState(): Promise<{ hasWallet: boolean; isUnlocked: boolean; backupPending: boolean }>;
   home(): Promise<void>;
   activity(): Promise<void>;
   settings(): Promise<void>;
@@ -35,12 +36,12 @@ export function tick(style: ImpactStyle = ImpactStyle.Light): void {
   void Haptics.impact({ style }).catch(() => {});
 }
 
-type Direction = "forward" | "back" | "tab";
+type Direction = "forward" | "back" | "tab" | "none";
 
 /** The next re-render animates in this direction (see mobile.css). */
 function setDirection(dir: Direction): void {
   const root = document.documentElement;
-  root.classList.remove("nav-forward", "nav-back", "nav-tab");
+  root.classList.remove("nav-forward", "nav-back", "nav-tab", "nav-none");
   root.classList.add(`nav-${dir}`);
 }
 
@@ -125,7 +126,7 @@ export function installNav(
     let ok = false;
     if (!onApproval) {
       try {
-        const s = await nav.status();
+        const s = await nav.lockState();
         ok = s.hasWallet && s.isUnlocked && !s.backupPending;
       } catch {
         ok = false;
@@ -227,18 +228,42 @@ export function installNav(
     return topBar.hidden === true || backBtn.hidden === true;
   }
 
-  // ---------------- pull to refresh (any tab root) ----------------
+  // ---------------- pull to refresh (Home, Activity, dApps) ----------------
+  // Tracks the finger frame by frame (no CSS transition fighting the drag), drags the content with a
+  // rubber-band resistance, and on release either springs back or holds while the tab re-renders in
+  // place (no fade). Settings has nothing to refresh, so it never pulls.
   const ptr = document.createElement("div");
   ptr.id = "ptr";
   ptr.innerHTML = '<div class="ptr-spinner"></div>';
   document.body.append(ptr);
+  const THRESHOLD = 70; // px of (resisted) pull that triggers a refresh
+  const HOLD = 56; // where the content rests while refreshing
   let startY: number | null = null;
   let pulled = 0;
-  const THRESHOLD = 72;
+  let frame = 0;
+  let refreshing = false;
+
+  const canPull = () => !refreshing && isTabRoot() && activeTab !== "settings" && app.scrollTop <= 0;
+  const resist = (dy: number) => 110 * (1 - Math.exp(-dy / 160)); // eases out, never past ~110px
+
+  function paint(y: number, spin = false): void {
+    app.style.transform = y > 0 ? `translate3d(0, ${y}px, 0)` : "";
+    ptr.style.transform = `translate3d(0, ${y}px, 0) rotate(${spin ? 0 : y * 3.2}deg)`;
+    ptr.style.opacity = String(Math.min(1, y / THRESHOLD));
+  }
+  function settle(to: number, done?: () => void): void {
+    document.documentElement.classList.add("ptr-settling");
+    paint(to, refreshing);
+    setTimeout(() => {
+      document.documentElement.classList.remove("ptr-settling");
+      done?.();
+    }, 260);
+  }
+
   app.addEventListener(
     "touchstart",
     (e) => {
-      startY = isTabRoot() && app.scrollTop <= 0 ? e.touches[0]!.clientY : null;
+      startY = canPull() ? e.touches[0]!.clientY : null;
       pulled = 0;
     },
     { passive: true }
@@ -248,45 +273,59 @@ export function installNav(
     (e) => {
       if (startY === null) return;
       const dy = e.touches[0]!.clientY - startY;
-      if (dy <= 0) {
-        pulled = 0;
-        ptr.style.transform = "";
-        ptr.classList.remove("armed");
+      if (dy <= 0 || app.scrollTop > 0) {
+        if (pulled) {
+          pulled = 0;
+          cancelAnimationFrame(frame);
+          paint(0);
+          ptr.classList.remove("armed");
+        }
         return;
       }
-      pulled = Math.min(120, dy * 0.5);
-      ptr.style.transform = `translateY(${pulled}px) rotate(${pulled * 4}deg)`;
-      ptr.style.opacity = String(Math.min(1, pulled / THRESHOLD));
+      pulled = resist(dy);
       const armed = pulled >= THRESHOLD;
       if (armed && !ptr.classList.contains("armed")) tick();
       ptr.classList.toggle("armed", armed);
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => paint(pulled));
     },
     { passive: true }
   );
-  app.addEventListener("touchend", () => {
+  const release = () => {
     if (startY === null) return;
     startY = null;
+    cancelAnimationFrame(frame);
     if (pulled >= THRESHOLD) {
+      refreshing = true;
       ptr.classList.add("spinning");
-      ptr.style.transform = `translateY(${THRESHOLD}px)`;
-      setDirection("tab");
-      void nav[activeTab]().finally(() => {
-        ptr.classList.remove("spinning", "armed");
-        ptr.style.transform = "";
-        ptr.style.opacity = "0";
-      });
+      settle(HOLD);
+      setDirection("none");
+      const started = performance.now();
+      void nav[activeTab]()
+        .catch(() => {})
+        .finally(() => {
+          // Keep the spinner up long enough to read as "refreshed", not a flicker.
+          const wait = Math.max(0, 450 - (performance.now() - started));
+          setTimeout(() => {
+            settle(0, () => {
+              refreshing = false;
+              ptr.classList.remove("spinning", "armed");
+            });
+          }, wait);
+        });
     } else {
-      ptr.style.transform = "";
-      ptr.style.opacity = "0";
       ptr.classList.remove("armed");
+      settle(0);
     }
     pulled = 0;
-  });
+  };
+  app.addEventListener("touchend", release);
+  app.addEventListener("touchcancel", release);
 
   /** Re-renders the current tab root with fresh data (app resumed); leaves sub-screens and forms alone. */
   function refreshTabRoot(): void {
     if (!isTabRoot() || activeTab === "settings") return;
-    setDirection("tab");
+    setDirection("none");
     void nav[activeTab]();
   }
 

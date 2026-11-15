@@ -1670,9 +1670,19 @@ export async function handlePopupRequest(message: PopupRequest): Promise<unknown
   // Home's timed balance refresh isn't the user doing anything: counting it would keep a wallet left
   // open in a tab or window unlocked forever, whatever the auto-lock setting says.
   const isBackgroundPoll =
-    (message.kind === "popup-get-balances" || message.kind === "popup-get-status") && message.background === true;
+    ((message.kind === "popup-get-balances" || message.kind === "popup-get-status") && message.background === true) ||
+    message.kind === "popup-get-lock-state";
   if (!isBackgroundPoll) await touchActivity();
   switch (message.kind) {
+    case "popup-get-lock-state": {
+      const state = await getState();
+      return {
+        hasWallet: state.vault !== null,
+        isUnlocked: await isUnlocked(),
+        backupPending: state.vault !== null && state.backupPending === true,
+      };
+    }
+
     case "popup-get-status":
       // Bounded so a slow mainnet indexer never holds up opening the popup; a late move shows on the next status.
       await Promise.race([applyMainnetDefault(), new Promise((resolve) => setTimeout(resolve, 1500))]);

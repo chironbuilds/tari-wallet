@@ -10,6 +10,9 @@ const config: CapacitorConfig = {
   plugins: {
     // The wallet UI is always dark: light status/navigation bar icons regardless of system theme.
     SystemBars: { style: "DARK" },
+    // Keep the native launch screen up until the first real screen has rendered (src/mobile/main.ts
+    // hides it), instead of flashing an empty "Loading…" page while the wallet code starts.
+    SplashScreen: { launchAutoHide: false, backgroundColor: "#0D0812", showSpinner: false },
     // Status-bar icon for approval notifications: the eye silhouette, tinted Sapient purple.
     LocalNotifications: { smallIcon: "ic_sapient_foreground", iconColor: "#A259FF" },
   },

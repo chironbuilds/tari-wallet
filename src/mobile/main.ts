@@ -2,6 +2,7 @@
 // loads the existing popup UI on top of it.
 import "./mobile.css";
 import { App } from "@capacitor/app";
+import { SplashScreen } from "@capacitor/splash-screen";
 import { setPlatform } from "../platform";
 import { createAndroidPlatform } from "./platform";
 import { closePairingSheet, openPairingSheet } from "./pairUi";
@@ -53,6 +54,19 @@ async function boot(): Promise<void> {
   window.addEventListener("hashchange", markApproving);
   markApproving();
 
+  // Resolves when the shared UI has drawn its first real screen (unlock, welcome, home...).
+  const appEl = document.getElementById("app")!;
+  const firstRender = new Promise<void>((resolve) => {
+    const done = () => requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    new MutationObserver((_, obs) => {
+      if (appEl.querySelector("h1, .hero, .top-nav, input")) {
+        obs.disconnect();
+        done();
+      }
+    }).observe(appEl, { childList: true, subtree: true });
+    // Never leave the launch screen up if something unexpected renders first.
+    setTimeout(resolve, 6000);
+  });
   const popup = await import("../popup/main");
   const nav = installNav(popup.appNav, platform, openPairingSheet);
   navBack = nav.back;
@@ -98,8 +112,7 @@ async function boot(): Promise<void> {
     bar.append(text, rejectAll);
     app.prepend(bar);
   };
-  const appEl = document.getElementById("app");
-  if (appEl) new MutationObserver(() => syncCounter()).observe(appEl, { childList: true });
+  new MutationObserver(() => syncCounter()).observe(appEl, { childList: true });
   platform.onApprovalQueued(() => syncCounter());
   platform.onApprovalClosed(() => syncCounter());
   window.addEventListener("hashchange", syncCounter);
@@ -109,11 +122,17 @@ async function boot(): Promise<void> {
     if (window.location.hash.startsWith("#/approve/")) syncCounter();
   }, 1000);
 
+  // The first screen is up: drop the native launch screen, then start the background services
+  // (notification channel, WalletConnect relay) without holding up the first paint.
+  await firstRender;
+  void SplashScreen.hide({ fadeOutDuration: 220 }).catch(() => {});
+  await new Promise((r) => setTimeout(r, 150));
   await initApprovalNotifications(platform);
   await startWalletConnect(platform);
 }
 
 boot().catch((e) => {
+  void SplashScreen.hide().catch(() => {});
   const app = document.getElementById("app");
   if (app) app.textContent = `Sapient failed to start: ${e instanceof Error ? e.message : String(e)}`;
 });

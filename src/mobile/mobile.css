@@ -68,9 +68,8 @@ html.mobile.has-app-bar #app .lifted#back {
   display: flex;
   align-items: center;
   gap: 4px;
-  background: rgba(13, 8, 18, 0.86);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  /* Solid, not backdrop-blurred: a live blur under a scrolling WebView repaints every frame. */
+  background: #0f0a15;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 .app-bar-back {
@@ -120,9 +119,7 @@ html.mobile.has-app-bar #app .lifted#back {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   align-items: center;
-  background: rgba(16, 10, 22, 0.92);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: #110b18;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 #tab-bar .tab {
@@ -187,6 +184,10 @@ html.mobile.nav-back #app.view-enter {
 html.mobile.nav-tab #app.view-enter {
   animation: m-fade 0.18s ease-out;
 }
+/* Refreshes (pull to refresh, resume, reconnect) update the screen in place: no fade or slide. */
+html.mobile.nav-none #app.view-enter {
+  animation: none;
+}
 @keyframes m-forward {
   from {
     opacity: 0;
@@ -235,8 +236,14 @@ html.mobile.nav-tab #app.view-enter {
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: transform 0.2s ease, opacity 0.2s ease;
   pointer-events: none;
+  will-change: transform, opacity;
+}
+/* While dragging, #app and the spinner follow the finger directly (set per frame in nav.ts); only
+   the settle (spring back / move to the hold position) is animated. */
+html.mobile.ptr-settling #app,
+html.mobile.ptr-settling #ptr {
+  transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.26s ease;
 }
 .ptr-spinner {
   width: 20px;
@@ -588,4 +595,17 @@ html.mobile .action-row {
 html.mobile .action-row > button.action-btn {
   justify-content: flex-start;
   align-self: start;
+}
+
+/* ---------------- Performance ---------------- */
+/* The extension's balance card runs two infinite animations (rotating border, breathing glow) that
+   repaint it every frame: fine on a desktop, costly in a phone WebView while scrolling. Static here. */
+html.mobile .account-summary.card,
+html.mobile .account-summary.card::before {
+  animation: none;
+}
+/* Scrolling on its own compositor layer; no tap delay. */
+html.mobile #app {
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }

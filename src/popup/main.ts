@@ -3094,6 +3094,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
  * tab tap always shows current data. Not used by the extension. */
 export const appNav = {
   status: () => getStatus(),
+  lockState: () => send<{ hasWallet: boolean; isUnlocked: boolean; backupPending: boolean }>({ kind: "popup-get-lock-state" }),
   async home() {
     await renderHome(await getStatus());
   },

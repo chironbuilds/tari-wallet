@@ -772,6 +772,9 @@ export type PopupRequest =
   /** `background`: a status read the user didn't cause (the Android Connect-dApp button checking
    * whether the wallet is unlocked) -- it must not count as activity for auto-lock. */
   | { kind: "popup-get-status"; background?: true }
+  /** Just enough to know which chrome to show (Android tab bar): no account derivation, no
+   * network, not counted as activity. Cheap enough to ask on every screen render. */
+  | { kind: "popup-get-lock-state" }
   | { kind: "popup-reload-extension" }
   | { kind: "popup-set-language"; language: "en" | "zh" }
   | { kind: "popup-create-wallet"; password: string }
