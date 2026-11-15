@@ -8,6 +8,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(BiometricVaultPlugin.class);
         super.onCreate(savedInstanceState);
         // The wallet shows recovery phrases and balances: block screenshots, screen recording and
         // the recent-apps thumbnail. Debug builds skip it so UI tests can capture the screen.

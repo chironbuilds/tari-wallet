@@ -56,6 +56,17 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     errMismatch: "一个或多个单词不匹配——请仔细核对您抄写的内容，或返回重新查看助记词。",
   },
 
+  biometric: {
+    unlockButton: "使用生物识别解锁",
+    promptTitle: "解锁 Sapient",
+    promptSubtitle: "确认是您本人",
+    usePassword: "使用密码",
+    enableTitle: "开启生物识别解锁",
+    settingsRow: "生物识别解锁",
+    invalidated: "此设备上的生物识别信息已更改，生物识别解锁已关闭。请使用密码解锁，然后在设置中重新开启。",
+    lockout: "尝试次数过多。请使用密码解锁。",
+    failed: "生物识别解锁失败：{error}",
+  },
   unlock: {
     title: "欢迎回来",
     forgotPassword: "忘记密码？",

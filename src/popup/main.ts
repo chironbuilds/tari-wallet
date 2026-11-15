@@ -547,17 +547,14 @@ function renderUnlock(onUnlocked?: () => void, lastKnownAddress?: string | null)
   pw.addEventListener("keydown", (e) => {
     if (e.key === "Enter") document.getElementById("unlock")!.click();
   });
-  document.getElementById("unlock")!.addEventListener("click", async () => {
-    try {
-      await send({ kind: "popup-unlock", password: pw.value });
-    } catch (e) {
-      statusEl.textContent = e instanceof Error ? e.message : String(e);
-      statusEl.className = "status err";
-      statusEl.style.display = "block";
-      return;
-    }
-    // Past this point the password was correct, so failures are no longer about this form —
-    // `statusEl` is about to be replaced by renderLoading() and can't show them anymore.
+  const showError = (message: string) => {
+    statusEl.textContent = message;
+    statusEl.className = "status err";
+    statusEl.style.display = "block";
+  };
+  // Past a successful unlock, failures are no longer about this form -- `statusEl` is about to be
+  // replaced by renderLoading() and can't show them anymore.
+  const continueUnlocked = async () => {
     renderLoading(t("common.derivingAccount"));
     try {
       if (onUnlocked) {
@@ -569,8 +566,85 @@ function renderUnlock(onUnlocked?: () => void, lastKnownAddress?: string | null)
     } catch (e) {
       render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
     }
+  };
+  document.getElementById("unlock")!.addEventListener("click", async () => {
+    try {
+      await send({ kind: "popup-unlock", password: pw.value });
+    } catch (e) {
+      showError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    biometricDeclined = false;
+    await continueUnlocked();
   });
   forgotLink.addEventListener("click", renderForgotPassword);
+  void offerBiometricUnlock(forgotLink, showError, continueUnlocked);
+}
+
+/** Settings row for biometric unlock: a switch that runs the biometric prompt to turn it on. */
+async function setupBiometricRow(row: HTMLElement, statusEl: HTMLElement) {
+  const bio = platform().biometric;
+  if (!bio) return;
+  const { available, enabled } = await bio.status();
+  if (!available) return;
+  row.append(h("span", {}, [t("biometric.settingsRow")]), switchControl("biometricUnlock", enabled, "", ""));
+  row.style.display = "";
+  const toggle = document.getElementById("biometricUnlock") as HTMLInputElement;
+  toggle.addEventListener("change", async () => {
+    toggle.disabled = true;
+    statusEl.style.display = "none";
+    try {
+      if (toggle.checked) await bio.enable();
+      else await bio.disable();
+    } catch (e) {
+      const cancelled = typeof e === "object" && e && "code" in e && (e as { code: unknown }).code === "CANCELLED";
+      toggle.checked = !toggle.checked;
+      if (!cancelled) {
+        statusEl.textContent = t("biometric.failed", { error: e instanceof Error ? e.message : String(e) });
+        statusEl.className = "status err";
+        statusEl.style.display = "block";
+      }
+    } finally {
+      toggle.disabled = false;
+    }
+  });
+}
+
+/** Set when the user dismisses the biometric prompt: the lock screen then waits for them (button or
+ * password) instead of popping the prompt again on every re-render. Cleared by any unlock. */
+let biometricDeclined = false;
+
+/** Android: if biometric unlock is on, adds its button to the lock screen and prompts right away. */
+async function offerBiometricUnlock(before: HTMLElement, showError: (m: string) => void, onUnlocked: () => Promise<void>) {
+  const bio = platform().biometric;
+  if (!bio) return;
+  const { enabled } = await bio.status();
+  if (!enabled || !before.isConnected) return;
+  const btn = h("button", { class: "secondary", id: "bioUnlock" }, [t("biometric.unlockButton")]) as HTMLButtonElement;
+  before.before(btn);
+  const attempt = async () => {
+    btn.disabled = true;
+    try {
+      const result = await bio.unlock();
+      if (result === "unlocked") {
+        biometricDeclined = false;
+        await onUnlocked();
+        return;
+      }
+      if (result === "cancelled") biometricDeclined = true;
+      if (result === "lockout") showError(t("biometric.lockout"));
+      if (result === "invalidated") {
+        showError(t("biometric.invalidated"));
+        btn.remove();
+      }
+    } catch (e) {
+      showError(t("biometric.failed", { error: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      btn.disabled = false;
+    }
+  };
+  btn.addEventListener("click", () => void attempt());
+  if (!biometricDeclined) void attempt();
 }
 
 // A locked wallet with a forgotten password was previously a dead end — `popup-reset-wallet`
@@ -1007,6 +1081,10 @@ function renderSettings(status: WalletStatus) {
     feePrivacySwitch,
   ]);
 
+  // Android only, and only on a device with a strong biometric enrolled (filled in asynchronously).
+  const biometricRow = h("div", { class: "settings-row settings-row-static", style: "display:none" }, []);
+  const biometricStatusEl = h("div", { class: "status", style: "display:none" });
+
   render(
     h("h1", {}, [t("settings.title")]),
     back,
@@ -1018,14 +1096,17 @@ function renderSettings(status: WalletStatus) {
       sitesBtn,
       addressBookBtn,
       backupBtn,
+      biometricRow,
       autoLockRow,
       networkRow,
       languageRow,
       feePrivacyRow,
     ]),
     networkConfirmEl,
+    biometricStatusEl,
     lockBtn
   );
+  void setupBiometricRow(biometricRow, biometricStatusEl);
 
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
   document.getElementById("lock")!.addEventListener("click", async () => {

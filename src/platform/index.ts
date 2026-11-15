@@ -3,7 +3,7 @@
 import { chromePlatform } from "./chrome";
 import type { Platform } from "./types";
 
-export type { Platform, PopupResponse, StorageArea, WalletBroadcast } from "./types";
+export type { BiometricSupport, BiometricUnlockResult, Platform, PopupResponse, StorageArea, WalletBroadcast } from "./types";
 
 let current: Platform | null = null;
 

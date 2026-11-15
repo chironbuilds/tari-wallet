@@ -2,6 +2,7 @@
 // "popup request" is a direct function call and an approval is an in-app screen, not a window.
 import { Preferences } from "@capacitor/preferences";
 import { memoryArea } from "../platform/memoryArea";
+import { createBiometric } from "./biometric";
 import type { Platform, PopupResponse, StorageArea, WalletBroadcast } from "../platform/types";
 import type { PopupRequest } from "../lib/messages";
 
@@ -169,5 +170,6 @@ export async function createAndroidPlatform(deps: AndroidPlatformDeps): Promise<
     // The core lives in this WebView; nothing to keep awake.
     keepAliveWhileApproving() {},
     closeApprovalView: showHead,
+    biometric: createBiometric(),
   };
 }

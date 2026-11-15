@@ -57,6 +57,17 @@ const en = {
     errMismatch: "One or more words don't match — double check what you wrote down, or go back to view the phrase again.",
   },
 
+  biometric: {
+    unlockButton: "Unlock with biometrics",
+    promptTitle: "Unlock Sapient",
+    promptSubtitle: "Confirm it's you",
+    usePassword: "Use password",
+    enableTitle: "Turn on biometric unlock",
+    settingsRow: "Biometric unlock",
+    invalidated: "Biometrics on this device changed, so biometric unlock was turned off. Unlock with your password, then turn it back on in Settings.",
+    lockout: "Too many attempts. Unlock with your password.",
+    failed: "Biometric unlock failed: {error}",
+  },
   unlock: {
     title: "Welcome back",
     forgotPassword: "Forgot password?",

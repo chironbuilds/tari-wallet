@@ -19,6 +19,19 @@ export interface PopupResponse<T = unknown> {
   error?: string;
 }
 
+export type BiometricUnlockResult = "unlocked" | "cancelled" | "lockout" | "invalidated" | "unavailable";
+
+/** Hardware-backed biometric unlock (Android only). */
+export interface BiometricSupport {
+  /** `available`: a strong biometric is enrolled on the device; `enabled`: the wallet has it on. */
+  status(): Promise<{ available: boolean; enabled: boolean }>;
+  /** Turns it on for the unlocked wallet (shows the biometric prompt). */
+  enable(): Promise<void>;
+  disable(): Promise<void>;
+  /** Shows the biometric prompt and, on a match, unlocks the wallet. */
+  unlock(): Promise<BiometricUnlockResult>;
+}
+
 export interface Platform {
   readonly kind: "extension" | "android";
   /** Persistent storage (survives restarts). */
@@ -54,4 +67,6 @@ export interface Platform {
   keepAliveWhileApproving(): void;
   /** Leaves the approval screen after a decision. */
   closeApprovalView(): void;
+  /** Biometric unlock, where the host supports it. */
+  readonly biometric?: BiometricSupport;
 }
