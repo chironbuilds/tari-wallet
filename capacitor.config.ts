@@ -10,6 +10,8 @@ const config: CapacitorConfig = {
   plugins: {
     // The wallet UI is always dark: light status/navigation bar icons regardless of system theme.
     SystemBars: { style: "DARK" },
+    // Status-bar icon for approval notifications: the eye silhouette, tinted Sapient purple.
+    LocalNotifications: { smallIcon: "ic_sapient_foreground", iconColor: "#A259FF" },
   },
   // webContentsDebuggingEnabled is left unset: Capacitor then enables WebView remote debugging
   // only for debuggable (debug) builds, never for release, where it would expose the unlocked

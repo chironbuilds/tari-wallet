@@ -5,6 +5,9 @@ import { App } from "@capacitor/app";
 import { setPlatform } from "../platform";
 import { createAndroidPlatform } from "./platform";
 import { closePairingSheet } from "./pairUi";
+import { initApprovalNotifications } from "./notifications";
+import { queuedWcRequestCount, rejectQueuedWcRequests, startWalletConnect } from "./wc";
+import { t } from "../lib/i18n";
 import { checkAutoLock, handlePopupRequest, initCore, onHostStartup, sanitizeForMessage } from "../background/core";
 
 const AUTO_LOCK_CHECK_MS = 60_000;
@@ -53,7 +56,51 @@ async function boot(): Promise<void> {
   markApproving();
 
   await import("../popup/main");
-  const { startWalletConnect } = await import("./wc");
+
+  // "Request 1 of N" above an approval when more are waiting, with a Reject-all shortcut for a dApp
+  // that floods requests. Refreshed when the queue changes or the screen re-renders.
+  const syncCounter = () => {
+    const app = document.getElementById("app");
+    const existing = document.getElementById("approval-counter");
+    const total = platform.approvalQueue().length + queuedWcRequestCount();
+    if (!app || !window.location.hash.startsWith("#/approve/") || total < 2) {
+      existing?.remove();
+      return;
+    }
+    const label = t("queue.position", { current: "1", total: String(total) });
+    if (existing && existing.parentElement === app) {
+      existing.querySelector("span")!.textContent = label;
+      return;
+    }
+    existing?.remove();
+    const bar = document.createElement("div");
+    bar.id = "approval-counter";
+    bar.className = "approval-counter";
+    const text = document.createElement("span");
+    text.textContent = label;
+    const rejectAll = document.createElement("button");
+    rejectAll.type = "button";
+    rejectAll.className = "link-btn";
+    rejectAll.textContent = t("queue.rejectAll");
+    rejectAll.addEventListener("click", () => {
+      // Waiting WalletConnect requests first, so none is handed over (and shown) in between.
+      void rejectQueuedWcRequests().then(() => platform.dismissAllApprovals());
+    });
+    bar.append(text, rejectAll);
+    app.prepend(bar);
+  };
+  const appEl = document.getElementById("app");
+  if (appEl) new MutationObserver(() => syncCounter()).observe(appEl, { childList: true });
+  platform.onApprovalQueued(() => syncCounter());
+  platform.onApprovalClosed(() => syncCounter());
+  window.addEventListener("hashchange", syncCounter);
+  // Requests WalletConnect is still holding raise no event of their own, so re-check while an
+  // approval is on screen.
+  setInterval(() => {
+    if (window.location.hash.startsWith("#/approve/")) syncCounter();
+  }, 1000);
+
+  await initApprovalNotifications(platform);
   await startWalletConnect(platform);
 }
 

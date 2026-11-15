@@ -55,6 +55,14 @@ export interface AndroidPlatform extends Platform {
   currentApproval(): string | null;
   /** The user backed out of the approval screen without deciding. */
   dismissCurrentApproval(): void;
+  /** Approval ids waiting, the one on screen first. */
+  approvalQueue(): readonly string[];
+  /** Rejects every waiting approval (the "Reject all" shortcut when a dApp floods requests). */
+  dismissAllApprovals(): void;
+  /** Called when an approval joins the queue (notifications, the request counter). */
+  onApprovalQueued(listener: (id: string) => void): void;
+  /** Called when an approval leaves the queue, decided or dismissed. */
+  onApprovalClosed(listener: (id: string) => void): void;
   /** A dApp on this phone opened the app (deep link): hand back to it once the user has decided. */
   expectReturnToCaller(): void;
   /** True once, if a deep-linked caller is waiting and the user has finished every approval since. */
@@ -76,6 +84,17 @@ export async function createAndroidPlatform(deps: AndroidPlatformDeps): Promise<
   // re-renders on hashchange on Android), so showing one is just navigating to it.
   const queue: string[] = [];
   let dismissed: ((id: string) => void) | null = null;
+  const queuedListeners: ((id: string) => void)[] = [];
+  const closedListeners: ((id: string) => void)[] = [];
+  const notify = (listeners: ((id: string) => void)[], id: string) => {
+    for (const l of listeners) {
+      try {
+        l(id);
+      } catch {
+        // One failing listener must not stop the others.
+      }
+    }
+  };
   // Deep-link return: armed by a link, satisfied once an approval completes, stale after 2 minutes
   // (a link the user then ignored must not minimize the app on some unrelated later approval).
   const RETURN_WINDOW_MS = 120_000;
@@ -94,7 +113,10 @@ export async function createAndroidPlatform(deps: AndroidPlatformDeps): Promise<
     session,
 
     async openApproval(id) {
-      if (!queue.includes(id)) queue.push(id);
+      if (!queue.includes(id)) {
+        queue.push(id);
+        notify(queuedListeners, id);
+      }
       showHead();
     },
     closeApproval(id) {
@@ -102,6 +124,7 @@ export async function createAndroidPlatform(deps: AndroidPlatformDeps): Promise<
       if (i >= 0) {
         queue.splice(i, 1);
         approvalDoneSinceArmed = true;
+        notify(closedListeners, id);
       }
       showHead();
     },
@@ -114,8 +137,25 @@ export async function createAndroidPlatform(deps: AndroidPlatformDeps): Promise<
       if (id) {
         approvalDoneSinceArmed = true;
         dismissed?.(id);
+        notify(closedListeners, id);
       }
       showHead();
+    },
+    approvalQueue: () => queue,
+    dismissAllApprovals() {
+      while (queue.length > 0) {
+        const id = queue.shift()!;
+        approvalDoneSinceArmed = true;
+        dismissed?.(id);
+        notify(closedListeners, id);
+      }
+      showHead();
+    },
+    onApprovalQueued(listener) {
+      queuedListeners.push(listener);
+    },
+    onApprovalClosed(listener) {
+      closedListeners.push(listener);
     },
     expectReturnToCaller() {
       returnArmedAt = Date.now();

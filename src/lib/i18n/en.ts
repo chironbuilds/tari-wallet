@@ -57,6 +57,20 @@ const en = {
     errMismatch: "One or more words don't match — double check what you wrote down, or go back to view the phrase again.",
   },
 
+  notify: {
+    channelName: "Approval requests",
+    channelDescription: "When a connected dApp needs you to approve something",
+    title: "{site} needs your approval",
+    connect: "Connection request — open Sapient to review.",
+    transaction: "Transaction request — open Sapient to review.",
+    switchNetwork: "Network switch request — open Sapient to review.",
+    viewAccess: "View-access request — open Sapient to review.",
+    signature: "Signature request — open Sapient to review.",
+  },
+  queue: {
+    position: "Request {current} of {total}",
+    rejectAll: "Reject all",
+  },
   biometric: {
     unlockButton: "Unlock with biometrics",
     promptTitle: "Unlock Sapient",

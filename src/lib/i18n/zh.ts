@@ -56,6 +56,20 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     errMismatch: "一个或多个单词不匹配——请仔细核对您抄写的内容，或返回重新查看助记词。",
   },
 
+  notify: {
+    channelName: "审批请求",
+    channelDescription: "已连接的 dApp 需要您批准某项操作时",
+    title: "{site} 需要您的批准",
+    connect: "连接请求——打开 Sapient 查看。",
+    transaction: "交易请求——打开 Sapient 查看。",
+    switchNetwork: "切换网络请求——打开 Sapient 查看。",
+    viewAccess: "查看权限请求——打开 Sapient 查看。",
+    signature: "签名请求——打开 Sapient 查看。",
+  },
+  queue: {
+    position: "第 {current} 个请求，共 {total} 个",
+    rejectAll: "全部拒绝",
+  },
   biometric: {
     unlockButton: "使用生物识别解锁",
     promptTitle: "解锁 Sapient",

@@ -17,6 +17,7 @@ import { approvedNamespaces, checkRequest, evaluateProposal } from "./wcPolicy";
 import { platform } from "../platform";
 import type { AndroidPlatform } from "./platform";
 import { installPairingUi, showPairingNotice } from "./pairUi";
+import { requestNotificationPermissionIfUndecided } from "./notifications";
 
 type Kit = Awaited<ReturnType<typeof WalletKit.init>>;
 
@@ -24,6 +25,34 @@ const VERIFY_KEY = "wcSessionVerify";
 
 let kit: Kit | null = null;
 let host: AndroidPlatform | null = null;
+
+/** WalletConnect request ids this wallet is handling right now (delivered, not yet answered). */
+const handling = new Set<number>();
+
+/** WalletConnect hands requests over one at a time and holds the rest until the current one is
+ * answered; this is how many are still waiting there, beyond those already being handled. */
+export function queuedWcRequestCount(): number {
+  if (!kit) return 0;
+  try {
+    return kit.getPendingSessionRequests().filter((r) => !handling.has(r.id)).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Rejects every request WalletConnect is still holding (the "Reject all" shortcut). Requests
+ * already on screen are rejected through the app's own approval queue. */
+export async function rejectQueuedWcRequests(): Promise<void> {
+  if (!kit) return;
+  for (const r of kit.getPendingSessionRequests()) {
+    if (handling.has(r.id)) continue;
+    try {
+      await kit.respondSessionRequest({ topic: r.topic, response: { id: r.id, jsonrpc: "2.0", error: { code: 4001, message: "Request rejected by the user" } } });
+    } catch {
+      // Already answered or the session ended.
+    }
+  }
+}
 
 /** After a decision made for a dApp that opened us from this phone, hand the screen back to it.
  * Called only once the reply is on its way, so backgrounding can't cut it off. */
@@ -130,10 +159,21 @@ async function onProposal(k: Kit, proposal: WalletKitTypes.SessionProposal): Pro
   labelSession(session.topic, session.peer.metadata, verify);
   await saveVerify(session.topic, verify);
   showPairingNotice(`Connected to ${sanitizeDappName(session.peer.metadata.name ?? "")}.`, "ok");
+  // Now that a dApp can reach the wallet, approvals may arrive while it is in the background.
+  void requestNotificationPermissionIfUndecided();
   returnToCallerIfDone();
 }
 
 async function onRequest(k: Kit, event: WalletKitTypes.SessionRequest): Promise<void> {
+  handling.add(event.id);
+  try {
+    await handleRequest(k, event);
+  } finally {
+    handling.delete(event.id);
+  }
+}
+
+async function handleRequest(k: Kit, event: WalletKitTypes.SessionRequest): Promise<void> {
   const { id, topic, params, verifyContext } = event;
   const origin = wcOrigin(topic);
   const send = async (response: { result: unknown } | { error: { code: number; message: string } }) => {

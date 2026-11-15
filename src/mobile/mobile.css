@@ -89,3 +89,26 @@ html.mobile.has-fab #app {
 html.mobile.approving #app > #approve {
   margin-top: auto;
 }
+
+/* "Request 1 of N" bar on approval screens when more requests are waiting. */
+.approval-counter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(162, 89, 255, 0.14);
+  border: 1px solid rgba(162, 89, 255, 0.35);
+  font-size: 13px;
+  font-weight: 600;
+}
+.approval-counter .link-btn {
+  font-size: 13px;
+}
+.approval-counter .link-btn {
+  width: auto;
+  margin: 0;
+  padding: 4px 0;
+  color: var(--accent);
+}
