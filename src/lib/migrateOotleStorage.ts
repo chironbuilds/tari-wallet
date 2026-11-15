@@ -8,6 +8,7 @@
 //
 // Idempotent and safe to run on every service-worker cold start (MV3 tears these down and restarts
 // them often): guarded by its own marker key, and a fresh/already-migrated install just no-ops.
+import { platform } from "../platform";
 import { addPendingShield, addShieldedOutput, setKnownVersions, setPrivatePaymentScanCursor } from "@chironbuilder/ootle-sdk";
 import type { PendingShield, ShieldedOutputRecord } from "@chironbuilder/ootle-sdk";
 
@@ -15,10 +16,10 @@ const MIGRATION_DONE_KEY = "ootleSdkStorageMigrationDone";
 const OLD_KEYS = ["shieldedOutputs", "pendingShields", "privatePaymentScanCursors", "knownSubstateVersions"] as const;
 
 export async function migrateOotleStorageOnce(): Promise<void> {
-  const { [MIGRATION_DONE_KEY]: done } = await chrome.storage.local.get(MIGRATION_DONE_KEY);
+  const { [MIGRATION_DONE_KEY]: done } = await platform().local.get(MIGRATION_DONE_KEY);
   if (done) return;
 
-  const old = await chrome.storage.local.get([...OLD_KEYS]);
+  const old = await platform().local.get([...OLD_KEYS]);
   const shieldedOutputs = (old.shieldedOutputs ?? []) as ShieldedOutputRecord[];
   const pendingShields = (old.pendingShields ?? []) as PendingShield[];
   const privatePaymentScanCursors = (old.privatePaymentScanCursors ?? {}) as Record<string, string>;
@@ -34,5 +35,5 @@ export async function migrateOotleStorageOnce(): Promise<void> {
   // Deliberately not removing the old keys -- they're dead weight once migrated, not a correctness
   // risk, and leaving them is one less way this migration could ever destroy data it hasn't first
   // proven it copied successfully.
-  await chrome.storage.local.set({ [MIGRATION_DONE_KEY]: true });
+  await platform().local.set({ [MIGRATION_DONE_KEY]: true });
 }

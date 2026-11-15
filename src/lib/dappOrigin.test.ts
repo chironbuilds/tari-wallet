@@ -13,4 +13,11 @@ describe("isSecureDappOrigin", () => {
       expect(isSecureDappOrigin(o)).toBe(false);
     }
   });
+
+  it("accepts only well-formed WalletConnect session origins", () => {
+    expect(isSecureDappOrigin("wc:" + "ab".repeat(32))).toBe(true);
+    for (const o of ["wc:", "wc:abc", "wc:" + "AB".repeat(32), "wc:" + "ab".repeat(32) + "x", "wc:https://evil.com"]) {
+      expect(isSecureDappOrigin(o)).toBe(false);
+    }
+  });
 });

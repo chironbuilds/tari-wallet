@@ -769,7 +769,9 @@ export interface NetworkChangedBroadcast {
 // ---- Popup <-> background ----
 
 export type PopupRequest =
-  | { kind: "popup-get-status" }
+  /** `background`: a status read the user didn't cause (the Android Connect-dApp button checking
+   * whether the wallet is unlocked) -- it must not count as activity for auto-lock. */
+  | { kind: "popup-get-status"; background?: true }
   | { kind: "popup-reload-extension" }
   | { kind: "popup-set-language"; language: "en" | "zh" }
   | { kind: "popup-create-wallet"; password: string }

@@ -19,7 +19,7 @@ const en = {
   },
 
   welcome: {
-    description: "A self-custody wallet for Tari Ootle. Your seed never leaves this browser and no wallet daemon is required.",
+    description: "A self-custody wallet for Tari Ootle. Your seed never leaves this device and no wallet daemon is required.",
     createButton: "Create New Wallet",
     importButton: "Import Existing Wallet",
   },

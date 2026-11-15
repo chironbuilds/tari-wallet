@@ -1455,3 +1455,22 @@ input[type="checkbox"] {
 .page-header .icon-btn {
   padding: 8px;
 }
+
+/* Android app (src/mobile/main.ts adds html.mobile): fill the screen instead of the extension
+   popup's fixed 320x560 frame, keep content clear of the status/navigation bars, and use 16px
+   inputs so the WebView never zooms on focus. Wide screens (tablets) get a centered column. */
+html.mobile,
+html.mobile body {
+  width: 100%;
+  height: 100%;
+}
+html.mobile #app {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: calc(14px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom));
+}
+html.mobile input,
+html.mobile textarea,
+html.mobile select {
+  font-size: 16px;
+}

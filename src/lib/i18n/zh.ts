@@ -19,7 +19,7 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
   },
 
   welcome: {
-    description: "Tari Ootle 的自托管钱包。您的助记词永不离开此浏览器，也无需连接钱包守护进程。",
+    description: "Tari Ootle 的自托管钱包。您的助记词永不离开此设备，也无需连接钱包守护进程。",
     createButton: "创建新钱包",
     importButton: "导入现有钱包",
   },

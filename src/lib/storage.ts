@@ -2,6 +2,7 @@
 // restarts. The encrypted vault blob and every daemon connection's API key are the sensitive
 // pieces here — see vault.ts and secretAtRest.ts respectively for how each is protected;
 // everything else in this file is plain metadata.
+import { platform } from "../platform";
 import { isNetworkName, type NetworkName } from "@chironbuilder/ootle-sdk";
 import type { TransactionRequestOperation } from "./messages";
 import type { EncryptedVault } from "./vault";
@@ -281,7 +282,7 @@ export function parseAccountId(id: string): AccountId {
 }
 
 export async function getState(): Promise<WalletState> {
-  const stored = await chrome.storage.local.get(Object.keys(DEFAULTS));
+  const stored = await platform().local.get(Object.keys(DEFAULTS));
   const state = { ...DEFAULTS, ...stored } as WalletState;
   // A value this build doesn't know (written by a newer build, or corrupted) falls back to the
   // default testnet -- never to mainnet, where a wrong guess would put real funds in play.
@@ -290,7 +291,7 @@ export async function getState(): Promise<WalletState> {
 }
 
 export async function setState(patch: Partial<WalletState>): Promise<void> {
-  await chrome.storage.local.set(patch);
+  await platform().local.set(patch);
 }
 
 // MV3 service workers process messages concurrently (a page request racing a popup request, or
@@ -609,7 +610,7 @@ export async function wipeWallet(): Promise<void> {
   // was clicked) could finish *after* this clear and leave a stray fragment of the "wiped" wallet
   // behind -- exactly the kind of leftover a deliberate full wipe should never allow.
   await serialized(async () => {
-    await chrome.storage.local.clear();
+    await platform().local.clear();
   });
 }
 

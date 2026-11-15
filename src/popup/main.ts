@@ -1,4 +1,6 @@
 import "./styles.css";
+import { platform } from "../platform";
+import { originDisplay } from "../lib/originLabels";
 import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest, TransactionHistoryEntry, TransactionPreview, WalletStatus } from "../lib/messages";
 import { LANGUAGE_LABELS, getLanguage, setLanguage, t, type Language } from "../lib/i18n";
 import { isPlausibleMnemonic } from "../lib/cipherSeed";
@@ -31,17 +33,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function sendOnce<T>(message: PopupRequest): Promise<T> {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response: { ok: boolean; result?: T; error?: string }) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      if (!response?.ok) reject(new Error(response?.error ?? t("common.unknownError")));
-      else resolve(response.result as T);
-    });
-  });
+async function sendOnce<T>(message: PopupRequest): Promise<T> {
+  const response = await platform().sendPopupRequest<T>(message);
+  if (!response?.ok) throw new Error(response?.error ?? t("common.unknownError"));
+  return response.result as T;
 }
 
 // A freshly-opened popup can win the race against the background service worker waking from a
@@ -2075,7 +2070,7 @@ function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: 
 function tokenAvatar(resourceAddress: string, symbol: string | null, large = false): HTMLElement {
   const size = large ? 64 : 28;
   if (resourceAddress === TARI_RESOURCE_ADDRESS) {
-    return h("img", { class: "token-avatar token-logo", src: chrome.runtime.getURL("icons/icon48.png"), alt: "", width: String(size), height: String(size), style: `width:${size}px;height:${size}px` });
+    return h("img", { class: "token-avatar token-logo", src: platform().assetUrl("icons/icon48.png"), alt: "", width: String(size), height: String(size), style: `width:${size}px;height:${size}px` });
   }
   let hash = 0;
   for (const ch of resourceAddress) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
@@ -2395,16 +2390,16 @@ function renderAddressBook(status: WalletStatus) {
 const DAEMON_DRAFT_KEY = "daemonConnectDraft";
 
 async function loadDaemonConnectDraft(): Promise<{ url: string; label: string }> {
-  const stored = await chrome.storage.session.get(DAEMON_DRAFT_KEY);
+  const stored = await platform().session.get(DAEMON_DRAFT_KEY);
   return (stored[DAEMON_DRAFT_KEY] as { url: string; label: string } | undefined) ?? { url: "", label: "" };
 }
 
 function saveDaemonConnectDraft(draft: { url: string; label: string }): void {
-  void chrome.storage.session.set({ [DAEMON_DRAFT_KEY]: draft });
+  void platform().session.set({ [DAEMON_DRAFT_KEY]: draft });
 }
 
 function clearDaemonConnectDraft(): void {
-  void chrome.storage.session.remove(DAEMON_DRAFT_KEY);
+  void platform().session.remove(DAEMON_DRAFT_KEY);
 }
 
 async function renderConnectDaemon(status: WalletStatus) {
@@ -2479,7 +2474,7 @@ async function renderConnectDaemon(status: WalletStatus) {
     const origin = `${new URL(url).origin}/*`;
     let granted: boolean;
     try {
-      granted = await chrome.permissions.request({ origins: [origin] });
+      granted = await platform().requestHostPermission(origin);
     } catch (e) {
       return showStatus(
         t("connectDaemon.errPermissionRequestFailed", { origin, error: e instanceof Error ? e.message : String(e) }),
@@ -2628,7 +2623,7 @@ async function renderConnectedSites() {
             // blow out the row width and squeeze the Disconnect button off-screen.
             const hasView = s.viewAccessGrantedAt !== undefined;
             const info = h("div", { class: "list-row-info" }, [
-              h("div", { class: "list-row-title", title: s.origin }, [s.origin]),
+              h("div", { class: "list-row-title", title: s.origin }, [originDisplay(s.origin)]),
               // Only shown when granted. A site with no private view access is the normal case and
               // needs no label; a site that can read the user's confidential balance is exactly the
               // thing this screen exists to make visible, so it says so in the row itself rather
@@ -2638,7 +2633,7 @@ async function renderConnectedSites() {
             const removeBtn = h("button", { class: "secondary btn-compact" }, [t("connectedSites.disconnectButton")]) as HTMLButtonElement;
             confirmThenRun(
               removeBtn,
-              t("connectedSites.disconnectConfirm", { origin: s.origin }),
+              t("connectedSites.disconnectConfirm", { origin: originDisplay(s.origin) }),
               t("connectedSites.disconnectButton"),
               async () => {
                 await send({ kind: "popup-disconnect-site", origin: s.origin });
@@ -2653,7 +2648,7 @@ async function renderConnectedSites() {
             const revokeBtn = h("button", { class: "secondary btn-compact" }, [t("connectedSites.revokeViewAccessButton")]) as HTMLButtonElement;
             confirmThenRun(
               revokeBtn,
-              t("connectedSites.revokeConfirm", { origin: s.origin }),
+              t("connectedSites.revokeConfirm", { origin: originDisplay(s.origin) }),
               t("connectedSites.revokeButton"),
               async () => {
                 await send({ kind: "popup-revoke-site-view-access", origin: s.origin });
@@ -2730,7 +2725,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
   // enough to let MV3 tear the worker down first, silently orphaning whichever RPC is waiting on
   // this decision. window.close() (both below and on navigation away) disconnects it on its own;
   // nothing else needs to reference it.
-  chrome.runtime.connect({ name: "approval-keepalive" });
+  platform().keepAliveWhileApproving();
 
   // Live only while `approval.kind === "transaction"` and `feeChoice` is present and unenforced --
   // see the `<select>` built below. Read by `resolve` at click-time, never by re-rendering.
@@ -2763,7 +2758,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
         render(h("div", { class: "status err" }, [t("approval.connectionLost")]));
         return;
       }
-      window.close();
+      platform().closeApprovalView();
     } catch (e) {
       showApprovalStatus(e instanceof Error ? e.message : String(e), "err");
       if (approveBtn) setBusy(approveBtn, false);
@@ -2774,7 +2769,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
   if (approval.kind === "connect") {
     render(
       h("h1", {}, [t("approval.connectTitle")]),
-      h("p", { class: "muted" }, [h("b", {}, [approval.origin]), t("approval.connectDescriptionSuffix")]),
+      h("p", { class: "muted" }, [h("b", {}, [originDisplay(approval.origin)]), t("approval.connectDescriptionSuffix")]),
       approvalAccountChip(status, approval.accountId),
       statusEl,
       h("button", { class: "primary", id: "approve" }, [t("approval.connectButton")]),
@@ -2789,7 +2784,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     render(
       h("h1", {}, [t("approval.viewAccessTitle")]),
       h("p", { class: "muted" }, [
-        h("b", {}, [approval.origin]),
+        h("b", {}, [originDisplay(approval.origin)]),
         t("approval.viewAccessPrefix"),
         h("b", {}, [t("approval.viewAccessBold")]),
         t("approval.viewAccessSuffix"),
@@ -2813,7 +2808,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     render(
       h("h1", {}, [t("approval.ownershipTitle")]),
       h("p", { class: "muted" }, [
-        h("b", {}, [approval.origin]),
+        h("b", {}, [originDisplay(approval.origin)]),
         t("approval.ownershipPrefix"),
         h("b", {}, [t("approval.noSpendBold")]),
         t("approval.periodSuffix"),
@@ -2835,7 +2830,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     render(
       h("h1", {}, [t("approval.switchNetworkTitle")]),
       h("p", { class: "muted" }, [
-        h("b", {}, [approval.origin]),
+        h("b", {}, [originDisplay(approval.origin)]),
         t("approval.switchNetworkPrefix"),
         h("b", {}, [networkLabel(approval.from)]),
         t("approval.switchNetworkMiddle"),
@@ -2855,7 +2850,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
     render(
       h("h1", {}, [t("approval.walletOwnershipTitle")]),
       h("p", { class: "muted" }, [
-        h("b", {}, [approval.origin]),
+        h("b", {}, [originDisplay(approval.origin)]),
         t("approval.walletOwnershipPrefix"),
         h("b", {}, [t("approval.noSpendBold")]),
         t("approval.periodSuffix"),
@@ -2863,7 +2858,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
       approvalAccountChip(status, approval.accountId),
       h("p", { class: "muted" }, [t("approval.signPrompt")]),
       h("div", { class: "raw-details", style: "padding:10px;white-space:pre-wrap;word-break:break-word" }, [approval.challenge]),
-      h("p", { class: "muted" }, [t("approval.walletAddressLine", { address: approval.walletAddress })]),
+      h("p", { class: "muted", style: "overflow-wrap:anywhere" }, [t("approval.walletAddressLine", { address: approval.walletAddress })]),
       h("div", { class: "view-access-grants" }, [
         h("div", { class: "view-access-grant deny" }, [t("approval.walletDeny1")]),
         h("div", { class: "view-access-grant deny" }, [t("approval.ownershipDeny2")]),
@@ -2955,7 +2950,7 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
 
     render(
       h("h1", {}, [t("approval.transactionTitle")]),
-      h("p", { class: "muted" }, [h("b", {}, [approval.origin]), t("approval.transactionDescriptionSuffix")]),
+      h("p", { class: "muted" }, [h("b", {}, [originDisplay(approval.origin)]), t("approval.transactionDescriptionSuffix")]),
       approvalAccountChip(status, approval.accountId),
       stepsBlock,
       warningBlock,
@@ -2980,6 +2975,14 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
   document.getElementById("reject")!.addEventListener("click", () => resolve(false));
 }
 
-main().catch((e) => {
-  render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
-});
+function start(): void {
+  main().catch((e) => {
+    render(h("div", { class: "status err" }, [e instanceof Error ? e.message : String(e)]));
+  });
+}
+
+start();
+
+// On Android the UI is a single long-lived page rather than a popup that is reopened each time, so
+// it re-routes whenever the host navigates (an approval appearing or finishing, the back button).
+if (platform().kind === "android") window.addEventListener("hashchange", start);

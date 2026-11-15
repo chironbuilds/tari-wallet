@@ -7,6 +7,7 @@
 // is a receipt, unless it is one of this wallet's own (already in History, or its fee was paid
 // from that same vault -- a sender pays the fee from their own vault, never the recipient's).
 
+import { platform } from "../platform";
 import { getVaultIdsForAccount } from "@tari-project/ootle";
 import { OotleAccount, indexerUrlFor, toOotleNetwork, type NetworkName } from "@chironbuilder/ootle-sdk";
 import { addTransactionHistoryEntry, listTransactionHistory } from "../lib/storage";
@@ -50,7 +51,7 @@ export async function syncPublicReceipts(
     // The same account id exists on every network; mainnet's receipts are remembered apart.
     // Testnets keep the key every earlier build used.
     const seenKey = SEEN_PREFIX + (network === "mainnet" ? `mainnet:${accountId}` : accountId);
-    const stored = (await chrome.storage.local.get(seenKey))[seenKey] as string[] | undefined;
+    const stored = (await platform().local.get(seenKey))[seenKey] as string[] | undefined;
     const backfill = stored === undefined;
     const seen = new Set(stored ?? []);
 
@@ -60,7 +61,7 @@ export async function syncPublicReceipts(
     const deposits = await fetchDeposits(base, provider, component);
     const fresh = deposits.filter((d) => !seen.has(d.key));
     if (fresh.length === 0) {
-      if (backfill) await chrome.storage.local.set({ [seenKey]: [] });
+      if (backfill) await platform().local.set({ [seenKey]: [] });
       return 0;
     }
 
@@ -92,7 +93,7 @@ export async function syncPublicReceipts(
       });
       added++;
     }
-    await chrome.storage.local.set({ [seenKey]: [...seen].slice(-2000) });
+    await platform().local.set({ [seenKey]: [...seen].slice(-2000) });
     return added;
   } catch {
     return 0; // indexer unreachable: the next pass tries again

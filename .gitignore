@@ -8,3 +8,5 @@ node_modules/
 # unminified internals -- not itself a vendor patch (unlike vendor/*-patched/, which are), so it
 # doesn't belong in the repo.
 /vendor/ootle-src/
+/dist-mobile/
+.env.local

@@ -1,0 +1,64 @@
+/* Android-only chrome around the shared wallet UI: the WalletConnect button, pairing sheet and
+   notice toast (src/mobile/pairUi.ts). Uses the popup's own color tokens from styles.css. */
+#wc-fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  width: auto;
+  padding: 12px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-grad);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 6px 18px var(--accent-shadow);
+  z-index: 20;
+}
+#wc-fab[hidden],
+#wc-sheet[hidden],
+#wc-notice[hidden] {
+  display: none;
+}
+#wc-sheet {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 30;
+}
+.wc-sheet-card {
+  width: 100%;
+  max-width: 520px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px 16px 0 0;
+  padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wc-sheet-card h2 {
+  margin: 0;
+}
+.wc-notice {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  max-width: 488px;
+  margin: 0 auto;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  z-index: 40;
+}
+.wc-notice.err {
+  border-color: #e5484d;
+}
+.wc-notice.ok {
+  border-color: var(--accent);
+}
