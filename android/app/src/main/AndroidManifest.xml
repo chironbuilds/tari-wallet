@@ -25,6 +25,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Launcher long-press shortcuts (res/xml/shortcuts.xml). -->
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
+
             <!-- WalletConnect pairing links opened by a dApp on this phone. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

@@ -438,3 +438,27 @@ html.mobile.offline #app {
 html.mobile.offline.has-app-bar #app {
   padding-top: calc(100px + env(safe-area-inset-top));
 }
+
+/* Rows whose label and control don't fit side by side at large text sizes wrap instead of squeezing. */
+html.mobile .settings-row-static {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+/* Android "Remove animations" (prefers-reduced-motion): no slides, fades, sheet motion or press scaling. */
+@media (prefers-reduced-motion: reduce) {
+  html.mobile #app.view-enter,
+  html.mobile.nav-back #app.view-enter,
+  html.mobile.nav-tab #app.view-enter {
+    animation: none;
+  }
+  html.mobile #wc-sheet,
+  html.mobile .wc-sheet-card,
+  html.mobile #ptr,
+  html.mobile button {
+    transition: none;
+  }
+  html.mobile button:active:not(:disabled) {
+    transform: none;
+  }
+}

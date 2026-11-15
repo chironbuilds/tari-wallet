@@ -4,4 +4,8 @@
     <string name="title_activity_main">Sapient</string>
     <string name="package_name">mw.tari.sapient</string>
     <string name="custom_url_scheme">mw.tari.sapient</string>
+    <string name="shortcut_scan_short">Scan</string>
+    <string name="shortcut_scan_long">Scan to connect a dApp</string>
+    <string name="shortcut_receive_short">Receive</string>
+    <string name="shortcut_receive_long">Show my address</string>
 </resources>

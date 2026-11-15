@@ -59,6 +59,11 @@ async function boot(): Promise<void> {
   // Back in the app: fresh balances / activity on a tab root (never disturbs a form or approval).
   App.addListener("resume", () => setTimeout(() => nav.refreshTabRoot(), 400));
   void installConnectivityBar(() => nav.refreshTabRoot());
+  // Launcher shortcuts (long-press the app icon): Scan to connect, Receive.
+  App.addListener("appUrlOpen", ({ url }) => void nav.openShortcut(url));
+  void App.getLaunchUrl().then((launch) => {
+    if (launch?.url) nav.openShortcut(launch.url);
+  });
   installEnhancements({ receiveAddress: async () => (await popup.appNav.status()).receiveAddress, connectDapp: openPairingSheet });
 
   // "Request 1 of N" above an approval when more are waiting, with a Reject-all shortcut for a dApp

@@ -3106,6 +3106,9 @@ export const appNav = {
   async dapps() {
     await renderConnectedSites();
   },
+  async receive() {
+    renderReceive(await getStatus());
+  },
   titles: () => ({
     activity: t("history.title"),
     settings: t("settings.title"),

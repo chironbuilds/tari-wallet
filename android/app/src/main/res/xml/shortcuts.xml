@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the launcher icon: jump straight to scanning a dApp's QR code, or to Receive.
+     Both open the app on a sapient:// link handled in src/mobile/nav.ts (after unlock). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="scan"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_scan"
+        android:shortcutShortLabel="@string/shortcut_scan_short"
+        android:shortcutLongLabel="@string/shortcut_scan_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="mw.tari.sapient"
+            android:targetClass="mw.tari.sapient.MainActivity"
+            android:data="sapient://scan" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="receive"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_receive"
+        android:shortcutShortLabel="@string/shortcut_receive_short"
+        android:shortcutLongLabel="@string/shortcut_receive_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="mw.tari.sapient"
+            android:targetClass="mw.tari.sapient.MainActivity"
+            android:data="sapient://receive" />
+    </shortcut>
+</shortcuts>

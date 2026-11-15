@@ -14,6 +14,7 @@ export interface AppNav {
   activity(): Promise<void>;
   settings(): Promise<void>;
   dapps(): Promise<void>;
+  receive(): Promise<void>;
   titles(): { activity: string; settings: string; dapps: string };
 }
 
@@ -43,7 +44,11 @@ function setDirection(dir: Direction): void {
   root.classList.add(`nav-${dir}`);
 }
 
-export function installNav(nav: AppNav, host: AndroidPlatform, openScanner: () => void): { back(): boolean; refreshTabRoot(): void } {
+export function installNav(
+  nav: AppNav,
+  host: AndroidPlatform,
+  openScanner: () => void
+): { back(): boolean; refreshTabRoot(): void; openShortcut(url: string): boolean } {
   const app = document.getElementById("app")!;
   let activeTab: Tab = "home";
 
@@ -128,6 +133,18 @@ export function installNav(nav: AppNav, host: AndroidPlatform, openScanner: () =
     }
     showChrome = ok;
     apply();
+    if (ok && pendingAction) {
+      const run = pendingAction;
+      pendingAction = null;
+      run();
+    }
+  }
+
+  /** Runs `action` now if the wallet is open, else right after the user unlocks (launcher shortcuts). */
+  let pendingAction: (() => void) | null = null;
+  function whenUnlocked(action: () => void): void {
+    if (showChrome) action();
+    else pendingAction = action;
   }
 
   function apply(): void {
@@ -274,5 +291,30 @@ export function installNav(nav: AppNav, host: AndroidPlatform, openScanner: () =
   }
 
   void host;
-  return { back: goBack, refreshTabRoot };
+  /** Launcher shortcuts (sapient://scan, sapient://receive). */
+  function openShortcut(url: string): boolean {
+    let target: string;
+    try {
+      const u = new URL(url);
+      if (u.protocol !== "sapient:") return false;
+      target = u.host || u.pathname.replace(/^\/+/, "");
+    } catch {
+      return false;
+    }
+    if (target === "scan") {
+      whenUnlocked(() => openScanner());
+      return true;
+    }
+    if (target === "receive") {
+      whenUnlocked(() => {
+        activeTab = "home";
+        setDirection("forward");
+        void nav.receive();
+      });
+      return true;
+    }
+    return false;
+  }
+
+  return { back: goBack, refreshTabRoot, openShortcut };
 }
