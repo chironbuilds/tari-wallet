@@ -108,6 +108,28 @@ describe("keeping networks apart", () => {
   });
 });
 
+describe("recovery-phrase gate", () => {
+  beforeEach(() => {
+    installChromeStorageStub();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // getState() only reads the keys it knows about; this flag was once missing from that list, so a
+  // wallet created and closed on the phrase screen came back fully usable with an unverified phrase.
+  it("reads back a pending backup", async () => {
+    await setState({ backupPending: true });
+    expect((await getState()).backupPending).toBe(true);
+    await setState({ backupPending: false });
+    expect((await getState()).backupPending).toBe(false);
+  });
+
+  it("treats a wallet without the flag (older install) as backed up", async () => {
+    expect((await getState()).backupPending).toBe(false);
+  });
+});
+
 describe("localAccountId / parseAccountId round-trip", () => {
   it("round-trips a local account id", () => {
     const id = localAccountId(3);

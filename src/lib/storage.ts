@@ -260,6 +260,9 @@ const DEFAULTS: WalletState = {
   lastKnownAddress: null,
   transactionRequests: [],
   walletOrigin: null,
+  // Listed so getState() reads it back: it only fetches keys named here, and without this the
+  // recovery-phrase gate never saw the flag a newly created wallet stores.
+  backupPending: false,
   pendingUpdateVersion: null,
   language: "en",
 };
