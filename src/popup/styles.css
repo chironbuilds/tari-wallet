@@ -1,36 +1,31 @@
 :root {
   color-scheme: dark;
-  /* Brand-aligned, not generic: matches the actual toolbar icon (magenta->violet gradient on a
-     dark plum ground, see public/icons/icon128.png) instead of the flat blue-indigo this used to
-     be, which shared nothing with the icon a user actually clicks to open this popup. */
-  --bg: #0d0812;
-  --card: #17111f;
-  --box: #1d1628;
-  --border: #2c2338;
-  --border-hover: #453754;
-  /* Deliberately neutral, not violet-tinted like --box/--border below -- this is the color most of
-     the UI's actual text sits in, and a lavender cast on ordinary body copy reads as "everything is
-     purple," not "considered." The brand tint belongs in --muted/surfaces/accents, not primary text. */
-  --text: #f2f2f6;
-  /* Same reasoning as --text above -- kept close to neutral gray (just a hair cooler than true
-     gray) rather than the more visibly lavender tone these were at first, since --muted carries
-     most of the app's secondary/label text, not just the odd background sliver. */
-  --muted: #9997a3;
-  --muted-dim: #676270;
-  --accent: #a259ff;
-  --accent-2: #fc72ff;
-  --accent-grad: linear-gradient(135deg, var(--accent-2) 0%, var(--accent) 100%);
-  /* Dark plum, not white -- both ends of the gradient are light/mid-tone, same reason the icon
-     itself renders its eye mark in dark plum rather than white on top of it. */
-  --on-accent: #1b0a24;
-  --accent-shadow: rgba(162, 89, 255, 0.4);
-  /* Soft ambient glow (ellipse washes, button rest-state halo) -- deliberately its own token
-     rather than reusing --accent-shadow, which is tuned for a tight drop shadow, not a wide wash. */
-  --accent-glow: rgba(252, 114, 255, 0.22);
-  --highlight: #ffd66c;
-  --good: #34c98f;
-  --bad: #ec5f56;
-  --fair: #f0a63f;
+  /* Ink base with neutral surfaces. One accent (violet, from the logo) marks selection and links;
+     mint marks private value; the primary action is a solid light button. The logo keeps its
+     gradient -- nothing else in the UI paints one, and nothing glows. */
+  --bg: #0a090d;
+  --card: #131218;
+  --box: #1b1a21;
+  --box-2: #25232c;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.16);
+  --text: #f4f3f6;
+  --muted: #a3a0ab;
+  --muted-dim: #6e6b77;
+  --accent: #a970ff;
+  --accent-2: #a970ff;
+  /* Kept as tokens for the rules that use them, but flat: no gradients, no glows. */
+  --accent-grad: linear-gradient(var(--accent), var(--accent));
+  --on-accent: #ffffff;
+  --accent-shadow: transparent;
+  --accent-glow: transparent;
+  --primary-bg: #f4f3f6;
+  --primary-ink: #0a090d;
+  --private: #5fd1b3;
+  --highlight: #e9b44c;
+  --good: #49c98a;
+  --bad: #f06a6a;
+  --fair: #e9b44c;
 }
 * {
   box-sizing: border-box;
@@ -49,12 +44,14 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family:
+    "Geist Variable",
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
     Roboto,
     sans-serif;
   font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
 #app {
   height: 100%;
@@ -105,15 +102,12 @@ body {
 }
 h1 {
   font-size: 16px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
+  font-weight: 650;
+  letter-spacing: -0.02em;
   margin: 0;
 }
 h1 span {
-  background: var(--accent-grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--muted);
 }
 p.muted,
 .muted {
@@ -129,7 +123,6 @@ p.muted,
   display: block;
   margin: 0 auto 14px;
   border-radius: 14px;
-  box-shadow: 0 6px 24px -6px var(--accent-shadow);
 }
 .welcome-hero h1 {
   font-size: 20px;
@@ -194,15 +187,12 @@ button {
     box-shadow 0.15s ease;
 }
 button.primary {
-  background: var(--accent-grad);
-  color: var(--on-accent);
-  /* A resting glow, not just a flat fill -- the one surface in the whole UI that should visibly
-     carry the brand gradient's own light. */
-  box-shadow: 0 3px 16px -4px var(--accent-shadow);
+  background: var(--primary-bg);
+  color: var(--primary-ink);
 }
 button.primary:hover:not(:disabled) {
-  box-shadow: 0 6px 22px -4px var(--accent-shadow);
-  transform: translateY(-1px);
+  background: #ffffff;
+  filter: none;
 }
 button.secondary {
   background: var(--box);
@@ -210,7 +200,8 @@ button.secondary {
   border: 1px solid var(--border);
 }
 button.danger {
-  background: #291616;
+  background: transparent;
+  border: 1px solid rgba(240, 106, 106, 0.35);
   color: var(--bad);
   /* A deliberately slower, heavier press than routine buttons (which snap back at the base 0.1s)
      -- motion weight matching the fact that these actions (Lock, Erase wallet) aren't undoable
@@ -258,11 +249,6 @@ button + button {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 14px;
-  /* A thin inner highlight along the top edge reads as a lit surface, not a flat cutout -- paired
-     with the drop shadow below for real depth instead of just a border doing all the work. */
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 2px 10px -4px rgba(0, 0, 0, 0.5);
 }
 .private-label {
   display: flex;
@@ -272,7 +258,7 @@ button + button {
 .private-label .icon-svg svg {
   width: 12px;
   height: 12px;
-  color: var(--highlight);
+  color: var(--private);
 }
 .history-icon {
   width: 28px;
@@ -660,7 +646,7 @@ button + button {
   flex: none;
 }
 .network-line.network-line-mainnet .network-dot {
-  background: var(--accent);
+  background: var(--good);
 }
 /* A long account label must not push Settings off the row. */
 .account-pill .account-pill-label {
@@ -684,71 +670,7 @@ button + button {
   flex-direction: column;
   gap: 14px;
 }
-/* The rim's gradient angle is an animatable custom property (not just a static linear-gradient) --
-   registering its syntax is what lets the keyframe below actually rotate it smoothly instead of
-   snapping between angles. */
-@property --border-angle {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 135deg;
-}
-/* The one card in the whole app that gets the brand's own full treatment -- it's the first thing
-   seen on Home, so it's the one place worth spending all of this: a slowly rotating gradient rim,
-   a two-tone ambient mesh that breathes rather than sitting static, a faint wash across the whole
-   surface instead of flat neutral, a matching ring on the avatar, and a faint watermark of the
-   wallet's own eye mark. Every other card stays plain so none of this dilutes into background
-   noise -- one hero, not a UI where everything glows. */
-.account-summary.card {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid transparent;
-  background:
-    linear-gradient(160deg, rgba(162, 89, 255, 0.1), transparent 60%) padding-box,
-    linear-gradient(var(--card), var(--card)) padding-box,
-    linear-gradient(var(--border-angle), rgba(252, 114, 255, 0.65), rgba(162, 89, 255, 0.5)) border-box;
-  animation: border-rotate 7s linear infinite;
-}
-@keyframes border-rotate {
-  to {
-    --border-angle: 495deg;
-  }
-}
-.account-summary.card::before {
-  content: "";
-  position: absolute;
-  inset: -20%;
-  background:
-    radial-gradient(130px circle at 92% -10%, var(--accent-glow) 0%, transparent 70%),
-    radial-gradient(150px circle at -10% 105%, rgba(162, 89, 255, 0.22) 0%, transparent 70%);
-  pointer-events: none;
-  animation: glow-breathe 5s ease-in-out infinite;
-}
-@keyframes glow-breathe {
-  0%,
-  100% {
-    opacity: 0.8;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-/* A faint echo of the toolbar icon (see public/icons/icon128.png) sitting in the card's own
-   corner -- the kind of quiet, unmistakably-ours detail a considered wallet has and a generic one
-   doesn't. Low enough opacity that it reads as texture, not a second logo competing for attention. */
-.account-summary.card::after {
-  content: "";
-  position: absolute;
-  bottom: -20px;
-  left: -20px;
-  width: 100px;
-  height: 100px;
-  opacity: 0.05;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Cpath d='M12 64 Q64 24 116 64 Q64 104 12 64 Z' fill='none' stroke='white' stroke-width='7'/%3E%3Ccircle cx='64' cy='64' r='17' fill='white'/%3E%3C/svg%3E");
-  background-size: contain;
-  background-repeat: no-repeat;
-  transform: rotate(-8deg);
-  pointer-events: none;
-}
+/* Home's account card is a plain card like the rest: no animated rim, ambient glow or watermark. */
 .account-summary > * {
   position: relative;
 }
@@ -782,7 +704,6 @@ button + button {
   color: var(--on-accent);
   overflow: hidden;
   flex-shrink: 0;
-  box-shadow: 0 2px 12px -3px var(--accent-shadow);
 }
 .avatar svg {
   width: 100%;
@@ -807,7 +728,7 @@ button + button {
     transform 0.1s ease;
 }
 .addr-pill:hover {
-  border-color: var(--accent);
+  border-color: var(--border-hover);
 }
 .addr-pill:active {
   transform: scale(0.98);
@@ -850,8 +771,8 @@ button + button {
   color: var(--muted);
 }
 .tab-btn.active {
-  background: var(--accent-grad);
-  color: var(--on-accent);
+  background: var(--box-2);
+  color: var(--text);
 }
 /* Without this, the generic `button + button { margin-top: 8px }` rule (meant for vertically-
    stacked full-width buttons elsewhere) still matches these adjacent-sibling buttons, and that
@@ -888,10 +809,8 @@ button + button {
     box-shadow 0.15s ease;
 }
 .action-btn:hover {
-  border-color: var(--accent);
+  border-color: var(--border-hover);
   background: var(--box);
-  box-shadow: 0 3px 12px -5px var(--accent-shadow);
-  transform: translateY(-1px);
   filter: none;
 }
 .action-btn:active {
@@ -901,7 +820,7 @@ button + button {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent);
+  color: var(--text);
   line-height: 1;
   flex-shrink: 0;
 }
@@ -1130,11 +1049,8 @@ input[type="checkbox"] {
 }
 .hero-balance-amount {
   font-size: 32px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  /* A soft halo, not colored glyphs -- the digits themselves stay the neutral --text color, only
-     the ambient blur behind them picks up the brand hue. */
-  text-shadow: 0 0 28px var(--accent-glow);
+  font-weight: 650;
+  letter-spacing: -0.04em;
 }
 .hero-balance-unit {
   font-size: 12.5px;
@@ -1150,9 +1066,9 @@ input[type="checkbox"] {
   gap: 5px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--highlight);
-  background: rgba(255, 214, 108, 0.1);
-  border: 1px solid rgba(255, 214, 108, 0.25);
+  color: var(--private);
+  background: rgba(95, 209, 179, 0.08);
+  border: 1px solid rgba(95, 209, 179, 0.25);
   border-radius: 100px;
   padding: 3px 10px 3px 8px;
   width: fit-content;
@@ -1162,7 +1078,7 @@ input[type="checkbox"] {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--highlight);
+  background: var(--private);
   flex-shrink: 0;
 }
 .skeleton {
@@ -1534,4 +1450,14 @@ html.mobile select {
 .site-card-mismatch .site-card-note,
 .site-card-scam .site-card-note {
   color: #ff9592;
+}
+
+/* A button directly after a field (Create password, Unlock) needs room; without this it sits
+   flush against the input above it. */
+input + button,
+textarea + button,
+select + button,
+input + .status + button,
+textarea + .status + button {
+  margin-top: 12px;
 }

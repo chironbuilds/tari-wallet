@@ -1,3 +1,5 @@
+// Geist (OFL-1.1), bundled: no network font loading.
+import "@fontsource-variable/geist/wght.css";
 import "./styles.css";
 import { platform } from "../platform";
 import { originDisplay, originParts, originShort } from "../lib/originLabels";
@@ -2321,7 +2323,7 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
       ...(isConfidential
         ? [
             h("div", { class: "muted private-label" }, [icon(ICON_LOCK), t("tokenDetail.privateBalanceLabel")]),
-            h("div", { class: "detail-value", style: "color:var(--highlight)" }, [
+            h("div", { class: "detail-value", style: "color:var(--private)" }, [
               formatBalanceAmountGrouped(balance.confidentialAmount, balance.divisibility),
             ]),
             ...(failures > 0
