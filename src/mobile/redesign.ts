@@ -164,7 +164,74 @@ function composeHome(app: HTMLElement): void {
     row.after(card);
   }
 
+  addPrivacyGuide(app);
+  const assets = app.querySelector<HTMLElement>(".balances-card");
+  if (assets) {
+    const watch = () => enhanceEmptyAssets(app, assets);
+    new MutationObserver(watch).observe(assets, { childList: true });
+    watch();
+  }
   void addRecentActivity(app);
+}
+
+// ---------------- First-run privacy guide ----------------
+const GUIDE_KEY = "sapient:privacy-guide-done";
+function addPrivacyGuide(app: HTMLElement): void {
+  try {
+    if (localStorage.getItem(GUIDE_KEY) === "1") return;
+  } catch {
+    return; // nowhere to remember the dismissal: don't nag on every open
+  }
+  const after = app.querySelector<HTMLElement>(".l1-card") ?? app.querySelector<HTMLElement>(".action-row");
+  if (!after || app.querySelector(".privacy-guide")) return;
+  const card = el("div", "privacy-guide");
+  const title = el("div", "pg-title");
+  title.textContent = t("mobile.guideTitle");
+  const list = el("ol", "pg-steps");
+  for (const [icon, text, cls] of [
+    [ICON.eye, t("mobile.guidePublic"), "pg-pub"],
+    [ICON.lock, t("mobile.guideShield"), "pg-priv"],
+    [ICON.up, t("mobile.guidePrivate"), "pg-priv"],
+  ] as const) {
+    const li = el("li", cls, `<span class="pg-icon">${svg(icon, 16)}</span>`);
+    const span = el("span", "");
+    span.textContent = text;
+    li.append(span);
+    list.append(li);
+  }
+  const done = el("button", "pg-done");
+  done.type = "button";
+  done.textContent = t("mobile.guideDismiss");
+  done.addEventListener("click", () => {
+    try {
+      localStorage.setItem(GUIDE_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+    card.classList.add("leaving");
+    setTimeout(() => card.remove(), 220);
+  });
+  card.append(title, list, done);
+  after.after(card);
+}
+
+// ---------------- Empty wallet ----------------
+// A new wallet's asset list is a dead end ("No tokens yet"); make it the first step instead.
+function enhanceEmptyAssets(app: HTMLElement, assets: HTMLElement): void {
+  const empty = assets.querySelector<HTMLElement>(".empty-state");
+  if (!empty || empty.dataset.composed) return;
+  empty.dataset.composed = "1";
+  assets.classList.add("assets-empty");
+  const title = el("div", "ea-title");
+  title.textContent = t("mobile.emptyTitle");
+  const body = el("div", "ea-body");
+  body.textContent = t("mobile.emptyBody");
+  const receive = el("button", "primary ea-receive");
+  receive.type = "button";
+  receive.textContent = t("mobile.receiveTari");
+  receive.addEventListener("click", () => app.querySelector<HTMLElement>("#receiveAction")?.click());
+  const icon = el("div", "ea-logo", '<img src="icons/icon48.png" alt="">');
+  empty.replaceChildren(icon, title, body, receive);
 }
 
 const HISTORY_ICON: Record<string, string> = {

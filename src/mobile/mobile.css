@@ -2465,3 +2465,145 @@ html.mobile .account-switch-list .settings-row[aria-current="true"] .settings-ro
 html.mobile .account-switch-list .settings-row[aria-current="true"] .settings-row-right::before {
   content: "✓ ";
 }
+
+/* =========================================================================================
+   Round 6: shield/unshield review, privacy guide, empty wallet
+   ========================================================================================= */
+
+/* ---- Shield / unshield review ---- */
+.rv-shield .rv-amount > span:first-child {
+  color: var(--private);
+}
+.rv-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: -6px 0 18px;
+}
+.rv-chip {
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 650;
+}
+.rv-chip-pub {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border: 1px solid rgba(162, 89, 255, 0.3);
+}
+.rv-chip-priv {
+  background: var(--private-soft);
+  color: var(--private);
+  border: 1px solid var(--private-line);
+}
+.rv-arrow {
+  display: grid;
+  color: var(--text-3);
+}
+
+/* ---- Privacy guide ---- */
+.privacy-guide {
+  position: relative;
+  padding: 18px 18px 14px;
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(120% 120% at 100% 0%, rgba(111, 240, 207, 0.1), transparent 55%),
+    var(--s1);
+  border: 1px solid var(--private-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+.privacy-guide.leaving {
+  opacity: 0;
+  transform: scale(0.97);
+}
+.pg-title {
+  font-size: 16.5px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.pg-steps {
+  list-style: none;
+  margin: 12px 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pg-steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.pg-icon {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+}
+.pg-pub .pg-icon {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.pg-priv .pg-icon {
+  background: var(--private-soft);
+  color: var(--private);
+}
+html.mobile .pg-done {
+  width: auto;
+  min-height: 40px;
+  margin: 4px 0 0 auto;
+  padding: 0 4px;
+  display: block;
+  background: none;
+  border: 0;
+  color: var(--private);
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+/* ---- Empty wallet ---- */
+html.mobile .balances-card.assets-empty {
+  padding: 0;
+}
+html.mobile .assets-empty .empty-state {
+  padding: 28px 22px 22px;
+  gap: 6px;
+  background: radial-gradient(90% 80% at 50% 0%, rgba(162, 89, 255, 0.14), transparent 70%);
+  border-radius: var(--r-lg);
+}
+.ea-logo img {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  box-shadow: 0 12px 28px -10px rgba(252, 114, 255, 0.6);
+}
+.ea-title {
+  margin-top: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.ea-body {
+  font-size: 14px;
+  color: var(--text-2);
+}
+html.mobile #app .ea-receive {
+  width: 100%;
+  min-height: 50px;
+  margin-top: 12px;
+}
+
+/* No fixed-height box around the assets on the phone (the extension caps it). */
+html.mobile .balances-card {
+  max-height: none;
+  overflow: visible;
+}
