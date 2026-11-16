@@ -173,6 +173,8 @@ export function installNav(
       // A tab's own root screen has no back arrow (as in any native app); its hardware back goes Home.
       const showBack = !!screenBack && !tabRoot;
       backBtn.hidden = !showBack;
+      // Tab roots get a large title, as in any native app; sub-screens a compact one beside Back.
+      topBar.classList.toggle("large", !showBack);
       if (screenBack) screenBack.classList.add("lifted");
     }
   }

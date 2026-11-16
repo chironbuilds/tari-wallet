@@ -1,23 +1,113 @@
-/* Android-only chrome around the shared wallet UI: top app bar, bottom tab bar, pairing sheet,
-   notice toast, pull-to-refresh, screen transitions and touch ergonomics (src/mobile/nav.ts,
-   pairUi.ts). Uses the popup's own color tokens from styles.css. */
+/* Sapient for Android -- the phone design.
+   The extension's popup UI is shared; everything here is scoped to html.mobile, so the extension
+   is untouched. Structure: tokens, base, components, app chrome, screens, mechanics.
+   Screen layouts that need DOM changes are composed in redesign.ts; chrome lives in nav.ts. */
 
-#wc-sheet[hidden],
-#wc-notice[hidden],
-#tab-bar[hidden],
-#app-bar[hidden],
-.app-bar-back[hidden] {
-  display: none;
+/* =========================================================================================
+   Tokens
+   Ink base with neutral surfaces. The logo's pink->violet gradient marks the primary action and
+   the active state only; mint marks private (shielded) value everywhere it appears.
+   ========================================================================================= */
+html.mobile {
+  --bg: #08060c;
+  --s1: #121017;
+  --s2: #1a1721;
+  --s3: #24202c;
+  --line: rgba(255, 255, 255, 0.075);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --text: #f6f4f8;
+  --text-2: #a7a2b1;
+  --text-3: #6d6878;
+  --accent: #a259ff;
+  --accent-2: #fc72ff;
+  --accent-grad: linear-gradient(135deg, #fc72ff 0%, #a259ff 100%);
+  --accent-soft: rgba(162, 89, 255, 0.14);
+  --accent-ink: #dcc2ff;
+  --on-accent: #17071e;
+  --accent-shadow: rgba(162, 89, 255, 0.38);
+  --private: #6ff0cf;
+  --private-soft: rgba(111, 240, 207, 0.1);
+  --private-line: rgba(111, 240, 207, 0.3);
+  --good: #4ade9a;
+  --bad: #ff6b6b;
+  --fair: #ffb84d;
+  --highlight: #ffd66c;
+  --r-sm: 12px;
+  --r-md: 16px;
+  --r-lg: 22px;
+  --r-xl: 28px;
+  --gutter: 20px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* The shared popup's own token names, mapped onto the system above. */
+  --card: var(--s1);
+  --box: var(--s2);
+  --border: var(--line);
+  --border-hover: var(--line-strong);
+  --muted: var(--text-2);
+  --muted-dim: var(--text-3);
 }
 
-/* ---------------- Touch ergonomics ---------------- */
+/* =========================================================================================
+   Base
+   ========================================================================================= */
 html.mobile body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Roboto Flex", Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 15px;
+  line-height: 1.45;
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
 }
-/* Chrome-like UI never selects or pops a long-press menu; text the user may copy (inputs,
-   addresses in content) still can. */
+html.mobile #app {
+  max-width: 560px;
+  padding: calc(16px + env(safe-area-inset-top)) var(--gutter) calc(24px + env(safe-area-inset-bottom));
+  gap: 14px;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+html.mobile h1 {
+  font-size: 28px;
+  line-height: 1.12;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+}
+html.mobile h2 {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+html.mobile p.muted,
+html.mobile .muted {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+html.mobile code,
+html.mobile .addr,
+html.mobile .detail-value {
+  font-family: "Roboto Mono", ui-monospace, Menlo, monospace;
+}
+/* The status bar is transparent (edge-to-edge): this strip under it repeats the page background
+   exactly (fixed attachment, same layers), so the Home glow shows through but content scrolling up
+   never slides behind the clock. */
+html.mobile body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top);
+  z-index: 24;
+  background: inherit;
+  background-attachment: fixed;
+  pointer-events: none;
+}
+html.scanning body::before {
+  display: none;
+}
+/* Chrome-like UI never selects or pops a long-press menu; content text (addresses) still can. */
 html.mobile button,
 html.mobile .tab,
 html.mobile .settings-row,
@@ -28,28 +118,324 @@ html.mobile label {
   user-select: none;
   -webkit-touch-callout: none;
 }
-/* Android's minimum touch target is 48dp; the popup's buttons were sized for a mouse. */
-html.mobile #app button.primary,
-html.mobile #app button.secondary:not(.btn-compact) {
-  min-height: 48px;
+#wc-sheet[hidden],
+#wc-notice[hidden],
+#tab-bar[hidden],
+#app-bar[hidden],
+.app-bar-back[hidden] {
+  display: none;
 }
+
+/* =========================================================================================
+   Components
+   ========================================================================================= */
+
+/* ---- Buttons ---- */
 html.mobile button {
-  transition: transform 0.08s ease, background-color 0.15s ease;
+  border-radius: var(--r-md);
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  transition:
+    transform 0.12s var(--ease),
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
 }
 html.mobile button:active:not(:disabled) {
   transform: scale(0.97);
 }
-html.mobile .settings-row:active,
-html.mobile .list-row:active {
-  background: rgba(162, 89, 255, 0.1);
+html.mobile #app button.primary,
+html.mobile #app button.secondary:not(.btn-compact),
+html.mobile #app button.danger {
+  min-height: 56px;
+  border-radius: 18px;
+}
+html.mobile button.primary {
+  background: var(--accent-grad);
+  color: var(--on-accent);
+  box-shadow: 0 12px 28px -12px var(--accent-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+html.mobile button.primary:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+}
+html.mobile button.secondary {
+  background: var(--s2);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+html.mobile button.secondary:active:not(:disabled) {
+  background: var(--s3);
+}
+html.mobile button.danger {
+  background: rgba(255, 107, 107, 0.1);
+  color: #ff8f8f;
+  border: 1px solid rgba(255, 107, 107, 0.18);
+}
+html.mobile button + button {
+  margin-top: 10px;
+}
+html.mobile .link-btn {
+  color: var(--accent-ink);
+  font-size: 15px;
+  font-weight: 600;
+  min-height: 44px;
+}
+html.mobile button:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
 }
 
-/* ---------------- Layout with app bar + tab bar ---------------- */
+/* ---- Fields ---- */
+html.mobile label {
+  display: block;
+  margin: 18px 0 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+html.mobile #app > label {
+  margin: 4px 0 -6px;
+}
+/* Labels that are controls, not field captions, keep their own layout. */
+html.mobile label.switch-label {
+  display: inline-flex;
+  margin: 0;
+}
+html.mobile label.balance-row {
+  display: flex;
+  margin: 0;
+}
+html.mobile input[type="password"],
+html.mobile input[type="text"],
+html.mobile input[type="number"],
+html.mobile textarea,
+html.mobile select {
+  min-height: 54px;
+  padding: 14px 16px;
+  font-size: 16px;
+  border-radius: var(--r-md);
+  background: var(--s2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+html.mobile textarea {
+  line-height: 1.5;
+}
+html.mobile input:focus,
+html.mobile textarea:focus,
+html.mobile select:focus {
+  outline: none;
+  background: var(--s1);
+  border-color: rgba(162, 89, 255, 0.7);
+  box-shadow: 0 0 0 4px rgba(162, 89, 255, 0.16);
+}
+html.mobile input::placeholder,
+html.mobile textarea::placeholder {
+  color: var(--text-3);
+}
+html.mobile input.input-valid {
+  border-color: rgba(74, 222, 154, 0.55);
+}
+html.mobile input.input-invalid {
+  border-color: rgba(255, 107, 107, 0.6);
+}
+html.mobile select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 40px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a7a2b1' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+html.mobile .strength-meter {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--s3);
+}
+html.mobile .amount-field input {
+  font-size: 22px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+html.mobile .max-btn {
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 13px;
+}
+
+/* ---- Surfaces ---- */
+html.mobile .card {
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: none;
+}
+html.mobile .status {
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--s2);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+}
+html.mobile .status.err {
+  background: rgba(255, 107, 107, 0.09);
+  border-color: rgba(255, 107, 107, 0.22);
+  color: #ffb3b3;
+}
+html.mobile .status.ok {
+  background: var(--private-soft);
+  border-color: var(--private-line);
+  color: var(--private);
+}
+html.mobile .section-title {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--text);
+}
+html.mobile .empty-state {
+  padding: 36px 20px 32px;
+  gap: 12px;
+  text-align: center;
+}
+html.mobile .empty-state-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 20px;
+  background: var(--s2);
+  border: 1px solid var(--line);
+  color: var(--accent-ink);
+}
+html.mobile .empty-state-icon .icon-svg svg {
+  width: 26px;
+  height: 26px;
+}
+html.mobile .empty-state .muted {
+  max-width: 260px;
+  margin: 0 auto;
+}
+html.mobile .skeleton {
+  background: var(--s2);
+  border-radius: 8px;
+}
+
+/* ---- Lists ---- */
+html.mobile .balance-row,
+html.mobile .list-row {
+  min-height: 68px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  gap: 14px;
+}
+html.mobile .balance-row:last-child,
+html.mobile .list-row:last-child {
+  border-bottom: 0;
+}
+html.mobile .balance-row.clickable:active,
+html.mobile .list-row:active {
+  background: transparent;
+  opacity: 0.7;
+}
+html.mobile .list-row-title {
+  font-size: 15.5px;
+  font-weight: 600;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+html.mobile .list-row-subtitle {
+  font-size: 13px;
+  color: var(--text-2);
+}
+html.mobile .history-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: var(--s2);
+  border: 1px solid var(--line);
+  color: var(--accent-ink);
+}
+html.mobile .icon-btn {
+  min-height: 44px;
+  min-width: 44px;
+  border-radius: 14px;
+  background: var(--s2);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+html.mobile .copy-row .addr,
+html.mobile .addr {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+/* ---- Switch ---- */
+html.mobile .switch-track {
+  width: 50px;
+  height: 30px;
+  border-radius: 15px;
+  background: var(--s3);
+  border: 1px solid var(--line-strong);
+}
+html.mobile .switch-thumb {
+  width: 24px;
+  height: 24px;
+  top: 2px;
+  left: 2px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+html.mobile .switch-label input:checked ~ .switch-track {
+  background: var(--accent-grad);
+  border-color: transparent;
+}
+html.mobile .switch-label input:checked ~ .switch-track .switch-thumb {
+  transform: translateX(20px);
+}
+html.mobile .switch-side {
+  font-size: 13px;
+}
+
+/* ---- Chips (Paste / Scan QR under address fields) ---- */
+.addr-tools {
+  display: flex;
+  gap: 8px;
+  margin-top: -4px;
+}
+.chip-btn {
+  width: auto !important;
+  min-height: 38px;
+  margin: 0 !important;
+  padding: 6px 16px !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--line) !important;
+  background: var(--s2) !important;
+  color: var(--text) !important;
+  font-size: 13.5px !important;
+  font-weight: 600;
+}
+
+/* =========================================================================================
+   App chrome
+   ========================================================================================= */
 html.mobile.has-app-bar #app {
-  padding-top: calc(64px + env(safe-area-inset-top));
+  padding-top: calc(68px + env(safe-area-inset-top));
+}
+html.mobile.has-app-bar:has(#app-bar.large) #app {
+  padding-top: calc(80px + env(safe-area-inset-top));
 }
 html.mobile.has-tabs #app {
-  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  padding-bottom: calc(112px + env(safe-area-inset-bottom));
 }
 /* The screen's own title and Back button live in the app bar instead. */
 html.mobile.has-app-bar #app h1.lifted,
@@ -63,14 +449,17 @@ html.mobile.has-app-bar #app .lifted#back {
   left: 0;
   right: 0;
   z-index: 25;
-  height: calc(56px + env(safe-area-inset-top));
+  height: calc(60px + env(safe-area-inset-top));
   padding: env(safe-area-inset-top) 8px 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   /* Solid, not backdrop-blurred: a live blur under a scrolling WebView repaints every frame. */
-  background: #0f0a15;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--bg);
+}
+#app-bar.large {
+  height: calc(72px + env(safe-area-inset-top));
+  padding-left: calc(var(--gutter) - 8px);
 }
 .app-bar-back {
   width: 44px !important;
@@ -87,111 +476,1044 @@ html.mobile.has-app-bar #app .lifted#back {
   justify-content: center;
 }
 .app-bar-back:active {
-  background: rgba(255, 255, 255, 0.08) !important;
+  background: var(--s2) !important;
 }
-.app-bar-back svg,
-.tab svg {
+.app-bar-back svg {
   width: 24px;
   height: 24px;
 }
 .app-bar-title {
   flex: 1;
-  padding-left: 6px;
-  font-size: 19px;
+  padding-left: 4px;
+  font-size: 18px;
   font-weight: 650;
-  letter-spacing: -0.2px;
+  letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-#app-bar .app-bar-back[hidden] + .app-bar-title {
-  padding-left: 12px;
+#app-bar.large .app-bar-title {
+  padding-left: 8px;
+  font-size: 30px;
+  font-weight: 750;
+  letter-spacing: -0.03em;
 }
 
+/* ---- Tab bar: a floating dock ---- */
 #tab-bar {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 14px;
+  right: 14px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
   z-index: 25;
-  height: calc(68px + env(safe-area-inset-bottom));
-  padding: 0 6px env(safe-area-inset-bottom);
+  max-width: 520px;
+  margin: 0 auto;
+  height: 68px;
+  padding: 0 6px;
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   align-items: center;
-  background: #110b18;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 26px;
+  background: #16131c;
+  border: 1px solid var(--line-strong);
+  box-shadow:
+    0 20px 44px -12px rgba(0, 0, 0, 0.8),
+    0 0 0 6px rgba(8, 6, 12, 0.6);
 }
 #tab-bar .tab {
   width: auto;
   height: 60px;
   min-height: 0;
   margin: 0;
-  padding: 6px 0 0;
+  padding: 0;
   border: 0;
   background: transparent;
-  color: var(--muted);
+  color: var(--text-3);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  font-size: 11.5px;
-  font-weight: 600;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+#tab-bar .tab svg {
+  width: 23px;
+  height: 23px;
 }
 #tab-bar .tab .tab-icon {
-  width: 56px;
+  width: 46px;
   height: 30px;
-  border-radius: 15px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 #tab-bar .tab.active {
   color: var(--text);
 }
-/* Material-3 style pill behind the active tab's icon. */
 #tab-bar .tab.active .tab-icon {
-  background: rgba(162, 89, 255, 0.22);
-  color: #d9b8ff;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
 }
-/* The raised center Scan button. */
+/* Scan: the raised centre action. */
+#tab-bar .tab-scan {
+  color: var(--text-2);
+}
 #tab-bar .tab-scan .tab-icon {
-  width: 56px;
-  height: 56px;
-  margin-top: -26px;
-  border-radius: 18px;
+  width: 54px;
+  height: 54px;
+  margin-top: -30px;
+  border-radius: 20px;
   background: var(--accent-grad);
-  color: #fff;
-  box-shadow: 0 8px 22px var(--accent-shadow), 0 0 0 5px rgba(16, 10, 22, 0.92);
+  color: var(--on-accent);
+  box-shadow:
+    0 12px 24px -8px var(--accent-shadow),
+    0 0 0 6px #16131c;
 }
 #tab-bar .tab-scan .tab-icon svg {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
+  stroke-width: 2.2;
 }
-#tab-bar .tab-scan {
-  color: var(--text);
+#tab-bar .tab-scan:active .tab-icon {
+  transform: scale(0.94);
+}
+/* Keyboard up: the tab bar steps aside so it never floats over the field being typed in. */
+html.mobile.kb-open #tab-bar {
+  display: none;
+}
+html.mobile.kb-open.has-tabs #app {
+  padding-bottom: 24px;
+}
+/* Home's own settings gear duplicates the Settings tab. */
+html.mobile.has-tabs #settingsBtn {
+  display: none;
 }
 
-/* ---------------- Screen transitions ---------------- */
+/* ---- Pairing bottom sheet ---- */
+#wc-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0);
+  transition: background-color 0.24s ease;
+}
+#wc-sheet.open {
+  background: rgba(4, 2, 8, 0.7);
+}
+.wc-sheet-card {
+  width: 100%;
+  max-width: 560px;
+  background: var(--s1);
+  border: 1px solid var(--line-strong);
+  border-bottom: 0;
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  padding: 10px var(--gutter) calc(24px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transform: translateY(100%);
+  transition: transform 0.3s var(--ease);
+}
+#wc-sheet.open .wc-sheet-card {
+  transform: none;
+}
+.wc-sheet-handle {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line-strong);
+  margin: 0 auto 12px;
+}
+.wc-sheet-card h2 {
+  margin: 0;
+}
+
+/* ---- Toast ---- */
+.wc-notice {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--s3);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 550;
+  z-index: 40;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+.wc-notice.err {
+  border-color: rgba(255, 107, 107, 0.45);
+}
+.wc-notice.ok {
+  border-color: var(--private-line);
+}
+
+/* ---- Connectivity bar ---- */
+#net-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: env(safe-area-inset-top);
+  z-index: 26;
+  padding: 8px 16px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 650;
+}
+#net-bar[hidden] {
+  display: none;
+}
+#net-bar.offline {
+  background: #2c1d05;
+  color: #ffcf7a;
+}
+#net-bar.online {
+  background: #0b2a1f;
+  color: var(--good);
+}
+html.mobile.has-app-bar #net-bar {
+  top: calc(60px + env(safe-area-inset-top));
+}
+html.mobile.offline #app {
+  padding-top: calc(52px + env(safe-area-inset-top));
+}
+html.mobile.offline.has-app-bar #app {
+  padding-top: calc(104px + env(safe-area-inset-top));
+}
+
+/* =========================================================================================
+   Screens
+   ========================================================================================= */
+
+/* ---- Pre-wallet screens (welcome, create, backup, unlock) ----
+   No tab bar: short single-purpose screens, centred on a tall phone with auto margins (not
+   justify-content:center) so the 24-word phrase still scrolls from its top. */
+html.mobile:not(.has-tabs):not(.approving) #app > :first-child {
+  margin-top: auto;
+}
+html.mobile:not(.has-tabs):not(.approving) #app > :last-child {
+  margin-bottom: auto;
+}
+html.mobile:not(.has-tabs):not(.approving) #app {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+/* ---- Welcome ---- */
+html.mobile.screen-welcome body {
+  background:
+    radial-gradient(120% 60% at 50% -8%, rgba(252, 114, 255, 0.22), transparent 60%),
+    radial-gradient(90% 50% at 100% 30%, rgba(162, 89, 255, 0.16), transparent 70%),
+    var(--bg);
+}
+html.mobile.screen-welcome #app {
+  justify-content: space-between;
+}
+html.mobile.screen-welcome #app > :first-child,
+html.mobile.screen-welcome #app > :last-child {
+  margin: 0;
+}
+html.mobile .welcome-hero {
+  text-align: left;
+  padding: 48px 0 0;
+  margin: 0;
+}
+html.mobile .welcome-hero img {
+  width: 76px !important;
+  height: 76px !important;
+  margin: 0 0 30px;
+  border-radius: 22px;
+  box-shadow: 0 18px 40px -12px rgba(252, 114, 255, 0.55);
+}
+html.mobile .welcome-hero h1 {
+  font-size: 40px;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  margin: 0;
+}
+html.mobile .welcome-tagline {
+  margin: 10px 0 0;
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+html.mobile .welcome-hero p.muted {
+  max-width: 340px;
+  margin: 14px 0 0;
+  font-size: 15px;
+}
+.welcome-features {
+  list-style: none;
+  margin: 30px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.welcome-features li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 15.5px;
+  font-weight: 550;
+  color: var(--text);
+}
+.wf-icon {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  color: var(--accent-ink);
+}
+.welcome-features li:nth-child(2) .wf-icon {
+  color: var(--private);
+}
+.welcome-actions {
+  display: flex;
+  flex-direction: column;
+  padding: 28px 0 8px;
+}
+
+/* ---- Create password / verify ---- */
+html.mobile:not(.has-tabs) #app > div > h1:first-child {
+  margin-bottom: 8px;
+}
+
+/* ---- Recovery phrase ---- */
+html.mobile .mnemonic-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+html.mobile .mnemonic-word {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 11px 10px;
+  border-radius: 12px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  font-family: "Roboto Mono", ui-monospace, monospace;
+  font-size: 14px;
+  font-weight: 550;
+  overflow: hidden;
+}
+html.mobile .mnemonic-word span {
+  min-width: 16px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* ---- Unlock ---- */
+html.mobile .hero {
+  padding: 0;
+  margin-bottom: 6px;
+}
+html.mobile:not(.has-tabs) .hero .avatar {
+  width: 92px !important;
+  height: 92px !important;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 4px var(--bg),
+    0 0 0 6px rgba(162, 89, 255, 0.55),
+    0 20px 50px -12px var(--accent-shadow);
+}
+html.mobile:not(.has-tabs) .hero .avatar svg {
+  width: 100%;
+  height: 100%;
+}
+html.mobile .hero + h1 {
+  margin-bottom: 10px;
+}
+
+/* ---- Home ---- */
+html.mobile.screen-home body {
+  background:
+    radial-gradient(110% 42% at 50% -6%, rgba(162, 89, 255, 0.24), transparent 62%),
+    radial-gradient(60% 30% at 90% 4%, rgba(252, 114, 255, 0.14), transparent 70%),
+    var(--bg);
+  background-attachment: fixed;
+}
+html.mobile.screen-home #app {
+  gap: 16px;
+}
+html.mobile .top-nav {
+  display: none;
+}
+.home-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 4px;
+}
+html.mobile .home-header .account-pill {
+  width: auto;
+  min-height: 44px;
+  margin: 0;
+  padding: 4px 12px 4px 4px;
+  gap: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  font-size: 15.5px;
+  font-weight: 650;
+  color: var(--text);
+}
+html.mobile .home-header .account-pill .avatar {
+  width: 36px !important;
+  height: 36px !important;
+  flex: none;
+  border-radius: 50%;
+  overflow: hidden;
+}
+html.mobile .home-header .account-pill .avatar svg {
+  width: 100%;
+  height: 100%;
+}
+html.mobile .home-header .account-pill-label {
+  max-width: 150px;
+}
+html.mobile .home-header .network-line {
+  width: auto;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-2);
+  gap: 8px;
+}
+html.mobile .network-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--fair);
+  box-shadow: 0 0 0 3px rgba(255, 184, 77, 0.18);
+}
+html.mobile .network-line-mainnet .network-dot {
+  background: var(--good);
+  box-shadow: 0 0 0 3px rgba(74, 222, 154, 0.18);
+}
+
+/* Hero: the number, nothing around it. */
+html.mobile .account-summary.card {
+  position: relative;
+  padding: 26px 0 6px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+  align-items: center;
+  text-align: center;
+}
+html.mobile .account-summary.card::before,
+html.mobile .account-summary.card::after {
+  display: none;
+  animation: none;
+}
+html.mobile .summary-head {
+  display: none;
+}
+html.mobile .summary-balance {
+  align-items: center;
+  gap: 0;
+}
+html.mobile .summary-label {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+html.mobile .hero-balance {
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+}
+html.mobile .hero-balance-amount {
+  font-size: 56px;
+  line-height: 1.02;
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+}
+html.mobile .hero-balance-unit {
+  font-size: 20px;
+  font-weight: 650;
+  color: var(--text-2);
+  letter-spacing: -0.01em;
+}
+html.mobile .private-balance {
+  margin-top: 14px !important;
+  padding: 7px 14px 7px 12px;
+  gap: 7px;
+  border-radius: 999px;
+  background: var(--private-soft);
+  border: 1px solid var(--private-line);
+  color: var(--private);
+  font-size: 13.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  align-items: center;
+}
+html.mobile .private-balance::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex: none;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+html.mobile .account-summary .addr-pill {
+  width: auto;
+  margin: 16px auto 0;
+  min-height: 34px;
+  padding: 0 12px 0 14px;
+  gap: 8px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  font-family: "Roboto Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+/* Actions: four tiles. History lives in the Activity tab; Claim L1 burn is its own card. */
+html.mobile #historyAction,
+html.mobile #burnAction {
+  display: none;
+}
+html.mobile .action-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 6px;
+  align-items: stretch;
+}
+html.mobile .action-row > button.action-btn {
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 0;
+  margin: 0;
+  padding: 14px 4px 12px;
+  border-radius: 20px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+  line-height: 1.15;
+  white-space: normal;
+  text-align: center;
+}
+html.mobile .action-btn .action-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 15px;
+  background: var(--s3);
+  border: 0;
+  color: var(--text);
+  box-shadow: none;
+}
+html.mobile .action-btn .action-icon .icon-svg svg {
+  width: 22px;
+  height: 22px;
+}
+html.mobile #sendAction .action-icon {
+  background: var(--accent-grad);
+  color: var(--on-accent);
+  box-shadow: 0 8px 18px -8px var(--accent-shadow);
+}
+html.mobile #shieldAction .action-icon,
+html.mobile #unshieldAction .action-icon {
+  background: var(--private-soft);
+  color: var(--private);
+}
+
+/* Claim L1 burn. */
+.l1-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin: 0 !important;
+  padding: 14px 14px 14px 16px;
+  border-radius: 20px;
+  background: linear-gradient(110deg, rgba(162, 89, 255, 0.12), rgba(162, 89, 255, 0.02) 60%), var(--s1);
+  border: 1px solid var(--line);
+  color: var(--text);
+  text-align: left;
+}
+.l1-icon {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.l1-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.l1-text b {
+  font-size: 15.5px;
+  font-weight: 650;
+}
+.l1-text span {
+  font-size: 13px;
+  font-weight: 450;
+  color: var(--text-2);
+}
+.l1-go {
+  color: var(--text-3);
+  display: grid;
+}
+
+/* Assets. */
+html.mobile.screen-home #app > .row {
+  margin-top: 8px !important;
+}
+html.mobile .balances-card {
+  padding: 2px 16px;
+  border-radius: var(--r-lg);
+}
+html.mobile .balance-row .token-avatar {
+  width: 42px !important;
+  height: 42px !important;
+  border-radius: 50%;
+  font-size: 16px !important;
+}
+html.mobile .balance-left {
+  gap: 14px;
+}
+html.mobile .balance-row .token-symbol {
+  font-size: 16px;
+  font-weight: 650;
+}
+html.mobile .balance-row .token-amount {
+  font-size: 16px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+html.mobile .balance-row .token-amount-private {
+  margin-top: 2px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--private);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Token detail ---- */
+html.mobile.screen-token body {
+  background:
+    radial-gradient(100% 38% at 50% -4%, rgba(162, 89, 255, 0.2), transparent 64%),
+    var(--bg);
+  background-attachment: fixed;
+}
+.token-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 8px 0 4px;
+}
+html.mobile .token-hero .token-avatar {
+  width: 72px !important;
+  height: 72px !important;
+  border-radius: 50%;
+  margin-bottom: 12px;
+  box-shadow: 0 16px 40px -14px var(--accent-shadow);
+}
+.token-hero-name {
+  font-size: 17px;
+  font-weight: 650;
+}
+.token-hero-label {
+  margin-top: 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.token-hero-amount {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 44px;
+  line-height: 1.05;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.token-hero-unit {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text-2);
+}
+html.mobile .token-hero .private-balance {
+  display: inline-flex;
+}
+.token-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-auto-flow: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+html.mobile #app .token-actions > button.token-action {
+  min-height: 0;
+  margin: 0;
+  padding: 58px 6px 12px;
+  position: relative;
+  border-radius: 20px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.token-action::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  margin-left: -20px;
+  border-radius: 14px;
+  background: var(--private-soft);
+}
+.token-action::after {
+  content: "";
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin-left: -10px;
+  background: var(--private);
+  -webkit-mask: var(--ta-icon) center / contain no-repeat;
+  mask: var(--ta-icon) center / contain no-repeat;
+}
+.ta-shield {
+  --ta-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E");
+}
+.ta-unshield {
+  --ta-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 7.5-2'/%3E%3C/svg%3E");
+}
+.ta-send,
+.ta-other {
+  --ta-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 19V5M5 12l7-7 7 7'/%3E%3C/svg%3E");
+}
+.token-details-title {
+  margin-top: 8px;
+}
+html.mobile.screen-token .card {
+  padding: 4px 16px;
+}
+.kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 52px;
+  padding: 10px 0;
+}
+.kv + .kv {
+  border-top: 1px solid var(--line);
+}
+html.mobile .kv > .muted {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--text-2);
+}
+html.mobile .kv > .detail-value {
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: right;
+}
+.kv-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+/* ---- Activity ---- */
+html.mobile .history-list .balance-row {
+  align-items: center;
+}
+html.mobile .history-list .list-row-info > div:first-child {
+  font-size: 15.5px;
+  font-weight: 650;
+}
+html.mobile .history-list .list-row-info .muted {
+  font-size: 13px;
+}
+.history-right {
+  margin-left: auto;
+  padding-left: 8px;
+  text-align: right;
+  align-self: flex-start;
+  padding-top: 2px;
+}
+.history-right .history-amount {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+html.mobile .hk-in .history-icon {
+  background: rgba(74, 222, 154, 0.12);
+  color: var(--good);
+}
+.hk-in .history-amount {
+  color: var(--good);
+}
+html.mobile .hk-out .history-icon {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+html.mobile .hk-private .history-icon {
+  background: var(--private-soft);
+  color: var(--private);
+}
+.hk-private .history-amount {
+  color: var(--private);
+}
+html.mobile .history-tx {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+html.mobile .history-tx a {
+  color: var(--accent-ink);
+  text-decoration: none;
+}
+html.mobile .balance-row.status-failed .history-icon {
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--bad);
+}
+
+/* ---- Settings: grouped lists ---- */
+.settings-group-title {
+  margin: 10px 4px -6px;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.settings-group-title:first-child {
+  margin-top: 0;
+}
+html.mobile .settings-card {
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+}
+html.mobile .settings-row {
+  min-height: 58px;
+  margin: 0;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 15.5px;
+  font-weight: 550;
+  color: var(--text);
+}
+html.mobile .settings-card > * + * {
+  border-top: 1px solid var(--line);
+}
+html.mobile .settings-card > button + button {
+  margin-top: 0;
+}
+html.mobile .settings-row:active:not(:disabled) {
+  background: var(--s2);
+  transform: none;
+}
+html.mobile .settings-row-left {
+  gap: 14px;
+}
+html.mobile .settings-row-left .icon-svg {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+html.mobile .settings-row-left .icon-svg svg {
+  width: 18px;
+  height: 18px;
+}
+html.mobile #connectDaemon .settings-row-left .icon-svg,
+html.mobile #daemons .settings-row-left .icon-svg {
+  background: rgba(96, 165, 250, 0.14);
+  color: #9cc7ff;
+}
+html.mobile #backup .settings-row-left .icon-svg {
+  background: rgba(255, 184, 77, 0.14);
+  color: #ffcf85;
+}
+html.mobile #sites .settings-row-left .icon-svg {
+  background: var(--private-soft);
+  color: var(--private);
+}
+html.mobile #addressBook .settings-row-left .icon-svg {
+  background: rgba(252, 114, 255, 0.13);
+  color: #ffb3ff;
+}
+html.mobile .settings-row-right {
+  color: var(--text-3);
+  gap: 6px;
+}
+html.mobile .settings-row-trailing {
+  color: var(--text-2);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+html.mobile .settings-row-static {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+/* Pickers inside a row read as a value with a chevron, not a boxed field. */
+html.mobile .settings-row .settings-row-select {
+  width: auto;
+  min-height: 40px;
+  margin: 0 0 0 auto;
+  padding: 0 28px 0 8px;
+  border: 0;
+  background-color: transparent;
+  background-position: right 4px center;
+  color: var(--text-2);
+  font-size: 15px;
+  text-align: right;
+  box-shadow: none;
+}
+html.mobile #lock {
+  margin-top: 6px;
+}
+
+/* ---- Activity / dApps / account list ---- */
+html.mobile .history-list,
+html.mobile .account-switch-list {
+  border-radius: var(--r-lg);
+}
+html.mobile .site-card {
+  border-radius: var(--r-lg);
+  padding: 16px;
+  background: var(--s1);
+}
+
+/* ---- Receive ---- */
+html.mobile .qr-card {
+  width: 100%;
+  max-width: 300px;
+  margin: 4px auto;
+  padding: 18px;
+  border-radius: var(--r-xl);
+  background: #fff;
+  box-shadow: 0 24px 60px -24px rgba(162, 89, 255, 0.55);
+}
+
+/* ---- Approvals ---- */
+/* Approve/Reject sit at the bottom, within thumb reach; on a long request they still come after
+   everything being approved. */
+html.mobile.approving #app > #approve {
+  margin-top: auto;
+}
+.approval-counter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(162, 89, 255, 0.3);
+  font-size: 13.5px;
+  font-weight: 650;
+}
+.approval-counter .link-btn {
+  width: auto;
+  margin: 0;
+  padding: 4px 0;
+  min-height: 0;
+  font-size: 13.5px;
+  color: var(--accent-ink);
+}
+html.mobile .approval-step {
+  font-size: 14.5px;
+}
+
+/* =========================================================================================
+   Mechanics
+   ========================================================================================= */
+
+/* ---- Screen transitions ---- */
 html.mobile #app.view-enter {
-  animation: m-forward 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: m-forward 0.28s var(--ease);
 }
 html.mobile.nav-back #app.view-enter {
   animation-name: m-back;
 }
 html.mobile.nav-tab #app.view-enter {
-  animation: m-fade 0.18s ease-out;
+  animation: m-fade 0.2s ease-out;
 }
-/* Refreshes (pull to refresh, resume, reconnect) update the screen in place: no fade or slide. */
+/* Refreshes (pull to refresh, resume, reconnect) update the screen in place. */
 html.mobile.nav-none #app.view-enter {
   animation: none;
 }
 @keyframes m-forward {
   from {
     opacity: 0;
-    transform: translateX(28px);
+    transform: translateX(24px);
   }
   to {
     opacity: 1;
@@ -201,7 +1523,7 @@ html.mobile.nav-none #app.view-enter {
 @keyframes m-back {
   from {
     opacity: 0;
-    transform: translateX(-28px);
+    transform: translateX(-24px);
   }
   to {
     opacity: 1;
@@ -211,7 +1533,7 @@ html.mobile.nav-none #app.view-enter {
 @keyframes m-fade {
   from {
     opacity: 0;
-    transform: scale(0.99);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -219,7 +1541,7 @@ html.mobile.nav-none #app.view-enter {
   }
 }
 
-/* ---------------- Pull to refresh ---------------- */
+/* ---- Pull to refresh ---- */
 #ptr {
   position: fixed;
   top: calc(-44px + env(safe-area-inset-top));
@@ -229,9 +1551,9 @@ html.mobile.nav-none #app.view-enter {
   margin-left: -20px;
   z-index: 24;
   border-radius: 50%;
-  background: var(--card);
-  border: 1px solid var(--border);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  background: var(--s2);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -239,11 +1561,13 @@ html.mobile.nav-none #app.view-enter {
   pointer-events: none;
   will-change: transform, opacity;
 }
-/* While dragging, #app and the spinner follow the finger directly (set per frame in nav.ts); only
-   the settle (spring back / move to the hold position) is animated. */
+/* While dragging, #app and the spinner follow the finger (set per frame in nav.ts); only the
+   settle is animated. */
 html.mobile.ptr-settling #app,
 html.mobile.ptr-settling #ptr {
-  transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.26s ease;
+  transition:
+    transform 0.26s var(--ease),
+    opacity 0.26s ease;
 }
 .ptr-spinner {
   width: 20px;
@@ -266,353 +1590,8 @@ html.mobile.ptr-settling #ptr {
   }
 }
 
-/* ---------------- Pairing bottom sheet ---------------- */
-#wc-sheet {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0);
-  transition: background-color 0.22s ease;
-}
-#wc-sheet.open {
-  background: rgba(0, 0, 0, 0.6);
-}
-.wc-sheet-card {
-  width: 100%;
-  max-width: 520px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-bottom: 0;
-  border-radius: 24px 24px 0 0;
-  padding: 10px 18px calc(22px + env(safe-area-inset-bottom));
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  transform: translateY(100%);
-  transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-#wc-sheet.open .wc-sheet-card {
-  transform: none;
-}
-.wc-sheet-handle {
-  width: 36px;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.22);
-  margin: 0 auto 10px;
-}
-.wc-sheet-card h2 {
-  margin: 0;
-}
-
-/* ---------------- Toast ---------------- */
-.wc-notice {
-  position: fixed;
-  left: 16px;
-  right: 16px;
-  bottom: calc(88px + env(safe-area-inset-bottom));
-  max-width: 488px;
-  margin: 0 auto;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  color: var(--text);
-  z-index: 40;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-}
-.wc-notice.err {
-  border-color: #e5484d;
-}
-.wc-notice.ok {
-  border-color: var(--accent);
-}
-
-/* ---------------- Approvals ---------------- */
-/* Approve/Reject sit at the bottom, within thumb reach. On a long request the buttons still come
-   after everything the user is approving (they scroll to them). */
-html.mobile.approving #app > #approve {
-  margin-top: auto;
-}
-/* "Request 1 of N" bar on approval screens when more requests are waiting. */
-.approval-counter {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: rgba(162, 89, 255, 0.14);
-  border: 1px solid rgba(162, 89, 255, 0.35);
-  font-size: 13px;
-  font-weight: 600;
-}
-.approval-counter .link-btn {
-  width: auto;
-  margin: 0;
-  padding: 4px 0;
-  font-size: 13px;
-  color: var(--accent);
-}
-
-/* Home's own settings gear duplicates the Settings tab. */
-html.mobile.has-tabs #settingsBtn {
-  display: none;
-}
-
-/* Connected-site labels carry the dApp name, host and trust level: wrap instead of truncating. */
-html.mobile .list-row-title {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-/* ---------------- Inner screens ---------------- */
-/* Paste / Scan QR under address fields. */
-.addr-tools {
-  display: flex;
-  gap: 8px;
-  margin-top: -4px;
-}
-.chip-btn {
-  width: auto !important;
-  min-height: 36px;
-  margin: 0 !important;
-  padding: 6px 14px !important;
-  border-radius: 999px !important;
-  border: 1px solid var(--border) !important;
-  background: rgba(162, 89, 255, 0.1) !important;
-  color: #d9b8ff !important;
-  font-size: 13px !important;
-  font-weight: 600;
-}
-/* Comfortable touch targets on the denser popup controls. */
-html.mobile .icon-btn {
-  min-height: 44px;
-}
-html.mobile .settings-row {
-  min-height: 52px;
-}
-html.mobile .list-row {
-  min-height: 56px;
-}
-html.mobile input,
-html.mobile select,
-html.mobile textarea {
-  min-height: 48px;
-}
-/* Keyboard up: the tab bar steps aside so it never floats over the field being typed in. */
-html.mobile.kb-open #tab-bar {
-  display: none;
-}
-html.mobile.kb-open.has-tabs #app {
-  padding-bottom: 24px;
-}
-
-/* ---------------- Connectivity bar ---------------- */
-#net-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  top: env(safe-area-inset-top);
-  z-index: 26;
-  padding: 8px 16px;
-  text-align: center;
-  font-size: 13px;
-  font-weight: 600;
-}
-#net-bar[hidden] {
-  display: none;
-}
-#net-bar.offline {
-  background: #3a2400;
-  color: #ffcf7a;
-  border-bottom: 1px solid #6b4500;
-}
-#net-bar.online {
-  background: #0f2e1d;
-  color: #6ee7a8;
-  border-bottom: 1px solid #1f5c3b;
-}
-html.mobile.has-app-bar #net-bar {
-  top: calc(56px + env(safe-area-inset-top));
-}
-html.mobile.offline #app {
-  padding-top: calc(48px + env(safe-area-inset-top));
-}
-html.mobile.offline.has-app-bar #app {
-  padding-top: calc(100px + env(safe-area-inset-top));
-}
-
-/* Rows whose label and control don't fit side by side at large text sizes wrap instead of squeezing. */
-html.mobile .settings-row-static {
-  flex-wrap: wrap;
-  row-gap: 8px;
-}
-
-/* Android "Remove animations" (prefers-reduced-motion): no slides, fades, sheet motion or press scaling. */
-@media (prefers-reduced-motion: reduce) {
-  html.mobile #app.view-enter,
-  html.mobile.nav-back #app.view-enter,
-  html.mobile.nav-tab #app.view-enter {
-    animation: none;
-  }
-  html.mobile #wc-sheet,
-  html.mobile .wc-sheet-card,
-  html.mobile #ptr,
-  html.mobile button {
-    transition: none;
-  }
-  html.mobile button:active:not(:disabled) {
-    transform: none;
-  }
-}
-
-/* ===================== Home (phone layout) =====================
-   The extension's home is a compact toolbar for a 320px popup. On a phone: a centered hero balance,
-   one row of round action buttons, and the assets as roomy list rows. Same markup, phone styles. */
-html.mobile .top-nav {
-  padding: 4px 2px 0;
-}
-html.mobile .account-summary.card {
-  align-items: center;
-  text-align: center;
-  gap: 12px;
-  padding: 26px 16px 22px;
-  border-radius: 24px;
-  background: radial-gradient(ellipse at 50% 0%, rgba(162, 89, 255, 0.28), rgba(162, 89, 255, 0) 70%), var(--card);
-}
-html.mobile .summary-head {
-  justify-content: center;
-}
-html.mobile .summary-balance {
-  align-items: center;
-}
-html.mobile .summary-label {
-  font-size: 12px;
-  letter-spacing: 0.12em;
-}
-html.mobile .hero-balance {
-  justify-content: center;
-}
-html.mobile .hero-balance-amount {
-  font-size: 44px;
-  line-height: 1.05;
-}
-html.mobile .hero-balance-unit {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--muted);
-}
-html.mobile .private-balance {
-  margin-top: 10px;
-  font-size: 13px;
-  padding: 5px 12px;
-}
-
-/* One row of round actions; History lives in the Activity tab. */
-html.mobile #historyAction {
-  display: none;
-}
-html.mobile .action-row {
-  grid-template-columns: repeat(5, 1fr);
-  gap: 4px;
-  margin-top: 4px;
-}
-html.mobile .action-row > button.action-btn {
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-  padding: 2px 0;
-  background: none;
-  border: 0;
-  box-shadow: none;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-  line-height: 1.15;
-  white-space: normal;
-  text-align: center;
-}
-html.mobile .action-btn .action-icon {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: rgba(162, 89, 255, 0.14);
-  border: 1px solid rgba(162, 89, 255, 0.3);
-  color: #d9b8ff;
-}
-html.mobile .action-btn .action-icon .icon-svg svg {
-  width: 24px;
-  height: 24px;
-}
-/* Send and Receive are the primary actions. */
-html.mobile #sendAction .action-icon,
-html.mobile #receiveAction .action-icon {
-  background: var(--accent-grad);
-  border-color: transparent;
-  color: #fff;
-  box-shadow: 0 6px 18px var(--accent-shadow);
-}
-html.mobile .action-row > button.action-btn:active:not(:disabled) .action-icon {
-  transform: scale(0.94);
-}
-
-/* Assets as list rows. */
-html.mobile .section-title {
-  font-size: 13px;
-  letter-spacing: 0.1em;
-}
-html.mobile .balances-card {
-  padding: 4px 14px;
-  border-radius: 20px;
-}
-html.mobile .balance-row {
-  min-height: 64px;
-  padding: 10px 0;
-  font-size: 16px;
-}
-html.mobile .balance-row .token-avatar {
-  width: 38px !important;
-  height: 38px !important;
-}
-html.mobile .balance-row .token-symbol {
-  font-weight: 700;
-}
-html.mobile .balance-row .token-amount {
-  font-size: 16px;
-  font-weight: 700;
-}
-html.mobile .balance-row .token-amount-private {
-  font-size: 12px;
-}
-/* Circles line up even when a label wraps to two lines. */
-html.mobile .action-row {
-  align-items: start;
-}
-html.mobile .action-row > button.action-btn {
-  justify-content: flex-start;
-  align-self: start;
-}
-
-/* ---------------- Performance ---------------- */
-/* The extension's balance card runs two infinite animations (rotating border, breathing glow) that
-   repaint it every frame: fine on a desktop, costly in a phone WebView while scrolling. Static here. */
-html.mobile .account-summary.card,
-html.mobile .account-summary.card::before {
-  animation: none;
-}
-/* Scrolling on its own compositor layer; no tap delay. */
-html.mobile #app {
-  -webkit-overflow-scrolling: touch;
-  touch-action: pan-y;
-}
-
-
-/* ---------------- Built-in QR scanner (src/mobile/pairUi.ts) ---------------- */
-/* The camera preview is drawn behind the WebView, so everything else becomes transparent. */
+/* ---- Built-in QR scanner (src/mobile/pairUi.ts) ----
+   The camera preview is drawn behind the WebView, so everything else becomes transparent. */
 html.scanning,
 html.scanning body {
   background: transparent !important;
@@ -641,12 +1620,13 @@ html.scanning #ptr {
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
 }
 #qr-scanner .qr-title {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
+  letter-spacing: -0.01em;
 }
 #qr-scanner .qr-sub {
   margin-top: 4px;
-  font-size: 14px;
+  font-size: 14.5px;
   opacity: 0.85;
 }
 /* The square window; the huge spread shadow dims everything around it. */
@@ -654,20 +1634,19 @@ html.scanning #ptr {
   position: relative;
   width: min(72vw, 300px);
   aspect-ratio: 1;
-  border-radius: 24px;
-  box-shadow: 0 0 0 200vmax rgba(8, 4, 12, 0.62);
+  border-radius: 28px;
+  box-shadow: 0 0 0 200vmax rgba(8, 6, 12, 0.66);
 }
 #qr-scanner .qr-frame i {
   position: absolute;
-  width: 42px;
-  height: 42px;
-  border: 4px solid #d9b8ff;
-  filter: drop-shadow(0 0 6px rgba(162, 89, 255, 0.9));
+  width: 44px;
+  height: 44px;
+  border: 4px solid #fff;
 }
-#qr-scanner .qr-frame i:nth-child(1) { left: -2px; top: -2px; border-right: 0; border-bottom: 0; border-top-left-radius: 24px; }
-#qr-scanner .qr-frame i:nth-child(2) { right: -2px; top: -2px; border-left: 0; border-bottom: 0; border-top-right-radius: 24px; }
-#qr-scanner .qr-frame i:nth-child(3) { left: -2px; bottom: -2px; border-right: 0; border-top: 0; border-bottom-left-radius: 24px; }
-#qr-scanner .qr-frame i:nth-child(4) { right: -2px; bottom: -2px; border-left: 0; border-top: 0; border-bottom-right-radius: 24px; }
+#qr-scanner .qr-frame i:nth-child(1) { left: -2px; top: -2px; border-right: 0; border-bottom: 0; border-top-left-radius: 28px; }
+#qr-scanner .qr-frame i:nth-child(2) { right: -2px; top: -2px; border-left: 0; border-bottom: 0; border-top-right-radius: 28px; }
+#qr-scanner .qr-frame i:nth-child(3) { left: -2px; bottom: -2px; border-right: 0; border-top: 0; border-bottom-left-radius: 28px; }
+#qr-scanner .qr-frame i:nth-child(4) { right: -2px; bottom: -2px; border-left: 0; border-top: 0; border-bottom-right-radius: 28px; }
 #qr-scanner .qr-line {
   position: absolute;
   left: 10%;
@@ -690,14 +1669,14 @@ html.scanning #ptr {
 }
 #qr-scanner .qr-btn {
   flex: 1;
-  min-height: 52px;
+  min-height: 54px;
   margin: 0;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(20, 12, 28, 0.75);
+  background: rgba(18, 14, 24, 0.78);
   color: #fff;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 650;
 }
 #qr-scanner .qr-btn[hidden] {
   display: none;
@@ -706,42 +1685,25 @@ html.scanning #ptr {
   background: #fff;
   color: #120b18;
 }
-@media (prefers-reduced-motion: reduce) {
-  #qr-scanner .qr-line { animation: none; top: 50%; }
-}
 
-/* ---------------- Pre-wallet screens (welcome, create, backup, unlock) ----------------
-   Without the tab bar these are short, single-purpose screens: centre them vertically on a tall
-   phone instead of stacking at the top. Auto margins (not justify-content:center) so a screen
-   taller than the display -- the 24-word recovery phrase -- still scrolls from its top. */
-html.mobile:not(.has-tabs):not(.approving) #app > :first-child {
-  margin-top: auto;
-}
-html.mobile:not(.has-tabs):not(.approving) #app > :last-child {
-  margin-bottom: auto;
-}
-html.mobile:not(.has-tabs):not(.approving) #app {
-  padding-left: 22px;
-  padding-right: 22px;
-}
-/* Welcome: the popup-sized hero scaled up for a phone. */
-html.mobile .welcome-hero img {
-  width: 88px !important;
-  height: 88px !important;
-  border-radius: 22px;
-  filter: drop-shadow(0 10px 28px rgba(162, 89, 255, 0.5));
-}
-html.mobile .welcome-hero h1 {
-  font-size: 28px;
-  margin-top: 14px;
-}
-html.mobile .welcome-hero p {
-  font-size: 15px;
-  line-height: 1.5;
-  max-width: 320px;
-  margin-left: auto;
-  margin-right: auto;
-}
-html.mobile .welcome-hero {
-  margin-bottom: 18px;
+/* ---- Reduced motion (Android "Remove animations") ---- */
+@media (prefers-reduced-motion: reduce) {
+  html.mobile #app.view-enter,
+  html.mobile.nav-back #app.view-enter,
+  html.mobile.nav-tab #app.view-enter {
+    animation: none;
+  }
+  html.mobile #wc-sheet,
+  html.mobile .wc-sheet-card,
+  html.mobile #ptr,
+  html.mobile button {
+    transition: none;
+  }
+  html.mobile button:active:not(:disabled) {
+    transform: none;
+  }
+  #qr-scanner .qr-line {
+    animation: none;
+    top: 50%;
+  }
 }

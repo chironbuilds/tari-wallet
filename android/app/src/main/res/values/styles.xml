@@ -16,8 +16,11 @@
         <!-- Match the wallet's dark UI behind the system bars (edge-to-edge on Android 15+), with
              light status/navigation icons. -->
         <item name="android:windowBackground">@color/sapientBackground</item>
-        <item name="android:statusBarColor">@color/sapientBackground</item>
-        <item name="android:navigationBarColor">@color/sapientBackground</item>
+        <!-- Transparent bars over an edge-to-edge window: the web UI paints behind them (the Home
+             glow runs up under the clock) and pads itself with the safe-area insets. -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
     </style>

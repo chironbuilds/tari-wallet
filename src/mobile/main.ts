@@ -8,6 +8,7 @@ import { createAndroidPlatform } from "./platform";
 import { cancelScan, closePairingSheet, openPairingSheet } from "./pairUi";
 import { installNav } from "./nav";
 import { installEnhancements } from "./enhance";
+import { installRedesign } from "./redesign";
 import { installConnectivityBar } from "./connectivity";
 import { initApprovalNotifications } from "./notifications";
 import { queuedWcRequestCount, rejectQueuedWcRequests, startWalletConnect } from "./wc";
@@ -79,6 +80,7 @@ async function boot(): Promise<void> {
   void App.getLaunchUrl().then((launch) => {
     if (launch?.url) nav.openShortcut(launch.url);
   });
+  installRedesign();
   installEnhancements({ receiveAddress: async () => (await popup.appNav.status()).receiveAddress, connectDapp: openPairingSheet });
 
   // "Request 1 of N" above an approval when more are waiting, with a Reject-all shortcut for a dApp
