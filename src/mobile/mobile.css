@@ -2292,3 +2292,27 @@ html.mobile.screen-home #app > .row .icon-btn {
   background: transparent;
   color: var(--text-2);
 }
+
+/* ---- Centre the figure itself, not the figure plus its unit ---- */
+html.mobile .summary-label {
+  position: relative;
+}
+html.mobile .summary-label .amount-eye {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  margin-left: 2px;
+  transform: translateY(-50%);
+}
+html.mobile .hero-balance {
+  position: relative;
+  width: fit-content;
+  margin: 0 auto;
+}
+html.mobile .hero-balance-unit {
+  position: absolute;
+  left: 100%;
+  bottom: 8px;
+  margin-left: 8px;
+  white-space: nowrap;
+}

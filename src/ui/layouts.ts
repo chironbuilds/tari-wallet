@@ -117,7 +117,15 @@ function composeHome(app: HTMLElement): void {
     const num = (v: string | null | undefined) => Number((v ?? "").replace(/[^0-9.]/g, "")) || 0;
     const update = () => {
       if (amountEl) splitDecimals(amountEl);
-      if (privEl && privEl.style.display !== "none") shortenFirstNumber(privEl);
+      if (privEl && privEl.style.display !== "none") {
+        // "0.50 private": the unit is already beside the balance above it.
+        const n = (privEl.textContent ?? "").match(/[\d,]+(?:\.\d+)?/)?.[0];
+        const next = n ? t("mobile.privateAmount", { amount: twoDecimals(n) }) : null;
+        if (next && privEl.textContent !== next) {
+          privEl.title = privEl.textContent ?? "";
+          privEl.textContent = next;
+        }
+      }
       const pub = num(amountEl?.textContent);
       const privText = privEl && privEl.style.display !== "none" ? (privEl.textContent ?? "").split(" ")[0] : "";
       const priv = num(privText);

@@ -2401,3 +2401,29 @@ html:not(.mobile).screen-home #app > .row .icon-btn:hover {
   background: var(--box);
   color: var(--text);
 }
+
+/* ---- Centre the figure itself, not the figure plus its unit ---- */
+/* The unit ("TARI") and the eye hang off to the right of what they belong to, so the number and
+   the label are optically centred instead of being pushed left by their companions. */
+html:not(.mobile) .summary-label {
+  position: relative;
+}
+html:not(.mobile) .summary-label .amount-eye {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  margin-left: 2px;
+  transform: translateY(-50%);
+}
+html:not(.mobile) .hero-balance {
+  position: relative;
+  width: fit-content;
+  margin: 0 auto;
+}
+html:not(.mobile) .hero-balance-unit {
+  position: absolute;
+  left: 100%;
+  bottom: 7px;
+  margin-left: 6px;
+  white-space: nowrap;
+}

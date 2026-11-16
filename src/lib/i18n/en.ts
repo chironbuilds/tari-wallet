@@ -73,6 +73,7 @@ const en = {
     sectionPreferences: "Preferences",
     publicLabel: "Public",
     privateLabel: "Private",
+    privateAmount: "{amount} private",
     l1Title: "Bring TARI from L1",
     l1Body: "Claim a burn from the Tari base layer",
     tapToCopy: "Tap to copy",

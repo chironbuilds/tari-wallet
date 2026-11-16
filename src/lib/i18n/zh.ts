@@ -72,6 +72,7 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     sectionPreferences: "偏好设置",
     publicLabel: "公开",
     privateLabel: "私密",
+    privateAmount: "私密 {amount}",
     l1Title: "从 L1 转入 TARI",
     l1Body: "认领在 Tari 基础层销毁的资产",
     tapToCopy: "点按复制",
