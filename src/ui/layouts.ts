@@ -87,9 +87,12 @@ function composeHome(app: HTMLElement): void {
   const addr = hero.querySelector<HTMLElement>(".addr-pill");
   if (balance && addr) balance.append(addr);
 
-  // Hide amounts: an eye beside the label masks every figure in the app until tapped again.
+  // The figure needs no "Public Balance" title above it; the title stays for screen readers, on the
+  // figure itself. The hide-amounts eye moves to the header, first in its right-hand group.
   const label = hero.querySelector<HTMLElement>(".summary-label");
   if (label) {
+    label.hidden = true;
+    hero.querySelector(".hero-balance")?.setAttribute("aria-label", label.textContent ?? "");
     const eye = el("button", "amount-eye", svg(ICON.eye, 18));
     eye.type = "button";
     eye.setAttribute("aria-label", t("mobile.hideAmounts"));
@@ -99,7 +102,7 @@ function composeHome(app: HTMLElement): void {
       setAmountsHidden(!amountsHidden());
       eye.setAttribute("aria-pressed", String(amountsHidden()));
     });
-    label.append(eye);
+    right.prepend(eye);
   }
 
   // Public / private split: a bar and a legend, once there is private value to compare against.
@@ -321,7 +324,10 @@ async function addRecentActivity(app: HTMLElement): Promise<void> {
       const right = el("div", "history-right");
       const amt = el("span", "history-amount");
       const sign = INCOMING.has(kind) ? "+" : OUTGOING.has(kind) ? "−" : "";
-      amt.textContent = `${sign}${formatBalanceAmountGrouped(e.amount, e.divisibility ?? 6)} ${resourceLabel(e.resourceAddress, e.symbol ?? null)}`;
+      const exact = formatBalanceAmountGrouped(e.amount, e.divisibility ?? 6);
+      const unit = resourceLabel(e.resourceAddress, e.symbol ?? null);
+      amt.textContent = `${sign}${twoDecimals(exact)} ${unit}`;
+      amt.title = `${exact} ${unit}`;
       right.append(amt);
       row.append(right);
     }
@@ -673,7 +679,9 @@ function composeToken(app: HTMLElement): void {
   label.textContent = balancePair[0].textContent ?? "";
   const big = el("div", "token-hero-amount");
   const num = el("span", "");
-  num.textContent = amount;
+  // Two decimals, as everywhere amounts are displayed; the exact figure on hover.
+  num.textContent = twoDecimals(amount);
+  num.title = amount;
   splitDecimals(num);
   big.append(num);
   if (!isCount) {
@@ -684,7 +692,9 @@ function composeToken(app: HTMLElement): void {
   top.append(avatar, name, label, big);
   if (privatePair) {
     const pill = el("div", "private-balance");
-    pill.textContent = t("home.privateSuffix", { amount: privatePair[1].textContent ?? "", symbol });
+    const exact = privatePair[1].textContent ?? "";
+    pill.textContent = t("mobile.privateAmount", { amount: twoDecimals(exact) });
+    pill.title = `${exact} ${symbol}`;
     top.append(pill);
     privatePair[0].remove();
     privatePair[1].remove();
@@ -734,7 +744,9 @@ function composeHistory(app: HTMLElement): void {
     meta.replaceChildren(...(when ? [when] : []));
     const right = el("div", "history-right");
     const sign = INCOMING.has(kind) ? "+" : OUTGOING.has(kind) ? "−" : "";
-    amount.textContent = `${sign}${amount.textContent ?? ""}`;
+    const exact = amount.textContent ?? "";
+    amount.title = exact;
+    amount.textContent = `${sign}${exact.replace(/[\d,]+(?:\.\d+)?/, (n) => twoDecimals(n))}`;
     right.append(amount);
     row.append(right);
   }

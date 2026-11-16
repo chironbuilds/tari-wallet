@@ -188,7 +188,12 @@ function switchControl(id: string, checked: boolean, offLabel: string, onLabel: 
 // Every screen swap replays a short fade/slide-in on #app — restarting a CSS animation requires a
 // reflow between removing and re-adding its class, since re-adding the same class name alone is a
 // no-op as far as the browser's style engine is concerned.
+// Counts screens drawn. A screen that finishes loading after an await (History, Connected sites)
+// checks this first, so it never draws over a screen the user has moved on to in the meantime.
+let screenSeq = 0;
+
 function render(...nodes: (Node | string)[]) {
+  screenSeq++;
   app.replaceChildren(...nodes);
   app.classList.remove("view-enter");
   void app.offsetWidth;
@@ -1553,6 +1558,7 @@ async function renderHistory(status: WalletStatus) {
   // History has the whole popup to itself, so its list fills the page (scrolling with it) instead of the 220px box it gets elsewhere.
   const skeleton = h("div", { class: "card history-list history-list-full" }, [skeletonListRow(), skeletonListRow(), skeletonListRow()]);
   render(header(), skeleton);
+  const screen = screenSeq;
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
 
   const [entries, balances] = await Promise.all([
@@ -1608,6 +1614,7 @@ async function renderHistory(status: WalletStatus) {
           })
         );
 
+  if (screen !== screenSeq) return; // the user has moved on while this loaded
   render(header(), list);
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
 }
@@ -1643,7 +1650,7 @@ function renderSend(
   if (!isLocalAccount && !isDaemonAccount) {
     render(h("h1", {}, [t("send.title")]), publicSection, back);
     document.getElementById("back")!.addEventListener("click", onBack);
-    buildPublicSendForm(publicSection, balances, status.addressBook, status.network);
+    buildPublicSendForm(publicSection, balances, status.addressBook, status.network, options?.initialResourceAddress);
     return;
   }
 
@@ -1665,7 +1672,7 @@ function renderSend(
   render(h("h1", {}, [t("send.title")]), tabRow, publicSection, privateSection, back);
   document.getElementById("back")!.addEventListener("click", onBack);
 
-  buildPublicSendForm(publicSection, balances, status.addressBook, status.network);
+  buildPublicSendForm(publicSection, balances, status.addressBook, status.network, options?.initialResourceAddress);
   const activeIsLocal = status.accounts.find((a) => a.id === status.activeAccountId)?.kind !== "daemon";
   buildPrivateSendForm(privateSection, balances, status.addressBook, status.network, activeIsLocal, options?.initialResourceAddress);
   setTab(options?.initialTab ?? "public");
@@ -1701,7 +1708,13 @@ function recipientAddressError(address: string, network: WalletStatus["network"]
     : t("send.errInvalidAddress");
 }
 
-function buildPublicSendForm(container: HTMLElement, balances: Balance[], addressBook: { id: string; label: string; address: string }[], network: WalletStatus["network"]) {
+function buildPublicSendForm(
+  container: HTMLElement,
+  balances: Balance[],
+  addressBook: { id: string; label: string; address: string }[],
+  network: WalletStatus["network"],
+  initialResourceAddress?: string
+) {
   // NonFungible resources are excluded: this form sends a decimal amount of a divisible resource,
   // and an NFT holding's `amount` is a token count with no divisibility to parse a decimal against
   // -- sending a specific token id is a different flow, out of scope here.
@@ -1719,6 +1732,10 @@ function buildPublicSendForm(container: HTMLElement, balances: Balance[], addres
     {},
     balances_.map((b) => h("option", { value: b.resourceAddress }, [resourceLabel(b.resourceAddress, b.symbol)]))
   );
+  // Opened from a token's page: start on that token.
+  if (initialResourceAddress && balances_.some((b) => b.resourceAddress === initialResourceAddress)) {
+    (tokenSelect as HTMLSelectElement).value = initialResourceAddress;
+  }
   const balanceHint = h("div", { class: "muted", style: "margin-top:6px" }, [""]);
 
   const toInput = h("input", { type: "text", placeholder: "otl_…", maxlength: "200" });
@@ -2230,6 +2247,20 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
   // resources". Gate every privacy action on this instead of just `hasPrivacyActions`.
   const isStealthResource = balance.kind === "Stealth";
 
+  // Send is offered for every token that can be sent as an amount (not NFT holdings), opening the
+  // Send screen on this token and returning here.
+  const sendBtn = balance.kind !== "NonFungible" ? h("button", { class: "secondary", id: "tokenSend" }, [t("home.send")]) : null;
+  sendBtn?.addEventListener("click", async () => {
+    sendBtn.setAttribute("disabled", "true");
+    try {
+      const balances = await send<Balance[]>({ kind: "popup-get-balances" });
+      renderSend(status, balances, { initialTab: "public", initialResourceAddress: balance.resourceAddress, onBack: () => renderTokenDetail(status, balance) });
+    } catch (e) {
+      sendBtn.removeAttribute("disabled");
+      sendBtn.textContent = e instanceof Error ? e.message : String(e);
+    }
+  });
+
   const shieldBtn =
     hasPrivacyActions && isStealthResource ? h("button", { class: "secondary" }, [t("tokenDetail.shieldButton", { symbol: displaySymbol })]) : null;
   if (shieldBtn) shieldBtn.addEventListener("click", () => renderShield(status, balance));
@@ -2340,6 +2371,7 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
       h("div", { class: "muted" }, [t("tokenDetail.resourceAddressLabel")]),
       h("div", { style: "margin-top:4px" }, [addrRow]),
     ]),
+    ...(sendBtn ? [sendBtn] : []),
     ...(shieldBtn ? [shieldBtn] : []),
     ...(unshieldBtn ? [unshieldBtn] : []),
     ...(sendPrivatelyBtn ? [sendPrivatelyBtn] : []),
@@ -2698,7 +2730,8 @@ function renderRevealMnemonic() {
   pw.addEventListener("keydown", (e) => {
     if (e.key === "Enter") document.getElementById("reveal")!.click();
   });
-  document.getElementById("cancel")!.addEventListener("click", goHome);
+  // Reached from Settings, so Cancel goes back there.
+  document.getElementById("cancel")!.addEventListener("click", async () => renderSettings(await getStatus()));
   document.getElementById("reveal")!.addEventListener("click", async () => {
     try {
       const { mnemonic } = await send<{ mnemonic: string }>({ kind: "popup-reveal-mnemonic", password: pw.value });
@@ -2727,8 +2760,10 @@ async function renderConnectedSites() {
   const backEarly = h("button", { class: "secondary", id: "back" }, [t("common.back")]);
   render(h("h1", {}, [t("connectedSites.title")]), h("div", { class: "card" }, [skeletonListRow(), skeletonListRow()]), backEarly);
   backEarly.addEventListener("click", goHome);
+  const screen = screenSeq;
 
   const sites = await send<{ origin: string; viewAccessGrantedAt?: number }[]>({ kind: "popup-get-connected-sites" });
+  if (screen !== screenSeq) return; // the user has moved on while this loaded
   const list =
     sites.length === 0
       ? emptyState(t("connectedSites.empty"), ICON_GLOBE)
@@ -3121,23 +3156,37 @@ async function renderApprovalDetails(approvalId: string, status: WalletStatus) {
 
 /** Entry points for the Android tab bar (src/mobile/nav.ts). Each fetches fresh wallet status, so a
  * tab tap always shows current data. Not used by the extension. */
+// Tab navigation (Android): each call first waits for status. If the user taps another tab before it
+// arrives, only the latest navigation draws.
+let navSeq = 0;
+async function latestStatus(): Promise<WalletStatus | null> {
+  const mine = ++navSeq;
+  const status = await getStatus();
+  return mine === navSeq ? status : null;
+}
+
 export const appNav = {
   status: () => getStatus(),
   lockState: () => send<{ hasWallet: boolean; isUnlocked: boolean; backupPending: boolean }>({ kind: "popup-get-lock-state" }),
   async home() {
-    await renderHome(await getStatus());
+    const status = await latestStatus();
+    if (status) await renderHome(status);
   },
   async activity() {
-    await renderHistory(await getStatus());
+    const status = await latestStatus();
+    if (status) await renderHistory(status);
   },
   async settings() {
-    renderSettings(await getStatus());
+    const status = await latestStatus();
+    if (status) renderSettings(status);
   },
   async dapps() {
+    ++navSeq;
     await renderConnectedSites();
   },
   async receive() {
-    renderReceive(await getStatus());
+    const status = await latestStatus();
+    if (status) renderReceive(status);
   },
   titles: () => ({
     activity: t("history.title"),

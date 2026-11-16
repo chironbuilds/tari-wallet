@@ -2323,3 +2323,42 @@ html.mobile .hero-balance-unit {
   bottom: 9px;
   color: var(--text-3);
 }
+
+html.mobile .token-hero-amount .frac {
+  font-size: 1em;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+/* Four token actions (Send, Shield, Unshield, Send privately) as a 2x2 grid. */
+html.mobile .token-actions:has(> :nth-child(4)) {
+  grid-auto-flow: row;
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Settings rows are buttons, which centre their text; a label that wraps stays left-aligned. */
+html.mobile .settings-row {
+  text-align: left;
+}
+html.mobile .settings-row-left {
+  min-width: 0;
+  text-align: left;
+}
+
+/* No title above the balance; the hide-amounts eye sits in the header beside the network. */
+html.mobile .summary-label[hidden] {
+  display: none;
+}
+.home-header-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+html.mobile .home-header-right .amount-eye {
+  width: 40px;
+  height: 40px;
+  color: var(--text-2);
+}
+html.mobile .account-summary.card {
+  padding-top: 32px;
+}

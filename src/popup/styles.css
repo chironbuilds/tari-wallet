@@ -2434,3 +2434,102 @@ html:not(.mobile) .hero-balance-unit {
   bottom: 8px;
   color: var(--muted-dim);
 }
+
+html:not(.mobile) .token-hero-amount .frac {
+  font-size: 1em;
+  font-weight: 600;
+  color: var(--muted-dim);
+}
+
+/* ---- History ---- */
+/* The transaction line wraps rather than truncating "View on explorer" to an ellipsis. */
+html:not(.mobile) .history-list .history-tx {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  font-size: 11px;
+  color: var(--muted-dim);
+}
+html:not(.mobile) .history-list .history-tx a {
+  white-space: nowrap;
+  color: #c7a6ff;
+  text-decoration: none;
+}
+html:not(.mobile) .history-list .list-row-info {
+  min-width: 0;
+}
+/* History's back control matches the page bar on every other screen. */
+html:not(.mobile) .page-header .icon-btn {
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+}
+html:not(.mobile) .page-header .icon-btn:hover {
+  background: var(--box);
+}
+html:not(.mobile) .page-header {
+  margin-left: -6px;
+}
+
+/* A picker made transparent in a settings row still opens Chrome's own list, which would draw
+   light text on a light default background; give the options the popup's colours. */
+select option {
+  background: var(--box);
+  color: var(--text);
+}
+/* One weight for every settings row: link rows were bold and picker rows regular, which made the
+   long bold labels ("Import account (recovery phrase)") look out of place. */
+html:not(.mobile) .settings-row,
+html:not(.mobile) .settings-row-static > span:first-child {
+  font-weight: 500;
+}
+/* Four token actions (Send, Shield, Unshield, Send privately) as a 2x2 grid in the popup. */
+html:not(.mobile) .token-actions:has(> :nth-child(4)) {
+  grid-auto-flow: row;
+  grid-template-columns: 1fr 1fr;
+}
+/* Settings rows are buttons, which centre their text: a label that wraps to two lines
+   ("Import account (recovery phrase)") came out centred line by line. Left-align it beside its
+   icon, top-aligned with the first line. */
+html:not(.mobile) .settings-row {
+  text-align: left;
+}
+html:not(.mobile) .settings-row-left {
+  min-width: 0;
+  align-items: flex-start;
+  text-align: left;
+  line-height: 1.35;
+}
+html:not(.mobile) .settings-row-left .icon-svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* No title above the balance; the hide-amounts eye sits in the header. */
+html:not(.mobile) .summary-label[hidden] {
+  display: none;
+}
+html:not(.mobile) .home-header-right .amount-eye {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+html:not(.mobile) .home-header-right .amount-eye:hover {
+  background: var(--box);
+  color: var(--text);
+}
+html:not(.mobile) .home-header-right .amount-eye svg {
+  width: 17px;
+  height: 17px;
+}
+html:not(.mobile) .account-summary.card {
+  padding-top: 26px;
+}

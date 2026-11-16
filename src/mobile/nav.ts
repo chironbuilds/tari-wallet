@@ -110,6 +110,11 @@ export function installNav(
 
   function paintTabs(): void {
     for (const b of tabBar.querySelectorAll<HTMLButtonElement>(".tab")) {
+      // Labels follow the current language (it can change in Settings while the app is open).
+      const label = t(`tabs.${b.dataset.tab as Tab | "scan"}`);
+      const labelEl = b.querySelector(".tab-label");
+      if (labelEl && labelEl.textContent !== label) labelEl.textContent = label;
+      b.setAttribute("aria-label", label);
       const on = b.dataset.tab === activeTab;
       b.classList.toggle("active", on);
       if (on) b.setAttribute("aria-current", "page");
@@ -170,7 +175,7 @@ export function installNav(
     document.documentElement.classList.toggle("has-app-bar", lifted);
     if (lifted && h1) {
       // A tab root is titled like its tab ("Activity", not the shared screen's "History").
-      title.textContent = tabRoot ? (tabs.find((x) => x.id === tabRoot)?.label ?? h1.textContent) : h1.textContent;
+      title.textContent = tabRoot ? t(`tabs.${tabRoot}`) : h1.textContent;
       h1.classList.add("lifted");
       // A tab's own root screen has no back arrow (as in any native app); its hardware back goes Home.
       const showBack = !!screenBack && !tabRoot;
