@@ -281,6 +281,28 @@ function splitDecimals(target: HTMLElement): void {
   target.replaceChildren(whole, frac);
 }
 
+// ---------------- Approval hero ----------------
+// Who is asking, first: the dApp's monogram (coloured from its name, so one site always looks the
+// same) above the trust card. Never an icon fetched from the site -- that is the dApp's own claim.
+function composeApprovalHero(app: HTMLElement): void {
+  const card = app.querySelector<HTMLElement>(".site-card");
+  if (!card || app.querySelector(".dapp-hero")) return;
+  const name = card.querySelector(".site-card-name")?.textContent?.trim() ?? "";
+  const letter = (name.replace(/^[^\p{L}\p{N}]+/u, "")[0] ?? "?").toUpperCase();
+  let hash = 0;
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const hue = hash % 360;
+  const hero = el("div", "dapp-hero");
+  const mono = el("div", "dapp-mono");
+  mono.textContent = letter;
+  mono.style.background = `linear-gradient(135deg, hsl(${hue} 70% 62%), hsl(${(hue + 40) % 360} 65% 46%))`;
+  const link = el("div", "dapp-link", `<i></i><i></i><i></i>`);
+  const me = el("div", "dapp-mono dapp-me", '<img src="icons/icon48.png" alt="">');
+  hero.append(mono, link, me);
+  const h1 = app.querySelector("h1");
+  (h1 ?? card).before(hero);
+}
+
 // ---------------- Brand lockup ----------------
 // Logo + wordmark atop the screens a person sees before the wallet opens (unlock, create, import).
 function composeLockup(app: HTMLElement): void {
@@ -537,6 +559,7 @@ export function installRedesign(d: RedesignDeps): void {
     composeHistory(app);
     composeReceive(app);
     composeLockup(app);
+    composeApprovalHero(app);
   };
   new MutationObserver(compose).observe(app, { childList: true });
   compose();

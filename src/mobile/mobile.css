@@ -2250,3 +2250,218 @@ html.mobile .amount-field .max-btn {
   font-weight: 700;
   letter-spacing: 0.04em;
 }
+
+/* =========================================================================================
+   Round 5: send review sheet, approval hero, account switcher
+   ========================================================================================= */
+
+/* ---- Review sheet ---- */
+.review-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(4, 2, 8, 0);
+  transition: background-color 0.24s ease;
+}
+.review-sheet.open {
+  background: rgba(4, 2, 8, 0.72);
+}
+.review-card {
+  width: 100%;
+  max-width: 560px;
+  padding: 10px var(--gutter) calc(22px + env(safe-area-inset-bottom));
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  background: var(--s1);
+  border: 1px solid var(--line-strong);
+  border-bottom: 0;
+  box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.5);
+  transform: translateY(100%);
+  transition: transform 0.3s var(--ease);
+}
+.review-sheet.open .review-card {
+  transform: none;
+}
+.review-card h2 {
+  margin: 0;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0;
+  color: var(--text-2);
+}
+.rv-amount {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+  margin: 10px 0 18px;
+  font-size: 44px;
+  font-weight: 650;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+}
+.rv-unit {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text-2);
+}
+.rv-private .rv-amount > span:first-child {
+  color: var(--private);
+}
+.rv-rows {
+  border-radius: var(--r-lg);
+  background: var(--s2);
+  border: 1px solid var(--line);
+  padding: 2px 16px;
+  margin-bottom: 16px;
+}
+.rv-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 13px 0;
+  font-size: 14.5px;
+}
+.rv-row + .rv-row {
+  border-top: 1px solid var(--line);
+}
+.rv-label {
+  flex: none;
+  color: var(--text-2);
+}
+.rv-value {
+  text-align: right;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rv-to {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.rv-to .rv-value {
+  text-align: left;
+}
+.rv-addr {
+  display: block;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 450;
+  line-height: 1.6;
+  color: var(--text-3);
+  word-break: break-all;
+}
+/* The ends are what people compare; make them the loudest part. */
+.rv-addr b {
+  font-weight: 650;
+  color: var(--text);
+}
+.rv-priv .rv-value {
+  color: var(--private);
+}
+.review-card button + button {
+  margin-top: 10px;
+}
+.review-card button {
+  width: 100%;
+  min-height: 56px;
+  border-radius: 18px;
+}
+
+/* ---- Approval hero: dApp <-> Sapient ---- */
+.dapp-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 0 2px;
+}
+.dapp-mono {
+  width: 60px;
+  height: 60px;
+  border-radius: 20px;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.dapp-me {
+  background: var(--s2);
+  border: 1px solid var(--line);
+}
+.dapp-me img {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+.dapp-link {
+  display: flex;
+  gap: 5px;
+}
+.dapp-link i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+  animation: link-dot 1.4s ease-in-out infinite;
+}
+.dapp-link i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.dapp-link i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes link-dot {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); background: var(--accent-ink); }
+}
+html.mobile.approving h1 {
+  text-align: center;
+  font-size: 24px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dapp-link i { animation: none; opacity: 0.6; }
+}
+
+/* ---- Account switcher ---- */
+html.mobile .account-switch-list {
+  padding: 0;
+  overflow: hidden;
+}
+html.mobile .account-switch-list .settings-row {
+  min-height: 68px;
+}
+html.mobile .account-switch-list .avatar {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 50%;
+  overflow: hidden;
+}
+html.mobile .account-switch-list .avatar svg {
+  width: 100%;
+  height: 100%;
+}
+html.mobile .account-switch-list .settings-row .row > div:last-child > div:first-child {
+  font-size: 16px !important;
+  font-weight: 650 !important;
+}
+html.mobile .account-switch-list .settings-row[aria-current="true"] {
+  background: linear-gradient(90deg, rgba(162, 89, 255, 0.12), transparent 70%);
+}
+html.mobile .account-switch-list .settings-row[aria-current="true"] .settings-row-right {
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+html.mobile .account-switch-list .settings-row[aria-current="true"] .settings-row-right::before {
+  content: "✓ ";
+}

@@ -12,6 +12,7 @@ import { cancelScan, closePairingSheet, openPairingSheet } from "./pairUi";
 import { installNav } from "./nav";
 import { installEnhancements } from "./enhance";
 import { installRedesign } from "./redesign";
+import { closeReviewSheet, installReview } from "./review";
 import { installConnectivityBar } from "./connectivity";
 import { initApprovalNotifications } from "./notifications";
 import { queuedWcRequestCount, rejectQueuedWcRequests, startWalletConnect } from "./wc";
@@ -47,6 +48,7 @@ async function boot(): Promise<void> {
   App.addListener("backButton", () => {
     if (cancelScan()) return;
     if (closePairingSheet()) return;
+    if (closeReviewSheet()) return;
     if (platform.currentApproval()) {
       platform.dismissCurrentApproval();
       return;
@@ -84,6 +86,7 @@ async function boot(): Promise<void> {
   void App.getLaunchUrl().then((launch) => {
     if (launch?.url) nav.openShortcut(launch.url);
   });
+  installReview({ network: async () => (await popup.appNav.status()).network });
   installRedesign({
     history: async () => (await handlePopupRequest({ kind: "popup-get-transaction-history" })) as TransactionHistoryEntry[],
     status: () => popup.appNav.status(),
