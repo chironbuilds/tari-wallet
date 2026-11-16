@@ -5,12 +5,12 @@
 //   network, privacy and memo.
 //   Shield / Unshield: amount and the direction (Public -> Private or back), network, who pays the fee.
 // Incomplete forms pass straight through so the shared screen still shows its own errors.
-import { ImpactStyle } from "@capacitor/haptics";
 import { t } from "../lib/i18n";
-import { tick } from "./nav";
 
 export interface ReviewDeps {
   network(): Promise<string>;
+  /** A vibration where the host has one (Android); omitted in the extension. */
+  haptic?(strength: "light" | "heavy"): void;
 }
 
 type Mode = "public" | "private" | "shield" | "unshield";
@@ -193,7 +193,7 @@ async function open(button: HTMLButtonElement, mode: Mode, symbolHint: string | 
     if (e.target === root) closeReviewSheet();
   });
   confirm.addEventListener("click", () => {
-    tick(ImpactStyle.Heavy);
+    deps.haptic?.("heavy");
     closeReviewSheet();
     button.dataset.reviewed = "1";
     button.click();
@@ -222,7 +222,7 @@ export function installReview(deps: ReviewDeps): void {
       if (!amount || !/[1-9]/.test(amount) || (needsRecipient && !recipient)) return;
       e.stopImmediatePropagation();
       e.preventDefault();
-      tick();
+      deps.haptic?.("light");
       void open(button, found.mode, found.symbol, deps);
     },
     true

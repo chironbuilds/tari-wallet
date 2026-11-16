@@ -9,10 +9,11 @@ import { SplashScreen } from "@capacitor/splash-screen";
 import { setPlatform } from "../platform";
 import { createAndroidPlatform } from "./platform";
 import { cancelScan, closePairingSheet, openPairingSheet } from "./pairUi";
-import { installNav } from "./nav";
+import { ImpactStyle } from "@capacitor/haptics";
+import { installNav, tick } from "./nav";
 import { installEnhancements } from "./enhance";
-import { installRedesign } from "./redesign";
-import { closeReviewSheet, installReview } from "./review";
+import { installRedesign } from "../ui/layouts";
+import { closeReviewSheet, installReview } from "../ui/review";
 import { installConnectivityBar } from "./connectivity";
 import { initApprovalNotifications } from "./notifications";
 import { queuedWcRequestCount, rejectQueuedWcRequests, startWalletConnect } from "./wc";
@@ -86,8 +87,12 @@ async function boot(): Promise<void> {
   void App.getLaunchUrl().then((launch) => {
     if (launch?.url) nav.openShortcut(launch.url);
   });
-  installReview({ network: async () => (await popup.appNav.status()).network });
+  installReview({
+    network: async () => (await popup.appNav.status()).network,
+    haptic: (strength) => tick(strength === "heavy" ? ImpactStyle.Heavy : ImpactStyle.Light),
+  });
   installRedesign({
+    host: "android",
     history: async () => (await handlePopupRequest({ kind: "popup-get-transaction-history" })) as TransactionHistoryEntry[],
     status: () => popup.appNav.status(),
   });

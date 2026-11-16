@@ -1084,8 +1084,12 @@ html.mobile .account-summary.has-split .private-balance {
   display: none !important;
 }
 .balance-split {
-  width: min(300px, 90%);
-  margin: 16px auto 0;
+  margin: 14px auto 0;
+}
+/* A short, thin indicator centred under the balance -- not a full-width rule. */
+.balance-split .split-bar {
+  width: 120px;
+  margin: 0 auto;
 }
 .balance-split[hidden] {
   display: none;
@@ -1093,7 +1097,7 @@ html.mobile .account-summary.has-split .private-balance {
 .split-bar {
   display: flex;
   gap: 2px;
-  height: 4px;
+  height: 3px;
 }
 .split-bar i {
   display: block;

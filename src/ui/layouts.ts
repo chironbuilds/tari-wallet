@@ -1,17 +1,19 @@
-// Phone layouts for the shared popup screens. The popup renders the same elements for the
-// extension's 320px window; after each render this re-composes a few of them into native-feeling
-// mobile layouts -- the welcome screen, the Home header and hero, the L1-burn card, grouped
-// Settings. It only moves and wraps existing elements (never re-creates them), so their event
-// listeners keep working, and every step is idempotent: a screen already composed is left alone.
+// Layouts for the shared wallet screens, used by both the Android app and the browser extension.
+// The screens in src/popup/main.ts render their elements; after each render this re-composes some
+// of them -- the Home header and balance, Claim L1 burn, grouped Settings, the token page, Activity
+// by day, the recovery-phrase cover. It only moves and wraps existing elements (never re-creates
+// them), so their event listeners keep working, and every step is idempotent: a screen already
+// composed is left alone. Each host styles the result (src/mobile/mobile.css, src/popup/styles.css).
 import { t } from "../lib/i18n";
 import { avatarSvg } from "../lib/avatar";
 import type { TransactionHistoryEntry } from "../lib/storage";
 import { formatBalanceAmountGrouped, resourceLabel, shortAddr } from "../popup/format";
+import { platform } from "../platform";
 
-declare const __APP_VERSION__: string;
-
-/** What the phone layouts read beyond the rendered screen. */
+/** What the layouts read beyond the rendered screen. */
 export interface RedesignDeps {
+  /** Android has a tab bar and its own pairing flow; the extension has neither. */
+  host: "android" | "extension";
   history(): Promise<TransactionHistoryEntry[]>;
   status(): Promise<{ address: string | null; receiveAddress: string | null; network: string; accounts: { id: string; label: string }[]; activeAccountId: string }>;
 }
@@ -72,7 +74,12 @@ function composeHome(app: HTMLElement): void {
     if (avatar) pill.prepend(avatar);
     header.append(pill);
   }
-  if (network) header.append(network);
+  // The extension reaches Settings from here (Android has a Settings tab and hides this button).
+  const settings = nav.querySelector<HTMLElement>("#settingsBtn");
+  const right = el("div", "home-header-right");
+  if (network) right.append(network);
+  if (settings) right.append(settings);
+  header.append(right);
   nav.before(header);
 
   // Hero: label, amount, private pill, address chip.
@@ -110,6 +117,7 @@ function composeHome(app: HTMLElement): void {
     const num = (v: string | null | undefined) => Number((v ?? "").replace(/[^0-9.]/g, "")) || 0;
     const update = () => {
       if (amountEl) splitDecimals(amountEl);
+      if (privEl && privEl.style.display !== "none") shortenFirstNumber(privEl);
       const pub = num(amountEl?.textContent);
       const privText = privEl && privEl.style.display !== "none" ? (privEl.textContent ?? "").split(" ")[0] : "";
       const priv = num(privText);
@@ -149,7 +157,10 @@ function composeHome(app: HTMLElement): void {
   addPrivacyGuide(app);
   const assets = app.querySelector<HTMLElement>(".balances-card");
   if (assets) {
-    const watch = () => enhanceEmptyAssets(app, assets);
+    const watch = () => {
+      enhanceEmptyAssets(app, assets);
+      shortenAssetAmounts(assets);
+    };
     new MutationObserver(watch).observe(assets, { childList: true });
     watch();
   }
@@ -313,8 +324,11 @@ async function addRecentActivity(app: HTMLElement): Promise<void> {
   anchor.after(head, card);
 }
 
+/** The Activity tab on Android; Home's own History button in the extension. */
 function openActivity(): void {
-  document.querySelector<HTMLElement>('#tab-bar [data-tab="activity"]')?.click();
+  const target =
+    document.querySelector<HTMLElement>('#tab-bar [data-tab="activity"]') ?? document.querySelector<HTMLElement>("#historyAction");
+  target?.click();
 }
 
 function dayKey(ts: number): string {
@@ -346,6 +360,18 @@ function relativeDay(ts: number): string {
 function splitDecimals(target: HTMLElement): void {
   if (target.querySelector(".frac")) return;
   const text = target.textContent ?? "";
+  // Home shows two decimals; the exact figure stays available on hover.
+  if (target.classList.contains("hero-balance-amount")) {
+    const short = twoDecimals(text);
+    if (short !== text) {
+      target.title = text;
+      if (!short.includes(".")) {
+        target.textContent = short; // "< 0.01"
+        return;
+      }
+      return splitDecimals(Object.assign(target, { textContent: short }));
+    }
+  }
   const dot = text.indexOf(".");
   if (dot <= 0 || !/^[\d,]+\.\d+$/.test(text.trim())) return;
   const whole = el("span", "whole");
@@ -353,6 +379,43 @@ function splitDecimals(target: HTMLElement): void {
   const frac = el("span", "frac");
   frac.textContent = text.slice(dot);
   target.replaceChildren(whole, frac);
+}
+
+/**
+ * A balance as Home shows it: two decimals, cut rather than rounded so it never shows more than is
+ * held. "2,459.624" -> "2,459.62", "0.5" -> "0.50", "7" -> "7.00"; a positive amount under 0.01 is
+ * "< 0.01" rather than a misleading "0.00". Anything that isn't a plain number is returned as is.
+ */
+export function twoDecimals(text: string): string {
+  const m = text.trim().match(/^([\d,]+)(?:\.(\d+))?$/);
+  if (!m) return text;
+  const whole = m[1]!;
+  const dec = m[2] ?? "";
+  const cut = `${dec}00`.slice(0, 2);
+  if (whole.replace(/,/g, "") === "0" && cut === "00" && /[1-9]/.test(dec)) return "< 0.01";
+  return `${whole}.${cut}`;
+}
+
+/** The first number inside a label ("0.5 TARI private", "+0.5 private") at two decimals. */
+function shortenFirstNumber(node: HTMLElement): void {
+  const text = node.textContent ?? "";
+  const next = text.replace(/[\d,]+(?:\.\d+)?/, (n) => twoDecimals(n));
+  if (next === text) return;
+  node.title = text;
+  node.textContent = next;
+}
+
+/** Home's asset list at two decimals (counts like "3 NFTs" are left alone). */
+function shortenAssetAmounts(assets: HTMLElement): void {
+  for (const a of assets.querySelectorAll<HTMLElement>(".token-amount")) {
+    const text = a.textContent ?? "";
+    const short = twoDecimals(text);
+    if (short !== text) {
+      a.title = text;
+      a.textContent = short;
+    }
+  }
+  for (const p of assets.querySelectorAll<HTMLElement>(".token-amount-private")) shortenFirstNumber(p);
 }
 
 // ---------------- Recovery phrase ----------------
@@ -391,7 +454,8 @@ function addSecretWarning(app: HTMLElement, before: HTMLElement): void {
 
 // ---------------- dApps, when none are connected ----------------
 function composeDappsEmpty(app: HTMLElement): void {
-  if (app.querySelector("h1")?.textContent !== t("connectedSites.title")) return;
+  // The steps describe pairing Sapient for Android; the extension connects from the dApp's page.
+  if (deps.host !== "android" || app.querySelector("h1")?.textContent !== t("connectedSites.title")) return;
   const empty = app.querySelector<HTMLElement>(".empty-state");
   if (!empty || empty.dataset.composed) return;
   empty.dataset.composed = "1";
@@ -403,6 +467,24 @@ function composeDappsEmpty(app: HTMLElement): void {
   }
   empty.replaceChildren(steps);
   empty.classList.add("dapps-empty");
+}
+
+// ---------------- Page bar (extension) ----------------
+// Sub-screens render a title and a full-width "← Back" button. In the extension that becomes a
+// page bar: a back chevron beside the title. (Android lifts both into its own app bar instead.)
+function composePageBar(app: HTMLElement): void {
+  if (deps.host !== "extension" || app.querySelector(".page-bar, .page-header")) return;
+  const back = app.querySelector<HTMLButtonElement>("#back");
+  const h1 = app.querySelector<HTMLElement>(":scope > h1");
+  if (!back || !h1 || back.classList.contains("primary")) return;
+  const label = back.textContent?.trim() ?? "";
+  back.setAttribute("aria-label", label.replace(/^[←\s]+/, "") || "Back");
+  back.title = back.getAttribute("aria-label") ?? "";
+  back.className = "page-bar-back";
+  back.innerHTML = svg('<path d="M15 18l-6-6 6-6"/>', 18);
+  const bar = el("div", "page-bar");
+  h1.before(bar);
+  bar.append(back, h1);
 }
 
 // ---------------- Claim L1 burn ----------------
@@ -718,7 +800,7 @@ async function addSettingsProfile(app: HTMLElement): Promise<void> {
   const lock = app.querySelector<HTMLElement>("#lock");
   if (lock && !app.querySelector(".app-version")) {
     const v = el("div", "app-version");
-    v.textContent = `Sapient ${__APP_VERSION__}`;
+    v.textContent = `Sapient ${platform().appVersion()}`;
     lock.after(v);
   }
 }
@@ -749,6 +831,7 @@ export function installRedesign(d: RedesignDeps): void {
     composeSecret(app);
     composeDappsEmpty(app);
     composeClaimBurn(app);
+    composePageBar(app);
   };
   new MutationObserver(compose).observe(app, { childList: true });
   compose();

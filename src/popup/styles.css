@@ -1461,3 +1461,943 @@ input + .status + button,
 textarea + .status + button {
   margin-top: 12px;
 }
+
+/* =========================================================================================
+   Composed layouts (src/ui/layouts.ts, src/ui/review.ts) at popup size.
+   Scoped to html:not(.mobile): the Android app styles the same structure in src/mobile/mobile.css.
+   ========================================================================================= */
+html:not(.mobile) .status:empty {
+  display: none;
+}
+html:not(.mobile) .frac {
+  font-size: 0.56em;
+  font-weight: 500;
+  color: var(--muted);
+}
+html.hide-amounts:not(.mobile) .hero-balance-amount,
+html.hide-amounts:not(.mobile) .private-balance,
+html.hide-amounts:not(.mobile) .token-amount,
+html.hide-amounts:not(.mobile) .token-amount-private,
+html.hide-amounts:not(.mobile) .history-amount,
+html.hide-amounts:not(.mobile) .token-hero-amount > span:first-child,
+html.hide-amounts:not(.mobile) .split-legend em {
+  filter: blur(7px);
+  user-select: none;
+}
+
+/* ---- Welcome / unlock / create ---- */
+html:not(.mobile) .welcome-actions {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+}
+html:not(.mobile) .brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+html:not(.mobile) .brand-lockup:has(+ .hero) {
+  justify-content: center;
+}
+html:not(.mobile) .brand-lockup img {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+/* ---- Home ---- */
+html:not(.mobile).screen-home .top-nav {
+  display: none;
+}
+html:not(.mobile) .home-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+html:not(.mobile) .home-header-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+html:not(.mobile) .home-header .account-pill {
+  width: auto;
+  margin: 0;
+  padding: 2px 6px 2px 2px;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+html:not(.mobile) .home-header .account-pill:hover {
+  background: var(--box);
+}
+html:not(.mobile) .home-header .account-pill .avatar {
+  width: 26px;
+  height: 26px;
+}
+html:not(.mobile) .home-header .network-line {
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+html:not(.mobile) .home-header #settingsBtn {
+  width: 30px !important;
+  height: 30px;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+html:not(.mobile) .home-header #settingsBtn:hover {
+  background: var(--box);
+  color: var(--text);
+}
+
+html:not(.mobile) .account-summary.card {
+  padding: 18px 0 4px;
+  background: none;
+  border: 0;
+  align-items: center;
+  text-align: center;
+  gap: 0;
+}
+html:not(.mobile) .summary-head {
+  display: none;
+}
+html:not(.mobile) .summary-balance {
+  align-items: center;
+}
+html:not(.mobile) .summary-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 0 2px;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+html:not(.mobile) .amount-eye {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted-dim);
+}
+html:not(.mobile) .amount-eye svg {
+  width: 17px;
+  height: 17px;
+}
+html:not(.mobile) .amount-eye[aria-pressed="true"] {
+  color: var(--text);
+}
+html:not(.mobile) .amount-eye[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 1.5px;
+  background: currentColor;
+  transform: rotate(-40deg);
+}
+html:not(.mobile) .hero-balance {
+  justify-content: center;
+}
+html:not(.mobile) .hero-balance {
+  gap: 6px;
+}
+html:not(.mobile) .hero-balance-amount {
+  font-size: 46px;
+  line-height: 1.05;
+  font-weight: 600;
+  letter-spacing: -0.05em;
+}
+html:not(.mobile) .hero-balance-unit {
+  font-size: 16px;
+  font-weight: 500;
+}
+html:not(.mobile) .private-balance {
+  margin-top: 10px;
+  align-self: center;
+  font-size: 13px;
+}
+html:not(.mobile) .account-summary.has-split .private-balance {
+  display: none !important;
+}
+html:not(.mobile) .balance-split {
+  width: auto;
+  margin: 12px auto 0;
+}
+/* A short, thin indicator centred under the balance -- not a full-width rule. */
+html:not(.mobile) .balance-split .split-bar {
+  width: 96px;
+  margin: 0 auto;
+}
+html:not(.mobile) .balance-split[hidden] {
+  display: none;
+}
+html:not(.mobile) .split-bar {
+  display: flex;
+  gap: 2px;
+  height: 3px;
+}
+html:not(.mobile) .split-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+html:not(.mobile) .split-pub {
+  background: var(--accent);
+}
+html:not(.mobile) .split-priv {
+  background: var(--private);
+}
+html:not(.mobile) .split-legend {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin-top: 9px;
+  font-size: 13px;
+}
+html:not(.mobile) .split-legend span {
+  display: inline-flex;
+  gap: 5px;
+  white-space: nowrap;
+}
+html:not(.mobile) .split-legend b {
+  font-weight: 500;
+  color: var(--muted);
+}
+html:not(.mobile) .split-legend b::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--accent);
+}
+html:not(.mobile) .sl-priv b::before {
+  background: var(--private);
+}
+html:not(.mobile) .split-legend em {
+  font-style: normal;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+html:not(.mobile) .account-summary .addr-pill {
+  margin: 14px auto 0;
+  padding: 4px 6px 4px 12px;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--muted-dim);
+  font-size: 12px;
+}
+
+/* Actions: four round buttons. History is reached from Recent activity; Claim L1 burn is a row. */
+html:not(.mobile) #historyAction,
+html:not(.mobile) #burnAction {
+  display: none;
+}
+html:not(.mobile) .action-row {
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-top: 10px;
+}
+html:not(.mobile) .action-row > button.action-btn {
+  flex-direction: column;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+html:not(.mobile) .action-row > button.action-btn:hover {
+  background: none;
+  color: var(--text);
+}
+html:not(.mobile) .action-btn .action-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--box);
+  border: 1px solid var(--border);
+  color: var(--text);
+  transition: background 0.15s ease;
+}
+html:not(.mobile) .action-row > button.action-btn:hover .action-icon {
+  background: var(--box-2);
+}
+html:not(.mobile) #sendAction .action-icon {
+  background: var(--primary-bg);
+  border-color: transparent;
+  color: var(--primary-ink);
+}
+html:not(.mobile) #shieldAction .action-icon,
+html:not(.mobile) #unshieldAction .action-icon {
+  color: var(--private);
+}
+
+html:not(.mobile) .l1-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 10px 10px 12px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  text-align: left;
+  font-weight: 400;
+}
+html:not(.mobile) .l1-card:hover {
+  border-color: var(--border-hover);
+  filter: none;
+}
+html:not(.mobile) .l1-icon,
+html:not(.mobile) .l1-go {
+  display: grid;
+  flex: none;
+  color: var(--muted);
+}
+html:not(.mobile) .l1-icon svg,
+html:not(.mobile) .l1-go svg {
+  width: 16px;
+  height: 16px;
+}
+html:not(.mobile) .l1-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+html:not(.mobile) .l1-text b {
+  font-size: 13px;
+  font-weight: 500;
+}
+html:not(.mobile) .l1-text span {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+html:not(.mobile) .privacy-guide {
+  padding: 12px 12px 4px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+html:not(.mobile) .pg-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+html:not(.mobile) .pg-steps {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+html:not(.mobile) .pg-done {
+  display: block;
+  width: auto;
+  margin: 0 0 0 auto;
+  padding: 6px 2px;
+  background: none;
+  color: #c7a6ff;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+html:not(.mobile) .assets-empty .empty-state {
+  gap: 2px;
+  padding: 14px 8px 8px;
+}
+html:not(.mobile) .ea-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+html:not(.mobile) .ea-body {
+  font-size: 12px;
+  color: var(--muted);
+}
+html:not(.mobile) .ea-receive {
+  margin-top: 10px;
+}
+
+/* Recent activity and Activity. */
+html:not(.mobile) .recent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+html:not(.mobile) .see-all {
+  width: auto;
+  padding: 4px 2px;
+  background: none;
+  color: #c7a6ff;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+html:not(.mobile) .recent-card {
+  padding: 4px 12px;
+}
+html:not(.mobile) .recent-row {
+  width: 100%;
+  margin: 0;
+  padding: 8px 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  font-weight: 400;
+  font-size: 13px;
+}
+html:not(.mobile) .recent-row + .recent-row {
+  margin-top: 0;
+  border-top: 1px solid var(--border);
+}
+html:not(.mobile) .recent-row:hover {
+  filter: none;
+  opacity: 0.8;
+}
+html:not(.mobile) .history-right {
+  margin-left: auto;
+  padding-left: 6px;
+  text-align: right;
+}
+html:not(.mobile) .history-amount {
+  font-size: 12.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+html:not(.mobile) .hk-in .history-amount {
+  color: var(--good);
+}
+html:not(.mobile) .hk-private .history-amount,
+html:not(.mobile) .hk-private .history-icon {
+  color: var(--private);
+}
+html:not(.mobile) .day-head {
+  margin: 4px 2px -6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted-dim);
+}
+html:not(.mobile) .history-day {
+  padding: 4px 12px;
+}
+
+/* ---- Token detail ---- */
+html:not(.mobile) .token-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+html:not(.mobile) .token-hero .token-avatar {
+  margin-bottom: 6px;
+}
+html:not(.mobile) .token-hero-name {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+html:not(.mobile) .token-hero-label {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+html:not(.mobile) .token-hero-amount {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+html:not(.mobile) .token-hero-unit {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+html:not(.mobile) .token-hero .private-balance {
+  margin-top: 6px;
+}
+html:not(.mobile) .token-actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 6px;
+}
+html:not(.mobile) .token-actions > button {
+  margin: 0;
+  padding: 9px 4px;
+  font-size: 12px;
+}
+html:not(.mobile) .token-actions > .ta-shield,
+html:not(.mobile) .token-actions > .ta-send {
+  color: var(--private);
+}
+html:not(.mobile) .kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+html:not(.mobile) .kv + .kv {
+  border-top: 1px solid var(--border);
+}
+html:not(.mobile) .kv > * {
+  margin: 0;
+}
+html:not(.mobile) .kv-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+/* ---- Settings ---- */
+html:not(.mobile) .profile-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+html:not(.mobile) .profile-avatar {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 50%;
+  overflow: hidden;
+}
+html:not(.mobile) .profile-avatar svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+html:not(.mobile) .profile-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+html:not(.mobile) .profile-text b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+html:not(.mobile) .profile-text span {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html:not(.mobile) .profile-net {
+  flex: none;
+  font-size: 11px;
+  color: var(--highlight);
+}
+html:not(.mobile) .profile-card.is-mainnet .profile-net {
+  color: var(--good);
+}
+html:not(.mobile) .settings-group-title {
+  margin: 4px 2px -6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted-dim);
+}
+html:not(.mobile) .app-version {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted-dim);
+}
+
+/* ---- Recovery phrase ---- */
+html:not(.mobile) .secret {
+  position: relative;
+}
+html:not(.mobile) .secret:not(.revealed) .mnemonic-grid {
+  filter: blur(6px);
+  user-select: none;
+}
+html:not(.mobile) .secret-cover {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  border-radius: 12px;
+  background: rgba(10, 9, 13, 0.35);
+  color: var(--text);
+  font-size: 13.5px;
+}
+html:not(.mobile) .secret-warning {
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(233, 180, 76, 0.3);
+  background: rgba(233, 180, 76, 0.06);
+  color: #ecc77d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* ---- Claim L1 burn ---- */
+html:not(.mobile) .burn-card {
+  padding: 2px 12px;
+}
+html:not(.mobile) .burn-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+}
+html:not(.mobile) .burn-step + .burn-step {
+  border-top: 1px solid var(--border);
+}
+html:not(.mobile) .burn-step-head {
+  display: flex;
+  gap: 10px;
+}
+html:not(.mobile) .burn-step-num {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border-hover);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+html:not(.mobile) .burn-step-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+html:not(.mobile) .burn-step-body {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+html:not(.mobile) .burn-step textarea {
+  min-height: 0;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+}
+html:not(.mobile) .burn-step .burn-file {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html:not(.mobile) .burn-step .burn-file.chosen {
+  color: var(--text);
+}
+html:not(.mobile) .burn-note {
+  font-size: 11.5px;
+  color: var(--muted-dim);
+}
+
+/* ---- Approval hero ---- */
+html:not(.mobile) .dapp-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+html:not(.mobile) .dapp-mono {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  font-weight: 600;
+  color: #ffffff;
+}
+html:not(.mobile) .dapp-me {
+  background: var(--box);
+  border: 1px solid var(--border);
+}
+html:not(.mobile) .dapp-me img {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+html:not(.mobile) .dapp-link {
+  display: flex;
+  gap: 3px;
+}
+html:not(.mobile) .dapp-link i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--muted-dim);
+}
+
+/* ---- Review sheet ---- */
+html:not(.mobile) .review-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0);
+  transition: background-color 0.2s ease;
+}
+html:not(.mobile) .review-sheet.open {
+  background: rgba(0, 0, 0, 0.6);
+}
+html:not(.mobile) .review-card {
+  width: 100%;
+  padding: 8px 14px 14px;
+  border-radius: 16px 16px 0 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  transform: translateY(100%);
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+html:not(.mobile) .review-sheet.open .review-card {
+  transform: none;
+}
+html:not(.mobile) .review-card .wc-sheet-handle {
+  width: 32px;
+  height: 4px;
+  margin: 0 auto 8px;
+  border-radius: 2px;
+  background: var(--border-hover);
+}
+html:not(.mobile) .review-card h2 {
+  margin: 0;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+html:not(.mobile) .rv-amount {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 6px;
+  margin: 4px 0 10px;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+html:not(.mobile) .rv-unit {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+html:not(.mobile) .rv-private .rv-amount > span:first-child,
+html:not(.mobile) .rv-shield .rv-amount > span:first-child,
+html:not(.mobile) .rv-priv .rv-value,
+html:not(.mobile) .rv-chip-priv {
+  color: var(--private);
+}
+html:not(.mobile) .rv-flow {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin: -2px 0 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+html:not(.mobile) .rv-arrow {
+  display: grid;
+  color: var(--muted-dim);
+}
+html:not(.mobile) .rv-arrow svg {
+  width: 16px;
+  height: 16px;
+}
+html:not(.mobile) .rv-rows {
+  margin-bottom: 10px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: var(--box);
+  border: 1px solid var(--border);
+}
+html:not(.mobile) .rv-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  font-size: 12px;
+}
+html:not(.mobile) .rv-row + .rv-row {
+  border-top: 1px solid var(--border);
+}
+html:not(.mobile) .rv-label {
+  flex: none;
+  color: var(--muted);
+}
+html:not(.mobile) .rv-value {
+  min-width: 0;
+  text-align: right;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+html:not(.mobile) .rv-to {
+  flex-direction: column;
+  gap: 4px;
+}
+html:not(.mobile) .rv-to .rv-value {
+  text-align: left;
+}
+html:not(.mobile) .rv-addr {
+  display: block;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--muted-dim);
+  word-break: break-all;
+}
+html:not(.mobile) .rv-addr b {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ---- Page bar: back chevron beside the title (composed in src/ui/layouts.ts) ---- */
+html:not(.mobile) .page-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: -4px 0 0 -6px;
+}
+html:not(.mobile) .page-bar h1 {
+  font-size: 16px;
+}
+html:not(.mobile) .page-bar-back {
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+}
+html:not(.mobile) .page-bar-back:hover {
+  background: var(--box);
+  filter: none;
+}
+/* Section titles in sentence case, like the rest of the type. */
+html:not(.mobile) .section-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+/* Pickers inside a settings row read as a value with a chevron, not a boxed field. */
+html:not(.mobile) .settings-row .settings-row-select {
+  width: auto;
+  margin-left: auto;
+  padding: 4px 22px 4px 6px;
+  border: 0;
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a3a0ab' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+  appearance: none;
+  color: var(--muted);
+  text-align: right;
+  cursor: pointer;
+}
+html:not(.mobile) .settings-row .settings-row-select:hover {
+  color: var(--text);
+}
+
+html:not(.mobile) .settings-row-static > span:first-child {
+  font-weight: 400;
+}
+
+/* ---- Home review: one type face, no repeated figures, quieter controls ---- */
+/* Form controls don't inherit the page font by default; without this every button and field in
+   the extension rendered in the system face while the text around it was Geist. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+/* The headline is the public balance; the split bar and its legend repeated that same figure.
+   In the popup the private part is one line under it instead. */
+html:not(.mobile) .balance-split {
+  display: none !important;
+}
+html:not(.mobile) .account-summary.has-split .private-balance {
+  display: inline-flex !important;
+}
+html:not(.mobile) .private-balance {
+  padding: 0;
+  border: 0;
+  background: none;
+  gap: 6px;
+  font-weight: 500;
+}
+html:not(.mobile) .private-balance::before {
+  width: 6px;
+  height: 6px;
+}
+/* One size for the whole figure; the decimals are dimmed, not shrunk. */
+html:not(.mobile) .hero-balance-amount {
+  font-size: 38px;
+}
+html:not(.mobile) .hero-balance-amount .frac {
+  font-size: 1em;
+  font-weight: 600;
+  color: var(--muted-dim);
+}
+/* The refresh control beside "Assets" is a light icon, not a boxed button. */
+html:not(.mobile).screen-home #app > .row .icon-btn {
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+html:not(.mobile).screen-home #app > .row .icon-btn:hover {
+  background: var(--box);
+  color: var(--text);
+}

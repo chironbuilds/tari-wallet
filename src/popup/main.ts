@@ -2,6 +2,8 @@
 import "@fontsource-variable/geist/wght.css";
 import "./styles.css";
 import { platform } from "../platform";
+import { installRedesign } from "../ui/layouts";
+import { installReview } from "../ui/review";
 import { originDisplay, originParts, originShort } from "../lib/originLabels";
 import type { AccountSummary, DaemonAccountOption, PendingApproval, PopupRequest, TransactionHistoryEntry, TransactionPreview, WalletStatus } from "../lib/messages";
 import { LANGUAGE_LABELS, getLanguage, setLanguage, t, type Language } from "../lib/i18n";
@@ -2179,14 +2181,14 @@ function renderBalances(balancesCard: HTMLElement, balances: Balance[], status: 
 }
 
 /**
- * A token has no on-chain icon (resource metadata is just SYMBOL/name), so TARI gets the wallet's own
+ * A token has no on-chain icon (resource metadata is just SYMBOL/name), so TARI gets Tari's own
  * logo and every other resource a letter on a colour derived from its address -- distinct tokens look
  * distinct instead of all being the same grey circle. No network fetch.
  */
 function tokenAvatar(resourceAddress: string, symbol: string | null, large = false): HTMLElement {
   const size = large ? 64 : 28;
   if (resourceAddress === TARI_RESOURCE_ADDRESS) {
-    return h("img", { class: "token-avatar token-logo", src: platform().assetUrl("icons/icon48.png"), alt: "", width: String(size), height: String(size), style: `width:${size}px;height:${size}px` });
+    return h("img", { class: "token-avatar token-logo", src: platform().assetUrl("icons/tari.svg"), alt: "", width: String(size), height: String(size), style: `width:${size}px;height:${size}px` });
   }
   let hash = 0;
   for (const ch of resourceAddress) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
@@ -3143,6 +3145,17 @@ export const appNav = {
     dapps: t("connectedSites.title"),
   }),
 };
+
+// The extension uses the same layouts and review sheet as the Android app (src/ui/); Android
+// installs them from src/mobile/main.ts, with its own host hooks.
+if (platform().kind !== "android") {
+  installRedesign({
+    host: "extension",
+    history: () => send<TransactionHistoryEntry[]>({ kind: "popup-get-transaction-history" }),
+    status: () => getStatus(),
+  });
+  installReview({ network: async () => (await getStatus()).network });
+}
 
 function start(): void {
   main().catch((e) => {
