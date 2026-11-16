@@ -155,7 +155,8 @@ export function installNav(
     document.documentElement.classList.toggle("has-tabs", visible);
 
     // Lift Back + title into the app bar.
-    screenBack = visible ? app.querySelector<HTMLElement>("#back") : null;
+    // Reveal recovery phrase leaves through "Cancel" rather than "Back".
+    screenBack = visible ? (app.querySelector<HTMLElement>("#back") ?? app.querySelector<HTMLElement>("#cancel")) : null;
     const h1 = app.querySelector<HTMLElement>("h1");
     const titles = nav.titles();
     const tabRoot =

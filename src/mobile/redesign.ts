@@ -18,9 +18,6 @@ export interface RedesignDeps {
 let deps: RedesignDeps;
 
 const ICON = {
-  key: '<path d="M14.5 9.5a4.5 4.5 0 1 1-2.2-3.9"/><path d="M14 10l7-7M18 6l2 2M16 8l2 2"/>',
-  eyeOff: '<path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-2.6 3.6M6.6 6.6A13 13 0 0 0 2 12c1 2.5 5 7 10 7a9.7 9.7 0 0 0 4.4-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
-  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
   chevron: '<path d="M9 6l6 6-6 6"/>',
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
@@ -52,22 +49,7 @@ function composeWelcome(app: HTMLElement): void {
   hero.dataset.composed = "1";
   document.documentElement.classList.add("screen-welcome");
 
-  const tagline = el("p", "welcome-tagline");
-  tagline.textContent = t("mobile.welcomeTagline");
-  hero.querySelector("h1")?.after(tagline);
-
-  const features = el("ul", "welcome-features");
-  for (const [icon, text] of [
-    [ICON.key, t("mobile.featureKeys")],
-    [ICON.eyeOff, t("mobile.featurePrivate")],
-    [ICON.link, t("mobile.featureDapps")],
-  ] as const) {
-    const li = el("li", "", `<span class="wf-icon">${svg(icon, 18)}</span>`);
-    li.append(text);
-    features.append(li);
-  }
-  hero.append(features);
-
+  // The actions go to the bottom of the screen, within thumb reach.
   const actions = el("div", "welcome-actions");
   actions.append(create, importBtn);
   app.append(actions);
@@ -187,16 +169,10 @@ function addPrivacyGuide(app: HTMLElement): void {
   const card = el("div", "privacy-guide");
   const title = el("div", "pg-title");
   title.textContent = t("mobile.guideTitle");
-  const list = el("ol", "pg-steps");
-  for (const [icon, text, cls] of [
-    [ICON.eye, t("mobile.guidePublic"), "pg-pub"],
-    [ICON.lock, t("mobile.guideShield"), "pg-priv"],
-    [ICON.up, t("mobile.guidePrivate"), "pg-priv"],
-  ] as const) {
-    const li = el("li", cls, `<span class="pg-icon">${svg(icon, 16)}</span>`);
-    const span = el("span", "");
-    span.textContent = text;
-    li.append(span);
+  const list = el("ul", "pg-steps");
+  for (const text of [t("mobile.guidePublic"), t("mobile.guideShield"), t("mobile.guidePrivate")]) {
+    const li = el("li", "");
+    li.textContent = text;
     list.append(li);
   }
   const done = el("button", "pg-done");
@@ -208,11 +184,43 @@ function addPrivacyGuide(app: HTMLElement): void {
     } catch {
       /* ignore */
     }
-    card.classList.add("leaving");
-    setTimeout(() => card.remove(), 220);
+    collapseAway(card);
   });
   card.append(title, list, done);
   after.after(card);
+}
+
+/**
+ * Removes an element without the content below it jumping: fade it, then animate its height --
+ * and the flex gap it leaves behind -- to zero, and only then take it out of the DOM.
+ */
+function collapseAway(node: HTMLElement): void {
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) {
+    node.remove();
+    return;
+  }
+  const gap = parseFloat(getComputedStyle(node.parentElement!).rowGap) || 0;
+  node.style.height = `${node.offsetHeight}px`;
+  node.style.overflow = "hidden";
+  node.style.transition = "opacity 140ms ease-out, height 240ms cubic-bezier(0.2, 0.8, 0.2, 1) 100ms, margin-bottom 240ms cubic-bezier(0.2, 0.8, 0.2, 1) 100ms, padding 240ms cubic-bezier(0.2, 0.8, 0.2, 1) 100ms";
+  void node.offsetHeight; // commit the starting height before animating from it
+  node.style.opacity = "0";
+  node.style.height = "0px";
+  node.style.paddingTop = "0px";
+  node.style.paddingBottom = "0px";
+  node.style.marginBottom = `${-gap}px`;
+  node.style.borderWidth = "0px";
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    node.remove();
+  };
+  node.addEventListener("transitionend", (e) => {
+    if (e.propertyName === "height") finish();
+  });
+  setTimeout(finish, 500); // in case transitionend never fires
 }
 
 // ---------------- Empty wallet ----------------
@@ -230,8 +238,7 @@ function enhanceEmptyAssets(app: HTMLElement, assets: HTMLElement): void {
   receive.type = "button";
   receive.textContent = t("mobile.receiveTari");
   receive.addEventListener("click", () => app.querySelector<HTMLElement>("#receiveAction")?.click());
-  const icon = el("div", "ea-logo", '<img src="icons/icon48.png" alt="">');
-  empty.replaceChildren(icon, title, body, receive);
+  empty.replaceChildren(title, body, receive);
 }
 
 const HISTORY_ICON: Record<string, string> = {
@@ -348,6 +355,118 @@ function splitDecimals(target: HTMLElement): void {
   target.replaceChildren(whole, frac);
 }
 
+// ---------------- Recovery phrase ----------------
+// Wherever the 24 words appear (backing up a new wallet, Reveal recovery phrase): a plain warning,
+// and the words covered until tapped, so they are never on screen by accident.
+function composeSecret(app: HTMLElement): void {
+  const grid = app.querySelector<HTMLElement>(".mnemonic-grid");
+  if (grid && !grid.dataset.composed) {
+    grid.dataset.composed = "1";
+    const wrap = el("div", "secret");
+    grid.before(wrap);
+    wrap.append(grid);
+    const cover = el("button", "secret-cover");
+    cover.type = "button";
+    cover.textContent = t("mobile.tapToReveal");
+    cover.addEventListener("click", () => {
+      wrap.classList.add("revealed");
+      cover.remove();
+    });
+    wrap.append(cover);
+    addSecretWarning(app, wrap);
+  }
+  // The password step of Reveal recovery phrase.
+  if (app.querySelector("#reveal") && app.querySelector("#pw")) {
+    const anchor = app.querySelector<HTMLElement>("#app > label");
+    if (anchor) addSecretWarning(app, anchor);
+  }
+}
+
+function addSecretWarning(app: HTMLElement, before: HTMLElement): void {
+  if (app.querySelector(".secret-warning")) return;
+  const note = el("div", "secret-warning");
+  note.textContent = t("mobile.secretWarning");
+  before.before(note);
+}
+
+// ---------------- dApps, when none are connected ----------------
+function composeDappsEmpty(app: HTMLElement): void {
+  if (app.querySelector("h1")?.textContent !== t("connectedSites.title")) return;
+  const empty = app.querySelector<HTMLElement>(".empty-state");
+  if (!empty || empty.dataset.composed) return;
+  empty.dataset.composed = "1";
+  const steps = el("ol", "howto");
+  for (const text of [t("mobile.dappsStep1"), t("mobile.dappsStep2"), t("mobile.dappsStep3")]) {
+    const li = el("li", "");
+    li.textContent = text;
+    steps.append(li);
+  }
+  empty.replaceChildren(steps);
+  empty.classList.add("dapps-empty");
+}
+
+// ---------------- Claim L1 burn ----------------
+// The shared screen is one card: a paragraph, the claim key, a textarea and a bare file input.
+// On the phone: two numbered steps (burn to this key; add the proof), a real file button, Claim
+// burn as the primary action, and the explanation as a note under it.
+function composeClaimBurn(app: HTMLElement): void {
+  if (app.querySelector("h1")?.textContent !== t("claimBurn.title")) return;
+  const card = app.querySelector<HTMLElement>(".card");
+  const file = card?.querySelector<HTMLInputElement>('input[type="file"]');
+  const proof = card?.querySelector<HTMLTextAreaElement>("textarea");
+  const keyRow = card?.querySelector<HTMLElement>(".copy-row");
+  const claim = card?.querySelector<HTMLButtonElement>("button.secondary:not(.icon-btn)");
+  const desc = card?.querySelector<HTMLElement>("p.muted");
+  const status = card?.querySelector<HTMLElement>(".status");
+  if (!card || !file || !proof || !keyRow || !claim || card.dataset.composed) return;
+  card.dataset.composed = "1";
+
+  const step = (n: number, title: string, body: string, ...content: HTMLElement[]) => {
+    const s = el("section", "burn-step");
+    const head = el("div", "burn-step-head");
+    const num = el("span", "burn-step-num");
+    num.textContent = String(n);
+    const text = el("div", "");
+    const h = el("div", "burn-step-title");
+    h.textContent = title;
+    const p = el("div", "burn-step-body");
+    p.textContent = body;
+    text.append(h, p);
+    head.append(num, text);
+    s.append(head, ...content);
+    return s;
+  };
+
+  // A real button for the file picker; the native input stays (hidden) and does the work.
+  const pick = el("button", "secondary burn-file");
+  pick.type = "button";
+  pick.textContent = t("mobile.burnChooseFile");
+  file.hidden = true;
+  pick.addEventListener("click", () => file.click());
+  file.addEventListener("change", () => {
+    const name = file.files?.[0]?.name;
+    pick.textContent = name ? name : t("mobile.burnChooseFile");
+    pick.classList.toggle("chosen", !!name);
+  });
+  proof.rows = 3;
+
+  claim.classList.remove("secondary");
+  claim.classList.add("primary", "burn-claim");
+
+  const steps = [
+    step(1, t("mobile.burnStep1Title"), t("mobile.burnStep1Body"), keyRow),
+    step(2, t("mobile.burnStep2Title"), t("mobile.burnStep2Body"), proof, pick, file),
+  ];
+  card.replaceChildren(...steps);
+  card.classList.add("burn-card");
+  card.after(...[status, claim].filter((x): x is HTMLElement => !!x));
+  if (desc) {
+    desc.removeAttribute("style");
+    desc.classList.add("burn-note");
+    claim.after(desc);
+  }
+}
+
 // ---------------- Approval hero ----------------
 // Who is asking, first: the dApp's monogram (coloured from its name, so one site always looks the
 // same) above the trust card. Never an icon fetched from the site -- that is the dApp's own claim.
@@ -362,7 +481,7 @@ function composeApprovalHero(app: HTMLElement): void {
   const hero = el("div", "dapp-hero");
   const mono = el("div", "dapp-mono");
   mono.textContent = letter;
-  mono.style.background = `linear-gradient(135deg, hsl(${hue} 70% 62%), hsl(${(hue + 40) % 360} 65% 46%))`;
+  mono.style.background = `hsl(${hue} 42% 38%)`;
   const link = el("div", "dapp-link", `<i></i><i></i><i></i>`);
   const me = el("div", "dapp-mono dapp-me", '<img src="icons/icon48.png" alt="">');
   hero.append(mono, link, me);
@@ -627,6 +746,9 @@ export function installRedesign(d: RedesignDeps): void {
     composeReceive(app);
     composeLockup(app);
     composeApprovalHero(app);
+    composeSecret(app);
+    composeDappsEmpty(app);
+    composeClaimBurn(app);
   };
   new MutationObserver(compose).observe(app, { childList: true });
   compose();

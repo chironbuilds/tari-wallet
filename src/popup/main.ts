@@ -915,7 +915,7 @@ async function renderHome(status: WalletStatus) {
   burnActionBtn?.addEventListener("click", () => renderClaimBurn(status));
   // Shield/Unshield TARI straight from Home: the same screens a token's detail page opens, fed
   // TARI's current balance.
-  const openTariPrivacy = async (open: (status: WalletStatus, balance: Balance) => void, needs: "public" | "private") => {
+  const openTariPrivacy = async (open: (status: WalletStatus, balance: Balance, onBack: () => void) => void, needs: "public" | "private") => {
     try {
       const balances = await send<Balance[]>({ kind: "popup-get-balances" });
       const xtr = balances.find((b) => b.resourceAddress === TARI_RESOURCE_ADDRESS);
@@ -926,7 +926,8 @@ async function renderHome(status: WalletStatus) {
         homeStatusEl.textContent = t(needs === "public" ? "home.nothingToShield" : "home.nothingToUnshield");
         return;
       }
-      open(status, xtr);
+      // Back from here returns to Home, where this was opened -- not the token page.
+      open(status, xtr, () => void renderHome(status));
     } catch (e) {
       homeStatusEl.style.display = "block";
       homeStatusEl.className = "status err";
@@ -1960,7 +1961,8 @@ function buildPrivateSendForm(
  * background/index.ts's popup-shield handler), so this screen should only ever be reached from a
  * local account's token detail.
  */
-function renderShield(status: WalletStatus, balance: Balance) {
+/** `onBack` defaults to the token's page; Home's Shield button passes a way back to Home. */
+function renderShield(status: WalletStatus, balance: Balance, onBack: () => void = () => renderTokenDetail(status, balance)) {
   const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
   const label = resourceLabel(balance.resourceAddress, balance.symbol);
 
@@ -1989,7 +1991,7 @@ function renderShield(status: WalletStatus, balance: Balance) {
     back
   );
 
-  document.getElementById("back")!.addEventListener("click", () => renderTokenDetail(status, balance));
+  document.getElementById("back")!.addEventListener("click", onBack);
 
   maxBtn.addEventListener("click", () => {
     (amountInput as HTMLInputElement).value = formatBalanceAmount(balance.amount, balance.divisibility);
@@ -2042,7 +2044,7 @@ function renderShield(status: WalletStatus, balance: Balance) {
  * against the SDK's own builder validation, see `OotleAccount.unshield()`'s doc comment) — at
  * least the smallest unit must remain private as change, so MAX caps just under the full balance.
  */
-function renderUnshield(status: WalletStatus, balance: Balance) {
+function renderUnshield(status: WalletStatus, balance: Balance, onBack: () => void = () => renderTokenDetail(status, balance)) {
   const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
   const label = resourceLabel(balance.resourceAddress, balance.symbol);
   const maxAmount = BigInt(balance.confidentialAmount);
@@ -2072,7 +2074,7 @@ function renderUnshield(status: WalletStatus, balance: Balance) {
     back
   );
 
-  document.getElementById("back")!.addEventListener("click", () => renderTokenDetail(status, balance));
+  document.getElementById("back")!.addEventListener("click", onBack);
 
   maxBtn.addEventListener("click", () => {
     const revealMax = maxAmount - 1n;

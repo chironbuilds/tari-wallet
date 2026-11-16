@@ -128,9 +128,14 @@ export function installEnhancements(deps: EnhanceDeps): void {
   new MutationObserver(enhance).observe(app, { childList: true, subtree: true });
   enhance();
 
-  // Copy buttons: a haptic tick on top of their own "Copied!" flash.
+  // Copy buttons (and Home's address chip): a haptic tick and a short "Copied" toast, so the copy
+  // registers even when the button's own label change is under a thumb.
   app.addEventListener("click", (e) => {
-    if ((e.target as HTMLElement).closest(".icon-btn")) tick();
+    const target = e.target as HTMLElement;
+    const btn = target.closest<HTMLElement>(".icon-btn, .addr-pill");
+    if (!btn) return;
+    tick();
+    if (btn.classList.contains("addr-pill") || btn.textContent?.includes(t("common.copy"))) showPairingNotice(t("mobile.copied"), "ok", 1600);
   });
 
   // Keyboard: Android resizes the page, which would float the tab bar right above the keyboard

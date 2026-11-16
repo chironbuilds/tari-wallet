@@ -1,70 +1,80 @@
-/* Sapient for Android -- the phone design.
-   The extension's popup UI is shared; everything here is scoped to html.mobile, so the extension
-   is untouched. Structure: tokens, base, components, app chrome, screens, mechanics.
-   Screen layouts that need DOM changes are composed in redesign.ts; chrome lives in nav.ts. */
+/* Sapient for Android.
+   The popup UI is shared with the browser extension; everything here is scoped to html.mobile, so
+   the extension is unaffected. Layouts that need DOM changes are composed in redesign.ts, the
+   review sheet lives in review.ts, the app bar / tab bar in nav.ts.
+
+   Principles: an ink background with neutral surfaces; one accent (violet) for selection and links;
+   mint means private value, nothing else; the primary action is a solid light button; no glows,
+   gradient text or decorative motion; hairline borders instead of shadows. */
 
 /* =========================================================================================
    Tokens
-   Ink base with neutral surfaces. The logo's pink->violet gradient marks the primary action and
-   the active state only; mint marks private (shielded) value everywhere it appears.
    ========================================================================================= */
 html.mobile {
-  --bg: #08060c;
-  --s1: #121017;
-  --s2: #1a1721;
-  --s3: #24202c;
-  --line: rgba(255, 255, 255, 0.075);
+  --bg: #0a090d;
+  --s1: #131218;
+  --s2: #1b1a21;
+  --s3: #25232c;
+  --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.14);
-  --text: #f6f4f8;
-  --text-2: #a7a2b1;
-  --text-3: #6d6878;
-  --accent: #a259ff;
-  --accent-2: #fc72ff;
-  --accent-grad: linear-gradient(135deg, #fc72ff 0%, #a259ff 100%);
-  --accent-soft: rgba(162, 89, 255, 0.14);
-  --accent-ink: #dcc2ff;
-  --on-accent: #17071e;
-  --accent-shadow: rgba(162, 89, 255, 0.38);
-  --private: #6ff0cf;
-  --private-soft: rgba(111, 240, 207, 0.1);
-  --private-line: rgba(111, 240, 207, 0.3);
-  --good: #4ade9a;
-  --bad: #ff6b6b;
-  --fair: #ffb84d;
-  --highlight: #ffd66c;
-  --r-sm: 12px;
-  --r-md: 16px;
-  --r-lg: 22px;
-  --r-xl: 28px;
+  --text: #f4f3f6;
+  --text-2: #a3a0ab;
+  --text-3: #6e6b77;
+  --accent: #a970ff;
+  --accent-ink: #c7a6ff;
+  --accent-soft: rgba(169, 112, 255, 0.12);
+  --private: #5fd1b3;
+  --private-soft: rgba(95, 209, 179, 0.1);
+  --private-line: rgba(95, 209, 179, 0.3);
+  --good: #49c98a;
+  --bad: #f06a6a;
+  --warn: #e9b44c;
+  --primary-bg: #f4f3f6;
+  --primary-ink: #0a090d;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 18px;
+  --r-xl: 24px;
   --gutter: 20px;
-  /* The page background; screens with a glow redefine it. Both the body and the strip under the
-     status bar paint it, sized to the viewport, so they line up pixel for pixel. */
-  --page-bg: var(--bg);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --font: "Geist Variable", Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "Geist Mono Variable", ui-monospace, Menlo, monospace;
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  /* The shared popup's own token names, mapped onto the system above. */
+
+  /* The shared popup's token names, mapped onto the system above. Its gradient and glow tokens
+     resolve to flat colour, so nothing in the shared CSS paints a gradient or a glow here. */
   --card: var(--s1);
   --box: var(--s2);
   --border: var(--line);
   --border-hover: var(--line-strong);
   --muted: var(--text-2);
   --muted-dim: var(--text-3);
+  --accent-2: var(--accent);
+  --accent-grad: linear-gradient(var(--accent), var(--accent));
+  --accent-shadow: transparent;
+  --accent-glow: transparent;
+  --on-accent: #ffffff;
+  --highlight: var(--warn);
+  --fair: var(--warn);
 }
 
 /* =========================================================================================
    Base
    ========================================================================================= */
 html.mobile body {
-  background: var(--page-bg);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font);
-  font-feature-settings: "ss01", "cv11";
   font-size: 15px;
   line-height: 1.45;
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
+}
+html.mobile button,
+html.mobile input,
+html.mobile select,
+html.mobile textarea {
+  font-family: var(--font);
 }
 html.mobile #app {
   max-width: 560px;
@@ -73,31 +83,8 @@ html.mobile #app {
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
 }
-html.mobile h1 {
-  font-size: 28px;
-  line-height: 1.12;
-  font-weight: 750;
-  letter-spacing: -0.025em;
-}
-html.mobile h2 {
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-}
-html.mobile p.muted,
-html.mobile .muted {
-  font-size: 14.5px;
-  line-height: 1.55;
-  color: var(--text-2);
-}
-html.mobile code,
-html.mobile .addr,
-html.mobile .detail-value {
-  font-family: var(--mono);
-}
-/* The status bar is transparent (edge-to-edge): this strip under it repeats the page background
-   exactly (fixed attachment, same layers), so the Home glow shows through but content scrolling up
-   never slides behind the clock. */
+/* The status bar is transparent where the WebView draws edge-to-edge; this strip keeps scrolled
+   content from passing behind the clock. */
 html.mobile body::before {
   content: "";
   position: fixed;
@@ -106,16 +93,41 @@ html.mobile body::before {
   right: 0;
   height: env(safe-area-inset-top);
   z-index: 24;
-  background: var(--page-bg);
-  background-size: 100vw 100vh;
-  background-position: 0 0;
-  background-repeat: no-repeat;
+  background: var(--bg);
   pointer-events: none;
 }
 html.scanning body::before {
   display: none;
 }
-/* Chrome-like UI never selects or pops a long-press menu; content text (addresses) still can. */
+html.mobile h1 {
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+/* The shared UI sets part of some titles in gradient text ("Sapient Wallet"); plain here. */
+html.mobile h1 span {
+  background: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  color: var(--text-2);
+}
+html.mobile h2 {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+html.mobile p.muted,
+html.mobile .muted {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+html.mobile code,
+html.mobile .addr {
+  font-family: var(--mono);
+}
+/* Controls never select or pop a long-press menu; content text (addresses) still can. */
 html.mobile button,
 html.mobile .tab,
 html.mobile .settings-row,
@@ -142,57 +154,57 @@ html.mobile label {
 html.mobile button {
   border-radius: var(--r-md);
   font-size: 16px;
-  font-weight: 650;
-  letter-spacing: -0.005em;
+  font-weight: 600;
   transition:
     transform 0.12s var(--ease),
     background-color 0.15s ease,
-    box-shadow 0.15s ease,
     opacity 0.15s ease;
 }
 html.mobile button:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.98);
+}
+html.mobile button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 html.mobile #app button.primary,
 html.mobile #app button.secondary:not(.btn-compact),
 html.mobile #app button.danger {
-  min-height: 56px;
-  border-radius: 18px;
+  min-height: 52px;
 }
 html.mobile button.primary {
-  background: var(--accent-grad);
-  color: var(--on-accent);
-  box-shadow: 0 12px 28px -12px var(--accent-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  background: var(--primary-bg);
+  color: var(--primary-ink);
+  box-shadow: none;
 }
 html.mobile button.primary:disabled {
-  opacity: 0.45;
-  box-shadow: none;
+  opacity: 0.4;
 }
 html.mobile button.secondary {
   background: var(--s2);
   color: var(--text);
   border: 1px solid var(--line);
+  box-shadow: none;
 }
 html.mobile button.secondary:active:not(:disabled) {
   background: var(--s3);
 }
 html.mobile button.danger {
-  background: rgba(255, 107, 107, 0.1);
-  color: #ff8f8f;
-  border: 1px solid rgba(255, 107, 107, 0.18);
+  background: transparent;
+  color: var(--bad);
+  border: 1px solid rgba(240, 106, 106, 0.35);
 }
 html.mobile button + button {
   margin-top: 10px;
 }
+html.mobile .row > button + button {
+  margin-top: 0;
+}
 html.mobile .link-btn {
+  min-height: 44px;
   color: var(--accent-ink);
   font-size: 15px;
-  font-weight: 600;
-  min-height: 44px;
-}
-html.mobile button:focus-visible {
-  outline: 2px solid var(--accent-2);
-  outline-offset: 2px;
+  font-weight: 500;
 }
 
 /* ---- Fields ---- */
@@ -200,13 +212,13 @@ html.mobile label {
   display: block;
   margin: 18px 0 8px;
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-2);
 }
 html.mobile #app > label {
   margin: 4px 0 -6px;
 }
-/* Labels that are controls, not field captions, keep their own layout. */
+/* Labels that are controls rather than field captions keep their own layout. */
 html.mobile label.switch-label {
   display: inline-flex;
   margin: 0;
@@ -220,17 +232,15 @@ html.mobile input[type="text"],
 html.mobile input[type="number"],
 html.mobile textarea,
 html.mobile select {
-  min-height: 54px;
-  padding: 14px 16px;
+  min-height: 52px;
+  padding: 13px 15px;
   font-size: 16px;
-  border-radius: var(--r-md);
+  border-radius: 12px;
   background: var(--s2);
   border: 1px solid var(--line);
   color: var(--text);
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    background-color 0.15s ease;
+  box-shadow: none;
+  transition: border-color 0.15s ease;
 }
 html.mobile textarea {
   line-height: 1.5;
@@ -239,43 +249,121 @@ html.mobile input:focus,
 html.mobile textarea:focus,
 html.mobile select:focus {
   outline: none;
-  background: var(--s1);
-  border-color: rgba(162, 89, 255, 0.7);
-  box-shadow: 0 0 0 4px rgba(162, 89, 255, 0.16);
+  border-color: var(--accent);
+  box-shadow: none;
 }
 html.mobile input::placeholder,
 html.mobile textarea::placeholder {
   color: var(--text-3);
 }
 html.mobile input.input-valid {
-  border-color: rgba(74, 222, 154, 0.55);
+  border-color: rgba(73, 201, 138, 0.5);
 }
 html.mobile input.input-invalid {
-  border-color: rgba(255, 107, 107, 0.6);
+  border-color: rgba(240, 106, 106, 0.55);
 }
 html.mobile select {
   appearance: none;
   -webkit-appearance: none;
   padding-right: 40px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a7a2b1' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a3a0ab' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 14px center;
 }
 html.mobile .strength-meter {
-  height: 6px;
-  border-radius: 3px;
+  height: 4px;
+  border-radius: 2px;
   background: var(--s3);
 }
-html.mobile .amount-field input {
-  font-size: 22px;
-  font-weight: 650;
+
+/* Amount: the figure being moved, large. */
+html.mobile .amount-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 16px;
+  border-radius: var(--r-md);
+  background: var(--s2);
+  border: 1px solid var(--line);
+  transition: border-color 0.15s ease;
+}
+html.mobile .amount-field:focus-within {
+  border-color: var(--accent);
+}
+html.mobile .amount-field input,
+html.mobile .amount-field input:focus {
+  flex: 1;
+  min-width: 0;
+  min-height: 52px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
 }
-html.mobile .max-btn {
-  border-radius: 10px;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font-size: 13px;
+html.mobile .amount-field .max-btn {
+  width: auto;
+  min-height: 34px;
+  margin: 0;
+  padding: 0 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* Segmented control (Send / Send privately). */
+html.mobile .tab-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--s2);
+  border: 1px solid var(--line);
+}
+html.mobile .tab-row .tab-btn {
+  min-height: 40px;
+  margin: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 14.5px;
+  font-weight: 600;
+  box-shadow: none;
+}
+html.mobile .tab-row .tab-btn[aria-selected="true"],
+html.mobile .tab-row .tab-btn.active {
+  background: var(--s3);
+  color: var(--text);
+}
+html.mobile .tab-row .tab-btn:last-child[aria-selected="true"] {
+  color: var(--private);
+}
+
+/* Paste / Scan QR under address fields. */
+.addr-tools {
+  display: flex;
+  gap: 8px;
+  margin-top: -4px;
+}
+.chip-btn {
+  width: auto !important;
+  min-height: 36px;
+  margin: 0 !important;
+  padding: 6px 14px !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--line) !important;
+  background: transparent !important;
+  color: var(--text-2) !important;
+  font-size: 13.5px !important;
+  font-weight: 500;
 }
 
 /* ---- Surfaces ---- */
@@ -286,7 +374,7 @@ html.mobile .card {
   box-shadow: none;
 }
 html.mobile .status {
-  border-radius: 14px;
+  border-radius: 12px;
   padding: 12px 14px;
   font-size: 14px;
   line-height: 1.5;
@@ -294,10 +382,13 @@ html.mobile .status {
   border: 1px solid var(--line);
   color: var(--text-2);
 }
+html.mobile .status:empty {
+  display: none;
+}
 html.mobile .status.err {
-  background: rgba(255, 107, 107, 0.09);
-  border-color: rgba(255, 107, 107, 0.22);
-  color: #ffb3b3;
+  background: rgba(240, 106, 106, 0.08);
+  border-color: rgba(240, 106, 106, 0.25);
+  color: #f3a3a3;
 }
 html.mobile .status.ok {
   background: var(--private-soft);
@@ -305,28 +396,28 @@ html.mobile .status.ok {
   color: var(--private);
 }
 html.mobile .section-title {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
   text-transform: none;
   color: var(--text);
 }
 html.mobile .empty-state {
-  padding: 36px 20px 32px;
-  gap: 12px;
+  padding: 32px 20px 28px;
+  gap: 10px;
   text-align: center;
 }
 html.mobile .empty-state-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 20px;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
   background: var(--s2);
   border: 1px solid var(--line);
-  color: var(--accent-ink);
+  color: var(--text-2);
 }
 html.mobile .empty-state-icon .icon-svg svg {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
 }
 html.mobile .empty-state .muted {
   max-width: 260px;
@@ -336,14 +427,22 @@ html.mobile .skeleton {
   background: var(--s2);
   border-radius: 8px;
 }
+html.mobile .icon-btn {
+  min-height: 44px;
+  min-width: 44px;
+  border-radius: 12px;
+  background: var(--s2);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
 
 /* ---- Lists ---- */
 html.mobile .balance-row,
 html.mobile .list-row {
-  min-height: 68px;
+  min-height: 64px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--line);
   gap: 14px;
+  border-bottom: 1px solid var(--line);
 }
 html.mobile .balance-row:last-child,
 html.mobile .list-row:last-child {
@@ -352,11 +451,11 @@ html.mobile .list-row:last-child {
 html.mobile .balance-row.clickable:active,
 html.mobile .list-row:active {
   background: transparent;
-  opacity: 0.7;
+  opacity: 0.6;
 }
 html.mobile .list-row-title {
   font-size: 15.5px;
-  font-weight: 600;
+  font-weight: 500;
   white-space: normal;
   overflow-wrap: anywhere;
 }
@@ -364,73 +463,59 @@ html.mobile .list-row-subtitle {
   font-size: 13px;
   color: var(--text-2);
 }
-html.mobile .history-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  background: var(--s2);
-  border: 1px solid var(--line);
-  color: var(--accent-ink);
-}
-html.mobile .icon-btn {
-  min-height: 44px;
-  min-width: 44px;
-  border-radius: 14px;
-  background: var(--s2);
-  border: 1px solid var(--line);
-  color: var(--text);
-}
-html.mobile .copy-row .addr,
-html.mobile .addr {
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text);
+/* The extension boxes these lists at a fixed height; on the phone they take the room they need. */
+html.mobile .history-list,
+html.mobile .balances-card {
+  max-height: none;
+  overflow: visible;
 }
 
 /* ---- Switch ---- */
 html.mobile .switch-track {
-  width: 50px;
-  height: 30px;
-  border-radius: 15px;
+  width: 46px;
+  height: 28px;
+  border-radius: 14px;
   background: var(--s3);
   border: 1px solid var(--line-strong);
 }
 html.mobile .switch-thumb {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   top: 2px;
   left: 2px;
-  background: #fff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  background: #ffffff;
+  box-shadow: none;
 }
 html.mobile .switch-label input:checked ~ .switch-track {
-  background: var(--accent-grad);
+  background: var(--accent);
   border-color: transparent;
 }
 html.mobile .switch-label input:checked ~ .switch-track .switch-thumb {
-  transform: translateX(20px);
+  transform: translateX(18px);
 }
 html.mobile .switch-side {
   font-size: 13px;
 }
 
-/* ---- Chips (Paste / Scan QR under address fields) ---- */
-.addr-tools {
-  display: flex;
-  gap: 8px;
-  margin-top: -4px;
+/* ---- Hidden amounts (the eye on Home) ---- */
+html.hide-amounts .hero-balance-amount,
+html.hide-amounts .private-balance,
+html.hide-amounts .token-amount,
+html.hide-amounts .token-amount-private,
+html.hide-amounts .history-amount,
+html.hide-amounts .token-hero-amount > span:first-child,
+html.hide-amounts .split-legend em {
+  filter: blur(9px);
+  -webkit-user-select: none;
+  user-select: none;
 }
-.chip-btn {
-  width: auto !important;
-  min-height: 38px;
-  margin: 0 !important;
-  padding: 6px 16px !important;
-  border-radius: 999px !important;
-  border: 1px solid var(--line) !important;
-  background: var(--s2) !important;
-  color: var(--text) !important;
-  font-size: 13.5px !important;
-  font-weight: 600;
+
+/* Balances are set with the decimal part smaller and dimmer. */
+.frac {
+  font-size: 0.55em;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text-2);
 }
 
 /* =========================================================================================
@@ -440,10 +525,10 @@ html.mobile.has-app-bar #app {
   padding-top: calc(68px + env(safe-area-inset-top));
 }
 html.mobile.has-app-bar:has(#app-bar.large) #app {
-  padding-top: calc(80px + env(safe-area-inset-top));
+  padding-top: calc(76px + env(safe-area-inset-top));
 }
 html.mobile.has-tabs #app {
-  padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
 }
 /* The screen's own title and Back button live in the app bar instead. */
 html.mobile.has-app-bar #app h1.lifted,
@@ -457,16 +542,15 @@ html.mobile.has-app-bar #app .lifted#back {
   left: 0;
   right: 0;
   z-index: 25;
-  height: calc(60px + env(safe-area-inset-top));
+  height: calc(58px + env(safe-area-inset-top));
   padding: env(safe-area-inset-top) 8px 0;
   display: flex;
   align-items: center;
   gap: 2px;
-  /* Solid, not backdrop-blurred: a live blur under a scrolling WebView repaints every frame. */
   background: var(--bg);
 }
 #app-bar.large {
-  height: calc(72px + env(safe-area-inset-top));
+  height: calc(68px + env(safe-area-inset-top));
   padding-left: calc(var(--gutter) - 8px);
 }
 .app-bar-back {
@@ -494,102 +578,79 @@ html.mobile.has-app-bar #app .lifted#back {
   flex: 1;
   padding-left: 4px;
   font-size: 18px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  letter-spacing: -0.015em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 #app-bar.large .app-bar-title {
   padding-left: 8px;
-  font-size: 30px;
-  font-weight: 750;
+  font-size: 28px;
+  font-weight: 650;
   letter-spacing: -0.03em;
 }
 
-/* ---- Tab bar: a floating dock ---- */
+/* ---- Tab bar: a standard bottom bar ---- */
 #tab-bar {
   position: fixed;
-  left: 14px;
-  right: 14px;
-  bottom: calc(12px + env(safe-area-inset-bottom));
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 25;
-  max-width: 520px;
-  margin: 0 auto;
-  height: 68px;
-  padding: 0 6px;
+  height: calc(64px + env(safe-area-inset-bottom));
+  padding: 0 8px env(safe-area-inset-bottom);
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   align-items: center;
-  border-radius: 26px;
-  background: #16131c;
-  border: 1px solid var(--line-strong);
-  box-shadow:
-    0 20px 44px -12px rgba(0, 0, 0, 0.8),
-    0 0 0 6px rgba(8, 6, 12, 0.6);
+  background: var(--bg);
+  border-top: 1px solid var(--line);
 }
 #tab-bar .tab {
   width: auto;
-  height: 60px;
+  height: 56px;
   min-height: 0;
   margin: 0;
   padding: 0;
   border: 0;
+  border-radius: 0;
   background: transparent;
   color: var(--text-3);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
+  font-weight: 500;
 }
 #tab-bar .tab svg {
-  width: 23px;
-  height: 23px;
+  width: 22px;
+  height: 22px;
 }
 #tab-bar .tab .tab-icon {
-  width: 46px;
-  height: 30px;
-  border-radius: 12px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
 }
 #tab-bar .tab.active {
   color: var(--text);
 }
-#tab-bar .tab.active .tab-icon {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-/* Scan: the raised centre action. */
-#tab-bar .tab-scan {
-  color: var(--text-2);
-}
+/* Scan: the one filled control in the bar, not raised. */
 #tab-bar .tab-scan .tab-icon {
-  width: 54px;
-  height: 54px;
-  margin-top: -30px;
-  border-radius: 20px;
-  background: var(--accent-grad);
-  color: var(--on-accent);
-  box-shadow:
-    0 12px 24px -8px var(--accent-shadow),
-    0 0 0 6px #16131c;
+  width: 44px;
+  height: 30px;
+  border-radius: 10px;
+  background: var(--primary-bg);
+  color: var(--primary-ink);
 }
 #tab-bar .tab-scan .tab-icon svg {
-  width: 26px;
-  height: 26px;
-  stroke-width: 2.2;
+  width: 20px;
+  height: 20px;
 }
-#tab-bar .tab-scan:active .tab-icon {
-  transform: scale(0.94);
+#tab-bar .tab-scan {
+  color: var(--text-2);
 }
 /* Keyboard up: the tab bar steps aside so it never floats over the field being typed in. */
 html.mobile.kb-open #tab-bar {
@@ -603,8 +664,9 @@ html.mobile.has-tabs #settingsBtn {
   display: none;
 }
 
-/* ---- Pairing bottom sheet ---- */
-#wc-sheet {
+/* ---- Bottom sheets (pairing; the review sheet shares the card) ---- */
+#wc-sheet,
+.review-sheet {
   position: fixed;
   inset: 0;
   z-index: 30;
@@ -612,32 +674,40 @@ html.mobile.has-tabs #settingsBtn {
   align-items: flex-end;
   justify-content: center;
   background: rgba(0, 0, 0, 0);
-  transition: background-color 0.24s ease;
+  transition: background-color 0.22s ease;
 }
-#wc-sheet.open {
-  background: rgba(4, 2, 8, 0.7);
+.review-sheet {
+  z-index: 35;
 }
-.wc-sheet-card {
+#wc-sheet.open,
+.review-sheet.open {
+  background: rgba(0, 0, 0, 0.6);
+}
+.wc-sheet-card,
+.review-card {
   width: 100%;
   max-width: 560px;
-  background: var(--s1);
-  border: 1px solid var(--line-strong);
-  border-bottom: 0;
+  padding: 10px var(--gutter) calc(20px + env(safe-area-inset-bottom));
   border-radius: var(--r-xl) var(--r-xl) 0 0;
-  padding: 10px var(--gutter) calc(24px + env(safe-area-inset-bottom));
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  transform: translateY(100%);
+  transition: transform 0.28s var(--ease);
+}
+.wc-sheet-card {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  transform: translateY(100%);
-  transition: transform 0.3s var(--ease);
 }
-#wc-sheet.open .wc-sheet-card {
+#wc-sheet.open .wc-sheet-card,
+.review-sheet.open .review-card {
   transform: none;
 }
 .wc-sheet-handle {
-  width: 40px;
-  height: 5px;
-  border-radius: 3px;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
   background: var(--line-strong);
   margin: 0 auto 12px;
 }
@@ -650,24 +720,20 @@ html.mobile.has-tabs #settingsBtn {
   position: fixed;
   left: 16px;
   right: 16px;
-  bottom: calc(96px + env(safe-area-inset-bottom));
+  bottom: calc(80px + env(safe-area-inset-bottom));
   max-width: 520px;
   margin: 0 auto;
-  padding: 14px 16px;
-  border-radius: 18px;
+  padding: 12px 16px;
+  border-radius: 12px;
   background: var(--s3);
   border: 1px solid var(--line-strong);
   color: var(--text);
   font-size: 14.5px;
-  font-weight: 550;
+  font-weight: 500;
   z-index: 40;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
 }
 .wc-notice.err {
-  border-color: rgba(255, 107, 107, 0.45);
-}
-.wc-notice.ok {
-  border-color: var(--private-line);
+  border-color: rgba(240, 106, 106, 0.45);
 }
 
 /* ---- Connectivity bar ---- */
@@ -680,54 +746,65 @@ html.mobile.has-tabs #settingsBtn {
   padding: 8px 16px;
   text-align: center;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 500;
 }
 #net-bar[hidden] {
   display: none;
 }
 #net-bar.offline {
-  background: #2c1d05;
-  color: #ffcf7a;
+  background: #2a2112;
+  color: #f1c97a;
 }
 #net-bar.online {
-  background: #0b2a1f;
+  background: #10261c;
   color: var(--good);
 }
 html.mobile.has-app-bar #net-bar {
-  top: calc(60px + env(safe-area-inset-top));
+  top: calc(58px + env(safe-area-inset-top));
 }
 html.mobile.offline #app {
   padding-top: calc(52px + env(safe-area-inset-top));
 }
 html.mobile.offline.has-app-bar #app {
-  padding-top: calc(104px + env(safe-area-inset-top));
+  padding-top: calc(102px + env(safe-area-inset-top));
 }
 
 /* =========================================================================================
    Screens
    ========================================================================================= */
 
-/* ---- Pre-wallet screens (welcome, create, backup, unlock) ----
-   No tab bar: short single-purpose screens, centred on a tall phone with auto margins (not
-   justify-content:center) so the 24-word phrase still scrolls from its top. */
+/* ---- Before the wallet is open (welcome, create, backup, unlock) ----
+   Short single-purpose screens, centred on a tall phone with auto margins (not
+   justify-content:center) so the recovery phrase still scrolls from its top. */
+html.mobile:not(.has-tabs):not(.approving) #app {
+  padding-left: 24px;
+  padding-right: 24px;
+}
 html.mobile:not(.has-tabs):not(.approving) #app > :first-child {
   margin-top: auto;
 }
 html.mobile:not(.has-tabs):not(.approving) #app > :last-child {
   margin-bottom: auto;
 }
-html.mobile:not(.has-tabs):not(.approving) #app {
-  padding-left: 24px;
-  padding-right: 24px;
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.brand-lockup:has(+ .hero) {
+  justify-content: center;
+}
+.brand-lockup img {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
 }
 
-/* ---- Welcome ---- */
-html.mobile.screen-welcome {
-  --page-bg:
-    radial-gradient(120% 60% at 50% -8%, rgba(252, 114, 255, 0.22), transparent 60%),
-    radial-gradient(90% 50% at 100% 30%, rgba(162, 89, 255, 0.16), transparent 70%),
-    var(--bg);
-}
+/* Welcome. */
 html.mobile.screen-welcome #app {
   justify-content: space-between;
 }
@@ -737,64 +814,26 @@ html.mobile.screen-welcome #app > :last-child {
 }
 html.mobile .welcome-hero {
   text-align: left;
-  padding: 48px 0 0;
+  padding: 56px 0 0;
   margin: 0;
 }
 html.mobile .welcome-hero img {
-  width: 76px !important;
-  height: 76px !important;
-  margin: 0 0 30px;
-  border-radius: 22px;
-  box-shadow: 0 18px 40px -12px rgba(252, 114, 255, 0.55);
+  width: 64px !important;
+  height: 64px !important;
+  margin: 0 0 28px;
+  border-radius: 16px;
+  box-shadow: none;
 }
 html.mobile .welcome-hero h1 {
-  font-size: 40px;
-  line-height: 1.02;
+  font-size: 34px;
+  line-height: 1.05;
   letter-spacing: -0.04em;
   margin: 0;
-}
-html.mobile .welcome-tagline {
-  margin: 10px 0 0;
-  font-size: 22px;
-  line-height: 1.25;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--text);
 }
 html.mobile .welcome-hero p.muted {
   max-width: 340px;
   margin: 14px 0 0;
-  font-size: 15px;
-}
-.welcome-features {
-  list-style: none;
-  margin: 30px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.welcome-features li {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  font-size: 15.5px;
-  font-weight: 550;
-  color: var(--text);
-}
-.wf-icon {
-  width: 40px;
-  height: 40px;
-  flex: none;
-  border-radius: 13px;
-  display: grid;
-  place-items: center;
-  background: var(--s1);
-  border: 1px solid var(--line);
-  color: var(--accent-ink);
-}
-.welcome-features li:nth-child(2) .wf-icon {
-  color: var(--private);
+  font-size: 16px;
 }
 .welcome-actions {
   display: flex;
@@ -802,16 +841,31 @@ html.mobile .welcome-hero p.muted {
   padding: 28px 0 8px;
 }
 
-/* ---- Create password / verify ---- */
-html.mobile:not(.has-tabs) #app > div > h1:first-child {
+/* Unlock. */
+html.mobile .hero {
+  padding: 0;
+  margin-bottom: 4px;
+}
+html.mobile:not(.has-tabs) .hero .avatar {
+  width: 80px !important;
+  height: 80px !important;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+html.mobile:not(.has-tabs) .hero .avatar svg {
+  width: 100%;
+  height: 100%;
+}
+html.mobile .hero + h1 {
   margin-bottom: 8px;
 }
 
-/* ---- Recovery phrase ---- */
+/* Recovery phrase: three columns, covered until tapped, with a warning. */
 html.mobile .mnemonic-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 6px;
   padding: 0;
   background: none;
   border: 0;
@@ -820,13 +874,12 @@ html.mobile .mnemonic-word {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  padding: 11px 10px;
-  border-radius: 12px;
+  padding: 10px;
+  border-radius: var(--r-sm);
   background: var(--s1);
   border: 1px solid var(--line);
   font-family: var(--mono);
   font-size: 14px;
-  font-weight: 550;
   overflow: hidden;
 }
 html.mobile .mnemonic-word span {
@@ -834,36 +887,37 @@ html.mobile .mnemonic-word span {
   font-size: 11px;
   color: var(--text-3);
 }
-
-/* ---- Unlock ---- */
-html.mobile .hero {
-  padding: 0;
-  margin-bottom: 6px;
+.secret {
+  position: relative;
 }
-html.mobile:not(.has-tabs) .hero .avatar {
-  width: 92px !important;
-  height: 92px !important;
-  border-radius: 50%;
-  box-shadow:
-    0 0 0 4px var(--bg),
-    0 0 0 6px rgba(162, 89, 255, 0.55),
-    0 20px 50px -12px var(--accent-shadow);
+.secret:not(.revealed) .mnemonic-grid {
+  filter: blur(7px);
+  -webkit-user-select: none;
+  user-select: none;
 }
-html.mobile:not(.has-tabs) .hero .avatar svg {
+html.mobile .secret-cover {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: rgba(10, 9, 13, 0.35);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
 }
-html.mobile .hero + h1 {
-  margin-bottom: 10px;
+.secret-warning {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(233, 180, 76, 0.3);
+  background: rgba(233, 180, 76, 0.06);
+  color: #ecc77d;
+  font-size: 13.5px;
+  line-height: 1.5;
 }
 
 /* ---- Home ---- */
-html.mobile.screen-home {
-  --page-bg:
-    radial-gradient(100% 34% at 50% 16%, rgba(162, 89, 255, 0.22), transparent 70%),
-    radial-gradient(55% 24% at 88% 12%, rgba(252, 114, 255, 0.12), transparent 72%),
-    var(--bg);
-}
 html.mobile.screen-home #app {
   gap: 16px;
 }
@@ -881,18 +935,18 @@ html.mobile .home-header .account-pill {
   width: auto;
   min-height: 44px;
   margin: 0;
-  padding: 4px 12px 4px 4px;
+  padding: 0 6px 0 0;
   gap: 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--line);
-  font-size: 15.5px;
-  font-weight: 650;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: 16px;
+  font-weight: 600;
   color: var(--text);
 }
 html.mobile .home-header .account-pill .avatar {
-  width: 36px !important;
-  height: 36px !important;
+  width: 32px !important;
+  height: 32px !important;
   flex: none;
   border-radius: 50%;
   overflow: hidden;
@@ -902,36 +956,35 @@ html.mobile .home-header .account-pill .avatar svg {
   height: 100%;
 }
 html.mobile .home-header .account-pill-label {
-  max-width: 150px;
+  max-width: 160px;
 }
 html.mobile .home-header .network-line {
   width: auto;
-  min-height: 36px;
+  min-height: 32px;
   margin: 0;
-  padding: 0 14px;
+  padding: 0 12px;
+  gap: 7px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--line);
-  font-size: 13px;
-  font-weight: 650;
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--text-2);
-  gap: 8px;
 }
 html.mobile .network-dot {
-  width: 8px;
-  height: 8px;
-  background: var(--fair);
-  box-shadow: 0 0 0 3px rgba(255, 184, 77, 0.18);
+  width: 6px;
+  height: 6px;
+  background: var(--warn);
+  box-shadow: none;
 }
 html.mobile .network-line-mainnet .network-dot {
   background: var(--good);
-  box-shadow: 0 0 0 3px rgba(74, 222, 154, 0.18);
 }
 
-/* Hero: the number, nothing around it. */
+/* Balance. */
 html.mobile .account-summary.card {
   position: relative;
-  padding: 26px 0 6px;
+  padding: 24px 0 4px;
   background: none;
   border: 0;
   border-radius: 0;
@@ -953,12 +1006,40 @@ html.mobile .summary-balance {
   gap: 0;
 }
 html.mobile .summary-label {
-  font-size: 14px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 2px;
+  font-size: 13.5px;
+  font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
   color: var(--text-2);
-  margin-bottom: 4px;
+}
+html.mobile .amount-eye {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+}
+html.mobile .amount-eye[aria-pressed="true"] {
+  color: var(--text);
+}
+html.mobile .amount-eye[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  width: 20px;
+  height: 1.5px;
+  background: currentColor;
+  transform: rotate(-40deg);
 }
 html.mobile .hero-balance {
   justify-content: center;
@@ -966,56 +1047,119 @@ html.mobile .hero-balance {
   gap: 8px;
 }
 html.mobile .hero-balance-amount {
-  font-size: 56px;
-  line-height: 1.02;
-  font-weight: 700;
-  letter-spacing: -0.045em;
+  font-size: 50px;
+  line-height: 1.05;
+  font-weight: 600;
+  letter-spacing: -0.05em;
   font-variant-numeric: tabular-nums;
 }
 html.mobile .hero-balance-unit {
-  font-size: 20px;
-  font-weight: 650;
+  font-size: 18px;
+  font-weight: 500;
   color: var(--text-2);
-  letter-spacing: -0.01em;
 }
+/* "0.5 TARI private" -- shown when there's no split bar (no public balance to compare against). */
 html.mobile .private-balance {
-  margin-top: 14px !important;
-  padding: 7px 14px 7px 12px;
-  gap: 7px;
-  border-radius: 999px;
-  background: var(--private-soft);
-  border: 1px solid var(--private-line);
+  margin-top: 12px !important;
+  padding: 0;
+  gap: 6px;
+  border: 0;
+  background: none;
   color: var(--private);
   font-size: 13.5px;
-  font-weight: 650;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   align-items: center;
 }
 html.mobile .private-balance::before {
   content: "";
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   flex: none;
   background: currentColor;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E") center / contain no-repeat;
 }
+html.mobile .account-summary.has-split .private-balance {
+  display: none !important;
+}
+.balance-split {
+  width: min(300px, 90%);
+  margin: 16px auto 0;
+}
+.balance-split[hidden] {
+  display: none;
+}
+.split-bar {
+  display: flex;
+  gap: 2px;
+  height: 4px;
+}
+.split-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s var(--ease);
+}
+.split-pub {
+  background: var(--accent);
+}
+.split-priv {
+  background: var(--private);
+}
+.split-legend {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+.split-legend span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+.split-legend b {
+  font-weight: 500;
+  color: var(--text-2);
+}
+.split-legend b::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--accent);
+}
+.sl-priv b::before {
+  background: var(--private);
+}
+.split-legend em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
 html.mobile .account-summary .addr-pill {
   width: auto;
-  margin: 16px auto 0;
-  min-height: 34px;
-  padding: 0 12px 0 14px;
+  margin: 14px auto 0;
+  min-height: 32px;
+  padding: 0 10px 0 12px;
   gap: 8px;
   border-radius: 999px;
-  background: transparent;
   border: 1px solid var(--line);
-  color: var(--text-2);
+  background: transparent;
+  color: var(--text-3);
   font-family: var(--mono);
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 400;
 }
 
-/* Actions: four tiles. History lives in the Activity tab; Claim L1 burn is its own card. */
+/* Actions: four round buttons with labels. History lives in the Activity tab; Claim L1 burn is a
+   row of its own below. */
 html.mobile #historyAction,
 html.mobile #burnAction {
   display: none;
@@ -1023,34 +1167,33 @@ html.mobile #burnAction {
 html.mobile .action-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  margin-top: 6px;
-  align-items: stretch;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: start;
 }
 html.mobile .action-row > button.action-btn {
   flex-direction: column;
   justify-content: flex-start;
-  gap: 10px;
+  gap: 8px;
   min-height: 0;
   margin: 0;
-  padding: 14px 4px 12px;
-  border-radius: 20px;
-  background: var(--s1);
-  border: 1px solid var(--line);
+  padding: 0;
+  border: 0;
+  background: none;
   box-shadow: none;
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--text);
-  line-height: 1.15;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  line-height: 1.2;
   white-space: normal;
   text-align: center;
 }
 html.mobile .action-btn .action-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 15px;
-  background: var(--s3);
-  border: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--s2);
+  border: 1px solid var(--line);
   color: var(--text);
   box-shadow: none;
 }
@@ -1059,17 +1202,16 @@ html.mobile .action-btn .action-icon .icon-svg svg {
   height: 22px;
 }
 html.mobile #sendAction .action-icon {
-  background: var(--accent-grad);
-  color: var(--on-accent);
-  box-shadow: 0 8px 18px -8px var(--accent-shadow);
+  background: var(--primary-bg);
+  border-color: transparent;
+  color: var(--primary-ink);
 }
 html.mobile #shieldAction .action-icon,
 html.mobile #unshieldAction .action-icon {
-  background: var(--private-soft);
   color: var(--private);
 }
 
-/* Claim L1 burn. */
+/* Claim L1 burn, as a list row. */
 .l1-card {
   display: flex;
   align-items: center;
@@ -1077,21 +1219,16 @@ html.mobile #unshieldAction .action-icon {
   width: 100%;
   margin: 0 !important;
   padding: 14px 14px 14px 16px;
-  border-radius: 20px;
-  background: linear-gradient(110deg, rgba(162, 89, 255, 0.12), rgba(162, 89, 255, 0.02) 60%), var(--s1);
+  border-radius: var(--r-lg);
+  background: var(--s1);
   border: 1px solid var(--line);
   color: var(--text);
   text-align: left;
 }
 .l1-icon {
-  width: 42px;
-  height: 42px;
   flex: none;
-  border-radius: 14px;
   display: grid;
-  place-items: center;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  color: var(--text-2);
 }
 .l1-text {
   flex: 1;
@@ -1101,17 +1238,54 @@ html.mobile #unshieldAction .action-icon {
   gap: 2px;
 }
 .l1-text b {
-  font-size: 15.5px;
-  font-weight: 650;
+  font-size: 15px;
+  font-weight: 500;
 }
 .l1-text span {
   font-size: 13px;
-  font-weight: 450;
+  font-weight: 400;
   color: var(--text-2);
 }
 .l1-go {
-  color: var(--text-3);
   display: grid;
+  color: var(--text-3);
+}
+
+/* First-run privacy note. */
+.privacy-guide {
+  padding: 16px 16px 8px;
+  border-radius: var(--r-lg);
+  background: var(--s1);
+  border: 1px solid var(--line);
+}
+.pg-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.pg-steps {
+  margin: 10px 0 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.pg-steps li::marker {
+  color: var(--text-3);
+}
+html.mobile .pg-done {
+  display: block;
+  width: auto;
+  min-height: 40px;
+  margin: 2px 0 0 auto;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font-size: 14.5px;
+  font-weight: 500;
 }
 
 /* Assets. */
@@ -1119,41 +1293,155 @@ html.mobile.screen-home #app > .row {
   margin-top: 8px !important;
 }
 html.mobile .balances-card {
-  padding: 2px 16px;
-  border-radius: var(--r-lg);
-}
-html.mobile .balance-row .token-avatar {
-  width: 42px !important;
-  height: 42px !important;
-  border-radius: 50%;
-  font-size: 16px !important;
+  padding: 0 16px;
 }
 html.mobile .balance-left {
   gap: 14px;
 }
+html.mobile .balance-row .token-avatar {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 50%;
+  font-size: 15px !important;
+}
 html.mobile .balance-row .token-symbol {
   font-size: 16px;
-  font-weight: 650;
+  font-weight: 500;
 }
 html.mobile .balance-row .token-amount {
   font-size: 16px;
-  font-weight: 650;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 html.mobile .balance-row .token-amount-private {
   margin-top: 2px;
   font-size: 12.5px;
-  font-weight: 600;
   color: var(--private);
   font-variant-numeric: tabular-nums;
 }
+/* A new wallet: the first step instead of "No tokens yet". */
+html.mobile .balances-card.assets-empty {
+  padding: 0;
+}
+html.mobile .assets-empty .empty-state {
+  padding: 24px 20px 20px;
+  gap: 4px;
+}
+.ea-title {
+  font-size: 17px;
+  font-weight: 600;
+}
+.ea-body {
+  font-size: 14px;
+  color: var(--text-2);
+}
+html.mobile #app .ea-receive {
+  width: 100%;
+  margin-top: 14px;
+}
+
+/* Recent activity. */
+.recent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+html.mobile .see-all {
+  width: auto;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font-size: 14.5px;
+  font-weight: 500;
+}
+html.mobile .recent-card,
+html.mobile .history-day {
+  padding: 0 16px;
+}
+html.mobile .recent-row {
+  width: 100%;
+  margin: 0;
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  color: var(--text);
+  font-weight: inherit;
+}
+
+/* ---- Activity ---- */
+html.mobile .history-icon {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--s2);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+}
+html.mobile .hk-private .history-icon {
+  color: var(--private);
+}
+html.mobile .balance-row.status-failed .history-icon {
+  color: var(--bad);
+}
+html.mobile .history-list .balance-row {
+  align-items: center;
+}
+html.mobile .history-list .list-row-info > div:first-child {
+  font-size: 15px;
+  font-weight: 500;
+}
+html.mobile .history-list .list-row-info .muted {
+  font-size: 13px;
+}
+.history-right {
+  margin-left: auto;
+  padding-left: 8px;
+  text-align: right;
+  align-self: flex-start;
+  padding-top: 1px;
+}
+html.mobile .recent-row .history-right {
+  align-self: center;
+  padding-top: 0;
+}
+.history-right .history-amount {
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.hk-in .history-amount {
+  color: var(--good);
+}
+.hk-private .history-amount {
+  color: var(--private);
+}
+html.mobile .history-tx {
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+html.mobile .history-tx a {
+  color: var(--accent-ink);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.day-head {
+  margin: 8px 4px -6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-3);
+}
 
 /* ---- Token detail ---- */
-html.mobile.screen-token {
-  --page-bg:
-    radial-gradient(100% 38% at 50% -4%, rgba(162, 89, 255, 0.2), transparent 64%),
-    var(--bg);
-}
 .token-hero {
   display: flex;
   flex-direction: column;
@@ -1162,20 +1450,19 @@ html.mobile.screen-token {
   padding: 8px 0 4px;
 }
 html.mobile .token-hero .token-avatar {
-  width: 72px !important;
-  height: 72px !important;
+  width: 56px !important;
+  height: 56px !important;
+  margin-bottom: 10px;
   border-radius: 50%;
-  margin-bottom: 12px;
-  box-shadow: 0 16px 40px -14px var(--accent-shadow);
+  box-shadow: none;
 }
 .token-hero-name {
-  font-size: 17px;
-  font-weight: 650;
+  font-size: 16px;
+  font-weight: 600;
 }
 .token-hero-label {
-  margin-top: 18px;
+  margin-top: 16px;
   font-size: 13.5px;
-  font-weight: 600;
   color: var(--text-2);
 }
 .token-hero-amount {
@@ -1184,16 +1471,16 @@ html.mobile .token-hero .token-avatar {
   justify-content: center;
   gap: 8px;
   margin-top: 2px;
-  font-size: 44px;
+  font-size: 40px;
   line-height: 1.05;
-  font-weight: 700;
-  letter-spacing: -0.04em;
+  font-weight: 600;
+  letter-spacing: -0.045em;
   font-variant-numeric: tabular-nums;
 }
 .token-hero-unit {
-  font-size: 18px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: 0;
   color: var(--text-2);
 }
 html.mobile .token-hero .private-balance {
@@ -1201,61 +1488,26 @@ html.mobile .token-hero .private-balance {
 }
 .token-actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   grid-auto-flow: column;
-  gap: 10px;
-  margin-top: 4px;
+  grid-auto-columns: 1fr;
+  gap: 8px;
 }
 html.mobile #app .token-actions > button.token-action {
-  min-height: 0;
+  min-height: 48px;
   margin: 0;
-  padding: 58px 6px 12px;
-  position: relative;
-  border-radius: 20px;
-  background: var(--s1);
-  border: 1px solid var(--line);
-  font-size: 13px;
-  font-weight: 650;
+  padding: 0 8px;
+  font-size: 14px;
   line-height: 1.2;
 }
-.token-action::before {
-  content: "";
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  width: 40px;
-  height: 40px;
-  margin-left: -20px;
-  border-radius: 14px;
-  background: var(--private-soft);
-}
-.token-action::after {
-  content: "";
-  position: absolute;
-  top: 22px;
-  left: 50%;
-  width: 20px;
-  height: 20px;
-  margin-left: -10px;
-  background: var(--private);
-  -webkit-mask: var(--ta-icon) center / contain no-repeat;
-  mask: var(--ta-icon) center / contain no-repeat;
-}
-.ta-shield {
-  --ta-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E");
-}
-.ta-unshield {
-  --ta-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 7.5-2'/%3E%3C/svg%3E");
-}
-.ta-send,
-.ta-other {
-  --ta-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 19V5M5 12l7-7 7 7'/%3E%3C/svg%3E");
+html.mobile #app .token-actions > .ta-shield,
+html.mobile #app .token-actions > .ta-send {
+  color: var(--private);
 }
 .token-details-title {
   margin-top: 8px;
 }
 html.mobile.screen-token .card {
-  padding: 4px 16px;
+  padding: 2px 16px;
 }
 .kv {
   display: flex;
@@ -1271,12 +1523,11 @@ html.mobile.screen-token .card {
 html.mobile .kv > .muted {
   margin: 0;
   font-size: 14.5px;
-  color: var(--text-2);
 }
 html.mobile .kv > .detail-value {
   font-family: inherit;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 500;
   text-align: right;
 }
 .kv-stack {
@@ -1285,90 +1536,133 @@ html.mobile .kv > .detail-value {
   gap: 8px;
 }
 
-/* ---- Activity ---- */
-html.mobile .history-list .balance-row {
-  align-items: center;
+/* ---- Receive ---- */
+html.mobile.screen-receive .hero {
+  display: none;
 }
-html.mobile .history-list .list-row-info > div:first-child {
-  font-size: 15.5px;
-  font-weight: 650;
+html.mobile .qr-card {
+  width: 100%;
+  max-width: 280px;
+  margin: 8px auto 4px;
+  padding: 16px;
+  border-radius: var(--r-lg);
+  background: #ffffff;
+  border: 0;
+  box-shadow: none;
 }
-html.mobile .history-list .list-row-info .muted {
+html.mobile .receive-address {
+  padding: 16px;
+}
+html.mobile .receive-address .copy-row {
+  display: block;
+}
+html.mobile .receive-address .addr {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--s2);
   font-size: 13px;
+  line-height: 1.6;
+  word-break: break-all;
+  -webkit-user-select: text;
+  user-select: text;
 }
-.history-right {
-  margin-left: auto;
-  padding-left: 8px;
-  text-align: right;
-  align-self: flex-start;
-  padding-top: 2px;
+.receive-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
 }
-.history-right .history-amount {
+html.mobile #app .receive-actions > button {
+  min-height: 48px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   font-size: 15px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
-html.mobile .hk-in .history-icon {
-  background: rgba(74, 222, 154, 0.12);
-  color: var(--good);
+html.mobile #app .receive-actions > .receive-copy {
+  width: 100%;
+  border-radius: var(--r-md);
+  background: var(--s2);
+  border: 1px solid var(--line);
+  color: var(--text);
 }
-.hk-in .history-amount {
-  color: var(--good);
-}
-html.mobile .hk-out .history-icon {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-html.mobile .hk-private .history-icon {
-  background: var(--private-soft);
-  color: var(--private);
-}
-.hk-private .history-amount {
-  color: var(--private);
-}
-html.mobile .history-tx {
-  font-size: 12px;
+html.mobile .receive-note {
+  padding: 0 4px;
+  font-size: 13px;
   color: var(--text-3);
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-}
-html.mobile .history-tx a {
-  color: var(--accent-ink);
-  text-decoration: none;
-}
-html.mobile .balance-row.status-failed .history-icon {
-  background: rgba(255, 107, 107, 0.12);
-  color: var(--bad);
 }
 
-/* ---- Settings: grouped lists ---- */
+/* ---- Settings ---- */
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border-radius: var(--r-lg);
+  background: var(--s1);
+  border: 1px solid var(--line);
+}
+.profile-avatar {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: 50%;
+  overflow: hidden;
+}
+.profile-avatar svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.profile-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.profile-text b {
+  font-size: 17px;
+  font-weight: 600;
+}
+.profile-text span {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-net {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--warn);
+}
+.profile-card.is-mainnet .profile-net {
+  color: var(--good);
+}
 .settings-group-title {
   margin: 10px 4px -6px;
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--text-3);
-}
-.settings-group-title:first-child {
-  margin-top: 0;
 }
 html.mobile .settings-card {
   padding: 0;
   overflow: hidden;
-  border-radius: var(--r-lg);
 }
 html.mobile .settings-row {
-  min-height: 58px;
+  min-height: 56px;
   margin: 0;
   padding: 8px 16px;
   border: 0;
   border-radius: 0;
   background: transparent;
   font-size: 15.5px;
-  font-weight: 550;
+  font-weight: 400;
   color: var(--text);
 }
 html.mobile .settings-card > * + * {
@@ -1385,43 +1679,20 @@ html.mobile .settings-row-left {
   gap: 14px;
 }
 html.mobile .settings-row-left .icon-svg {
-  width: 34px;
-  height: 34px;
-  flex: none;
-  border-radius: 11px;
   display: grid;
-  place-items: center;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  color: var(--text-2);
 }
 html.mobile .settings-row-left .icon-svg svg {
-  width: 18px;
-  height: 18px;
-}
-html.mobile #connectDaemon .settings-row-left .icon-svg,
-html.mobile #daemons .settings-row-left .icon-svg {
-  background: rgba(96, 165, 250, 0.14);
-  color: #9cc7ff;
-}
-html.mobile #backup .settings-row-left .icon-svg {
-  background: rgba(255, 184, 77, 0.14);
-  color: #ffcf85;
-}
-html.mobile #sites .settings-row-left .icon-svg {
-  background: var(--private-soft);
-  color: var(--private);
-}
-html.mobile #addressBook .settings-row-left .icon-svg {
-  background: rgba(252, 114, 255, 0.13);
-  color: #ffb3ff;
+  width: 20px;
+  height: 20px;
 }
 html.mobile .settings-row-right {
-  color: var(--text-3);
   gap: 6px;
+  color: var(--text-3);
 }
 html.mobile .settings-row-trailing {
+  font-size: 14.5px;
   color: var(--text-2);
-  font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 html.mobile .settings-row-static {
@@ -1433,46 +1704,139 @@ html.mobile .settings-row .settings-row-select {
   width: auto;
   min-height: 40px;
   margin: 0 0 0 auto;
-  padding: 0 28px 0 8px;
+  padding: 0 26px 0 8px;
   border: 0;
   background-color: transparent;
-  background-position: right 4px center;
+  background-position: right 2px center;
   color: var(--text-2);
   font-size: 15px;
   text-align: right;
-  box-shadow: none;
 }
 html.mobile #lock {
   margin-top: 6px;
 }
-
-/* ---- Activity / dApps / account list ---- */
-html.mobile .history-list,
-html.mobile .account-switch-list {
-  border-radius: var(--r-lg);
+.app-version {
+  padding: 4px 0 8px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-3);
 }
+
+/* Account switcher. */
+html.mobile .account-switch-list {
+  padding: 0;
+  overflow: hidden;
+}
+html.mobile .account-switch-list .settings-row {
+  min-height: 64px;
+}
+html.mobile .account-switch-list .avatar {
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 50%;
+  overflow: hidden;
+}
+html.mobile .account-switch-list .avatar svg {
+  width: 100%;
+  height: 100%;
+}
+html.mobile .account-switch-list .settings-row .row > div:last-child > div:first-child {
+  font-size: 15.5px !important;
+  font-weight: 500 !important;
+}
+html.mobile .account-switch-list .settings-row[aria-current="true"] .settings-row-right {
+  color: var(--accent-ink);
+  font-size: 13.5px;
+}
+
+/* ---- dApps ---- */
 html.mobile .site-card {
-  border-radius: var(--r-lg);
   padding: 16px;
+  border-radius: var(--r-lg);
   background: var(--s1);
 }
-
-/* ---- Receive ---- */
-html.mobile .qr-card {
-  width: 100%;
-  max-width: 300px;
-  margin: 4px auto;
-  padding: 18px;
-  border-radius: var(--r-xl);
-  background: #fff;
-  box-shadow: 0 24px 60px -24px rgba(162, 89, 255, 0.55);
+html.mobile .dapps-empty {
+  padding: 4px 4px 0;
+  text-align: left;
+}
+.howto {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.howto li {
+  counter-increment: step;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.howto li::before {
+  content: counter(step);
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  display: inline-grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  transform: translateY(-1px);
 }
 
 /* ---- Approvals ---- */
-/* Approve/Reject sit at the bottom, within thumb reach; on a long request they still come after
+/* Approve / Reject sit at the bottom, within thumb reach; on a long request they still come after
    everything being approved. */
 html.mobile.approving #app > #approve {
   margin-top: auto;
+}
+html.mobile.approving h1 {
+  text-align: center;
+  font-size: 22px;
+}
+.dapp-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 0 0;
+}
+.dapp-mono {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  font-weight: 600;
+  color: #ffffff;
+}
+.dapp-me {
+  background: var(--s2);
+  border: 1px solid var(--line);
+}
+.dapp-me img {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+}
+.dapp-link {
+  display: flex;
+  gap: 4px;
+}
+.dapp-link i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-3);
 }
 .approval-counter {
   display: flex;
@@ -1480,11 +1844,11 @@ html.mobile.approving #app > #approve {
   justify-content: space-between;
   gap: 8px;
   padding: 10px 14px;
-  border-radius: 14px;
-  background: var(--accent-soft);
-  border: 1px solid rgba(162, 89, 255, 0.3);
+  border-radius: 12px;
+  background: var(--s1);
+  border: 1px solid var(--line);
   font-size: 13.5px;
-  font-weight: 650;
+  font-weight: 500;
 }
 .approval-counter .link-btn {
   width: auto;
@@ -1492,25 +1856,131 @@ html.mobile.approving #app > #approve {
   padding: 4px 0;
   min-height: 0;
   font-size: 13.5px;
-  color: var(--accent-ink);
 }
-html.mobile .approval-step {
+
+/* ---- Review sheet (src/mobile/review.ts) ---- */
+.review-card h2 {
+  margin: 0;
+  text-align: center;
   font-size: 14.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-2);
+}
+.rv-amount {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+  margin: 8px 0 16px;
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+}
+.rv-unit {
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-2);
+}
+.rv-private .rv-amount > span:first-child,
+.rv-shield .rv-amount > span:first-child {
+  color: var(--private);
+}
+.rv-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: -4px 0 16px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.rv-chip-pub {
+  color: var(--text);
+}
+.rv-chip-priv {
+  color: var(--private);
+}
+.rv-arrow {
+  display: grid;
+  color: var(--text-3);
+}
+.rv-rows {
+  margin-bottom: 16px;
+  padding: 0 16px;
+  border-radius: var(--r-md);
+  background: var(--s2);
+  border: 1px solid var(--line);
+}
+.rv-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 13px 0;
+  font-size: 14.5px;
+}
+.rv-row + .rv-row {
+  border-top: 1px solid var(--line);
+}
+.rv-label {
+  flex: none;
+  color: var(--text-2);
+}
+.rv-value {
+  min-width: 0;
+  text-align: right;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.rv-to {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.rv-to .rv-value {
+  text-align: left;
+}
+.rv-addr {
+  display: block;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--text-3);
+  word-break: break-all;
+}
+/* The characters people compare are the loudest part. */
+.rv-addr b {
+  font-weight: 600;
+  color: var(--text);
+}
+.rv-priv .rv-value {
+  color: var(--private);
+}
+.review-card button {
+  width: 100%;
+  min-height: 52px;
+}
+.review-card button + button {
+  margin-top: 10px;
 }
 
 /* =========================================================================================
    Mechanics
    ========================================================================================= */
 
-/* ---- Screen transitions ---- */
+/* ---- Screen transitions: short and quiet ---- */
 html.mobile #app.view-enter {
-  animation: m-forward 0.28s var(--ease);
+  animation: m-forward 0.22s var(--ease);
 }
 html.mobile.nav-back #app.view-enter {
   animation-name: m-back;
 }
 html.mobile.nav-tab #app.view-enter {
-  animation: m-fade 0.2s ease-out;
+  animation: m-fade 0.16s ease-out;
 }
 /* Refreshes (pull to refresh, resume, reconnect) update the screen in place. */
 html.mobile.nav-none #app.view-enter {
@@ -1519,7 +1989,7 @@ html.mobile.nav-none #app.view-enter {
 @keyframes m-forward {
   from {
     opacity: 0;
-    transform: translateX(24px);
+    transform: translateX(16px);
   }
   to {
     opacity: 1;
@@ -1529,7 +1999,7 @@ html.mobile.nav-none #app.view-enter {
 @keyframes m-back {
   from {
     opacity: 0;
-    transform: translateX(-24px);
+    transform: translateX(-16px);
   }
   to {
     opacity: 1;
@@ -1539,11 +2009,9 @@ html.mobile.nav-none #app.view-enter {
 @keyframes m-fade {
   from {
     opacity: 0;
-    transform: translateY(6px);
   }
   to {
     opacity: 1;
-    transform: none;
   }
 }
 
@@ -1559,7 +2027,6 @@ html.mobile.nav-none #app.view-enter {
   border-radius: 50%;
   background: var(--s2);
   border: 1px solid var(--line-strong);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1576,19 +2043,19 @@ html.mobile.ptr-settling #ptr {
     opacity 0.26s ease;
 }
 .ptr-spinner {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  border: 2.5px solid rgba(162, 89, 255, 0.3);
-  border-top-color: var(--accent);
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--text);
 }
 #ptr.armed .ptr-spinner {
-  border-color: var(--accent);
+  border-color: var(--text);
 }
 #ptr.spinning .ptr-spinner {
   animation: ptr-spin 0.8s linear infinite;
-  border-color: rgba(162, 89, 255, 0.3);
-  border-top-color: var(--accent);
+  border-color: var(--line-strong);
+  border-top-color: var(--text);
 }
 @keyframes ptr-spin {
   to {
@@ -1619,16 +2086,15 @@ html.scanning #ptr {
   align-items: center;
   justify-content: space-between;
   padding: calc(28px + env(safe-area-inset-top)) 24px calc(28px + env(safe-area-inset-bottom));
-  color: #fff;
+  color: #ffffff;
 }
 #qr-scanner .qr-top {
   text-align: center;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
 }
 #qr-scanner .qr-title {
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: 20px;
+  font-weight: 600;
 }
 #qr-scanner .qr-sub {
   margin-top: 4px;
@@ -1640,28 +2106,26 @@ html.scanning #ptr {
   position: relative;
   width: min(72vw, 300px);
   aspect-ratio: 1;
-  border-radius: 28px;
-  box-shadow: 0 0 0 200vmax rgba(8, 6, 12, 0.66);
+  border-radius: 24px;
+  box-shadow: 0 0 0 200vmax rgba(10, 9, 13, 0.66);
 }
 #qr-scanner .qr-frame i {
   position: absolute;
-  width: 44px;
-  height: 44px;
-  border: 4px solid #fff;
+  width: 40px;
+  height: 40px;
+  border: 3px solid #ffffff;
 }
-#qr-scanner .qr-frame i:nth-child(1) { left: -2px; top: -2px; border-right: 0; border-bottom: 0; border-top-left-radius: 28px; }
-#qr-scanner .qr-frame i:nth-child(2) { right: -2px; top: -2px; border-left: 0; border-bottom: 0; border-top-right-radius: 28px; }
-#qr-scanner .qr-frame i:nth-child(3) { left: -2px; bottom: -2px; border-right: 0; border-top: 0; border-bottom-left-radius: 28px; }
-#qr-scanner .qr-frame i:nth-child(4) { right: -2px; bottom: -2px; border-left: 0; border-top: 0; border-bottom-right-radius: 28px; }
+#qr-scanner .qr-frame i:nth-child(1) { left: -2px; top: -2px; border-right: 0; border-bottom: 0; border-top-left-radius: 24px; }
+#qr-scanner .qr-frame i:nth-child(2) { right: -2px; top: -2px; border-left: 0; border-bottom: 0; border-top-right-radius: 24px; }
+#qr-scanner .qr-frame i:nth-child(3) { left: -2px; bottom: -2px; border-right: 0; border-top: 0; border-bottom-left-radius: 24px; }
+#qr-scanner .qr-frame i:nth-child(4) { right: -2px; bottom: -2px; border-left: 0; border-top: 0; border-bottom-right-radius: 24px; }
 #qr-scanner .qr-line {
   position: absolute;
-  left: 10%;
-  right: 10%;
-  height: 2px;
-  border-radius: 1px;
-  background: linear-gradient(90deg, transparent, #fc72ff, transparent);
-  box-shadow: 0 0 12px #fc72ff;
-  animation: qr-sweep 2s ease-in-out infinite alternate;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.7);
+  animation: qr-sweep 2.2s ease-in-out infinite alternate;
 }
 @keyframes qr-sweep {
   from { top: 12%; }
@@ -1675,21 +2139,21 @@ html.scanning #ptr {
 }
 #qr-scanner .qr-btn {
   flex: 1;
-  min-height: 54px;
+  min-height: 52px;
   margin: 0;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(18, 14, 24, 0.78);
-  color: #fff;
+  background: rgba(10, 9, 13, 0.8);
+  color: #ffffff;
   font-size: 16px;
-  font-weight: 650;
+  font-weight: 600;
 }
 #qr-scanner .qr-btn[hidden] {
   display: none;
 }
 #qr-scanner .qr-btn.on {
-  background: #fff;
-  color: #120b18;
+  background: #ffffff;
+  color: var(--primary-ink);
 }
 
 /* ---- Reduced motion (Android "Remove animations") ---- */
@@ -1701,6 +2165,8 @@ html.scanning #ptr {
   }
   html.mobile #wc-sheet,
   html.mobile .wc-sheet-card,
+  html.mobile .review-sheet,
+  html.mobile .review-card,
   html.mobile #ptr,
   html.mobile button {
     transition: none;
@@ -1714,896 +2180,85 @@ html.scanning #ptr {
   }
 }
 
-/* =========================================================================================
-   Hidden amounts, balance split, recent activity, day groups, receive, profile
-   ========================================================================================= */
-
-/* ---- Hidden amounts: every figure blurred until the eye is tapped again ---- */
-html.hide-amounts .hero-balance-amount,
-html.hide-amounts .private-balance,
-html.hide-amounts .token-amount,
-html.hide-amounts .token-amount-private,
-html.hide-amounts .history-amount,
-html.hide-amounts .token-hero-amount > span:first-child,
-html.hide-amounts .split-legend em {
-  filter: blur(9px);
-  -webkit-user-select: none;
-  user-select: none;
+/* ---- Claim L1 burn (composed in redesign.ts) ---- */
+html.mobile .burn-card {
+  padding: 4px 16px;
 }
-html.mobile .summary-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.burn-step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 0;
 }
-html.mobile .amount-eye {
-  position: relative;
-  width: 32px;
-  height: 32px;
-  min-height: 0;
-  margin: 0;
-  padding: 0;
+.burn-step + .burn-step {
+  border-top: 1px solid var(--line);
+}
+.burn-step-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.burn-step-num {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
   display: grid;
   place-items: center;
-  border-radius: 50%;
-  background: transparent;
-  border: 0;
-  color: var(--text-3);
-}
-html.mobile .amount-eye[aria-pressed="true"] {
-  color: var(--accent-ink);
-}
-/* A slash through the eye while amounts are hidden. */
-html.mobile .amount-eye[aria-pressed="true"]::after {
-  content: "";
-  position: absolute;
-  width: 20px;
-  height: 2px;
-  border-radius: 1px;
-  background: currentColor;
-  transform: rotate(-40deg);
-}
-
-/* ---- Public / private split ---- */
-html.mobile .account-summary.has-split .private-balance {
-  display: none !important;
-}
-.balance-split {
-  width: min(300px, 86%);
-  margin: 18px auto 0;
-}
-.balance-split[hidden] {
-  display: none;
-}
-.split-bar {
-  display: flex;
-  gap: 3px;
-  height: 8px;
-}
-.split-bar i {
-  display: block;
-  height: 100%;
-  border-radius: 4px;
-  transition: width 0.5s var(--ease);
-}
-.split-pub {
-  background: var(--accent-grad);
-}
-.split-priv {
-  background: var(--private);
-}
-.split-legend {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 10px;
-  font-size: 13px;
-}
-.split-legend span {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.split-legend b {
+  font-size: 12.5px;
   font-weight: 600;
+}
+.burn-step-title {
+  font-size: 15.5px;
+  font-weight: 600;
+}
+.burn-step-body {
+  margin-top: 2px;
+  font-size: 13.5px;
+  line-height: 1.45;
   color: var(--text-2);
 }
-.split-legend b::before {
-  content: "";
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-.sl-priv b::before {
-  background: var(--private);
-}
-.split-legend em {
-  font-style: normal;
-  font-weight: 650;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-.sl-priv em {
-  color: var(--private);
-}
-
-/* ---- Recent activity on Home ---- */
-.recent-head {
+html.mobile .burn-step .copy-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 8px;
+  align-items: stretch;
+  gap: 8px;
 }
-html.mobile .see-all {
-  width: auto;
-  min-height: 36px;
-  margin: 0;
-  padding: 0 4px;
-  background: none;
-  border: 0;
-  color: var(--accent-ink);
-  font-size: 14.5px;
-  font-weight: 650;
-}
-html.mobile .recent-card {
-  padding: 2px 16px;
-}
-html.mobile .recent-row {
-  width: 100%;
-  margin: 0;
-  border-radius: 0;
-  background: none;
-  text-align: left;
-  color: var(--text);
-  font-weight: inherit;
-}
-html.mobile .recent-row .list-row-info > div:first-child {
-  font-size: 15.5px;
-  font-weight: 650;
-}
-html.mobile .recent-row .list-row-info .muted {
-  font-size: 13px;
-}
-html.mobile .recent-row .history-right {
-  align-self: center;
-  padding-top: 0;
-}
-
-/* ---- Activity grouped by day ---- */
-.day-head {
-  margin: 8px 4px -6px;
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-html.mobile .history-day {
-  padding: 2px 16px;
-}
-
-/* ---- Receive: QR first ---- */
-html.mobile.screen-receive {
-  --page-bg:
-    radial-gradient(90% 40% at 50% 8%, rgba(162, 89, 255, 0.18), transparent 66%),
-    var(--bg);
-}
-html.mobile.screen-receive .hero {
-  display: none;
-}
-html.mobile .receive-address {
-  padding: 16px;
-}
-html.mobile .receive-address .copy-row {
-  display: block;
-}
-html.mobile .receive-address .addr {
-  padding: 12px 14px;
-  border-radius: 14px;
+html.mobile .burn-step .copy-row .addr {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
   background: var(--s2);
-  font-size: 13.5px;
-  line-height: 1.6;
+  font-size: 12.5px;
+  line-height: 1.55;
   word-break: break-all;
   -webkit-user-select: text;
   user-select: text;
 }
-.receive-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 12px;
-}
-html.mobile #app .receive-actions > button {
-  min-height: 52px;
-  margin: 0;
-  border-radius: 16px;
-  font-size: 15.5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-html.mobile #app .receive-actions > .receive-copy {
-  width: 100%;
-  background: var(--s2);
-  border: 1px solid var(--line);
-  color: var(--text);
-}
-html.mobile .receive-note {
-  font-size: 13px;
-  padding: 0 4px;
-  color: var(--text-3);
-}
-
-/* ---- Settings profile + version ---- */
-.profile-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px;
-  border-radius: var(--r-lg);
-  background:
-    radial-gradient(120% 140% at 0% 0%, rgba(162, 89, 255, 0.18), transparent 60%),
-    var(--s1);
-  border: 1px solid var(--line);
-}
-.profile-avatar {
-  width: 56px;
-  height: 56px;
-  flex: none;
-  border-radius: 50%;
-  overflow: hidden;
-  box-shadow:
-    0 0 0 3px var(--s1),
-    0 0 0 5px rgba(162, 89, 255, 0.45);
-}
-.profile-avatar svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-.profile-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.profile-text b {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-.profile-text span {
+html.mobile .burn-step textarea {
+  min-height: 0;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
+}
+html.mobile #app .burn-file {
+  margin: 0;
+  min-height: 46px;
+  font-size: 14.5px;
+  font-weight: 500;
   color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.profile-net {
-  flex: none;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 650;
-  color: #ffd08a;
-  background: rgba(255, 184, 77, 0.12);
-}
-.profile-card.is-mainnet .profile-net {
-  color: var(--good);
-  background: rgba(74, 222, 154, 0.12);
-}
-.app-version {
-  text-align: center;
-  font-size: 12.5px;
-  color: var(--text-3);
-  padding: 4px 0 8px;
-}
-
-/* The extension caps its history box at a fixed height; on the phone lists take the room they need. */
-html.mobile .history-list {
-  max-height: none;
-  overflow: visible;
-}
-
-html.mobile .history-tx {
-  font-family: inherit;
-}
-html.mobile .history-tx a {
-  white-space: nowrap;
-}
-
-/* =========================================================================================
-   Brand and finish
-   ========================================================================================= */
-
-/* Inputs and buttons inherit the brand face (form controls don't by default). */
-html.mobile button,
-html.mobile input,
-html.mobile select,
-html.mobile textarea {
-  font-family: var(--font);
-}
-html.mobile h1,
-html.mobile .app-bar-title,
-html.mobile .section-title,
-html.mobile .welcome-tagline {
-  letter-spacing: -0.035em;
-}
-
-/* Balances: the whole part large, the decimals smaller and dimmer. */
-.frac {
-  font-size: 0.56em;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--text-2);
-}
-html.mobile .hero-balance-amount {
-  font-weight: 650;
-  letter-spacing: -0.055em;
-}
-.token-hero-amount {
-  font-weight: 650;
-}
-
-/* The Sapient eye, faint, inside the Home glow. */
-html.mobile .account-summary.card::after {
-  display: block;
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: -6px;
-  width: 300px;
-  height: 180px;
-  margin-left: -150px;
-  z-index: -1;
-  opacity: 0.07;
-  pointer-events: none;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 72'%3E%3Cpath d='M4 36 Q60 -6 116 36 Q60 78 4 36 Z' fill='none' stroke='white' stroke-width='3'/%3E%3Ccircle cx='60' cy='36' r='17' fill='none' stroke='white' stroke-width='3'/%3E%3Ccircle cx='60' cy='36' r='6' fill='white'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-html.mobile .account-summary.card {
-  isolation: isolate;
-}
-
-/* Material: a hairline of light along the top edge of raised surfaces. */
-html.mobile .card,
-html.mobile .action-row > button.action-btn,
-.l1-card,
-.profile-card,
-html.mobile #app .token-actions > button.token-action,
-html.mobile button.secondary {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-}
-html.mobile .qr-card {
-  box-shadow: 0 24px 60px -24px rgba(162, 89, 255, 0.55);
-}
-
-/* Tab bar: the active tab's label in the brand gradient, a soft glow under its icon. */
-#tab-bar .tab.active .tab-label {
-  background: var(--accent-grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-#tab-bar .tab:not(.tab-scan) .tab-icon {
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease,
-    transform 0.25s var(--ease);
-}
-#tab-bar .tab.active:not(.tab-scan) .tab-icon {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px -8px var(--accent-shadow);
-}
-
-/* Brand lockup on unlock / create / import. */
-.brand-lockup {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  margin-bottom: 18px;
-  font-size: 17px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
+html.mobile #app .burn-file.chosen {
   color: var(--text);
-}
-.brand-lockup img {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  box-shadow: 0 6px 16px -6px rgba(252, 114, 255, 0.6);
-}
-html.mobile:not(.has-tabs):not(.approving) #app > .brand-lockup:first-child {
-  margin-top: auto;
-}
-
-/* Welcome: the logo breathes, once a few seconds, very gently. */
-html.mobile .welcome-hero img {
-  animation: logo-breathe 5s ease-in-out infinite;
-}
-@keyframes logo-breathe {
-  0%, 100% { box-shadow: 0 18px 40px -12px rgba(252, 114, 255, 0.5); }
-  50% { box-shadow: 0 22px 54px -10px rgba(252, 114, 255, 0.75); }
-}
-@media (prefers-reduced-motion: reduce) {
-  html.mobile .welcome-hero img { animation: none; }
-}
-
-/* The lockup follows its screen: left with a left-aligned form, centred over the unlock avatar. */
-.brand-lockup {
-  justify-content: flex-start;
-}
-.brand-lockup:has(+ .hero) {
-  justify-content: center;
-}
-
-/* Watermark: present, never competing with the figure. */
-html.mobile .account-summary.card::after {
-  opacity: 0.022;
-  width: 380px;
-  height: 228px;
-  margin-left: -190px;
-  top: -28px;
-}
-/* Legend items stay on one line: dot, label, amount. */
-.balance-split {
-  width: min(330px, 94%);
-}
-.split-legend span {
-  white-space: nowrap;
-  flex-wrap: nowrap;
-}
-
-/* =========================================================================================
-   Round 4: clean hero, legend spacing, Send / Shield / Unshield forms
-   ========================================================================================= */
-
-/* The number is the hero; no watermark behind it. */
-html.mobile .account-summary.card::after {
-  display: none;
-}
-.split-legend {
-  justify-content: center;
-  gap: 22px;
-}
-
-/* ---- Segmented control (Send / Send privately) ---- */
-html.mobile .tab-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 18px;
-  background: var(--s1);
-  border: 1px solid var(--line);
-}
-html.mobile .tab-row .tab-btn {
-  min-height: 44px;
-  margin: 0;
-  border: 0;
-  border-radius: 14px;
-  background: transparent;
-  color: var(--text-2);
-  font-size: 15px;
-  font-weight: 650;
-  box-shadow: none;
-}
-html.mobile .tab-row .tab-btn[aria-selected="true"],
-html.mobile .tab-row .tab-btn.active {
-  background: var(--s3);
-  color: var(--text);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 4px 12px -6px rgba(0, 0, 0, 0.6);
-}
-/* The private tab, when chosen, says so in the privacy colour. */
-html.mobile .tab-row .tab-btn:last-child[aria-selected="true"] {
-  color: var(--private);
-}
-
-/* ---- Amount: the figure you're moving, large and central ---- */
-html.mobile .amount-field {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px 10px 18px;
-  border-radius: 22px;
-  background: var(--s1);
-  border: 1px solid var(--line);
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-html.mobile .amount-field:focus-within {
-  border-color: rgba(162, 89, 255, 0.7);
-  box-shadow: 0 0 0 4px rgba(162, 89, 255, 0.14);
-}
-html.mobile .amount-field input,
-html.mobile .amount-field input:focus {
-  flex: 1;
-  min-width: 0;
-  min-height: 60px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  font-size: 34px;
-  font-weight: 650;
-  letter-spacing: -0.035em;
-  font-variant-numeric: tabular-nums;
-}
-html.mobile .amount-field .max-btn {
-  width: auto;
-  min-height: 38px;
-  margin: 0;
-  padding: 0 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(162, 89, 255, 0.35);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-/* =========================================================================================
-   Round 5: send review sheet, approval hero, account switcher
-   ========================================================================================= */
-
-/* ---- Review sheet ---- */
-.review-sheet {
-  position: fixed;
-  inset: 0;
-  z-index: 35;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  background: rgba(4, 2, 8, 0);
-  transition: background-color 0.24s ease;
-}
-.review-sheet.open {
-  background: rgba(4, 2, 8, 0.72);
-}
-.review-card {
-  width: 100%;
-  max-width: 560px;
-  padding: 10px var(--gutter) calc(22px + env(safe-area-inset-bottom));
-  border-radius: var(--r-xl) var(--r-xl) 0 0;
-  background: var(--s1);
-  border: 1px solid var(--line-strong);
-  border-bottom: 0;
-  box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.5);
-  transform: translateY(100%);
-  transition: transform 0.3s var(--ease);
-}
-.review-sheet.open .review-card {
-  transform: none;
-}
-.review-card h2 {
-  margin: 0;
-  text-align: center;
-  font-size: 15px;
-  font-weight: 650;
-  letter-spacing: 0;
-  color: var(--text-2);
-}
-.rv-amount {
-  display: flex;
-  justify-content: center;
-  align-items: baseline;
-  gap: 8px;
-  margin: 10px 0 18px;
-  font-size: 44px;
-  font-weight: 650;
-  letter-spacing: -0.05em;
-  font-variant-numeric: tabular-nums;
-}
-.rv-unit {
-  font-size: 18px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  color: var(--text-2);
-}
-.rv-private .rv-amount > span:first-child {
-  color: var(--private);
-}
-.rv-rows {
-  border-radius: var(--r-lg);
-  background: var(--s2);
-  border: 1px solid var(--line);
-  padding: 2px 16px;
-  margin-bottom: 16px;
-}
-.rv-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 16px;
-  padding: 13px 0;
-  font-size: 14.5px;
-}
-.rv-row + .rv-row {
-  border-top: 1px solid var(--line);
-}
-.rv-label {
-  flex: none;
-  color: var(--text-2);
-}
-.rv-value {
-  text-align: right;
-  font-weight: 600;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.rv-to {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-}
-.rv-to .rv-value {
-  text-align: left;
-}
-.rv-addr {
-  display: block;
   font-family: var(--mono);
   font-size: 13px;
-  font-weight: 450;
-  line-height: 1.6;
-  color: var(--text-3);
-  word-break: break-all;
 }
-/* The ends are what people compare; make them the loudest part. */
-.rv-addr b {
-  font-weight: 650;
-  color: var(--text);
-}
-.rv-priv .rv-value {
-  color: var(--private);
-}
-.review-card button + button {
-  margin-top: 10px;
-}
-.review-card button {
-  width: 100%;
-  min-height: 56px;
-  border-radius: 18px;
-}
-
-/* ---- Approval hero: dApp <-> Sapient ---- */
-.dapp-hero {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 10px 0 2px;
-}
-.dapp-mono {
-  width: 60px;
-  height: 60px;
-  border-radius: 20px;
-  display: grid;
-  place-items: center;
-  font-size: 26px;
-  font-weight: 700;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-}
-.dapp-me {
-  background: var(--s2);
-  border: 1px solid var(--line);
-}
-.dapp-me img {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-}
-.dapp-link {
-  display: flex;
-  gap: 5px;
-}
-.dapp-link i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-3);
-  animation: link-dot 1.4s ease-in-out infinite;
-}
-.dapp-link i:nth-child(2) {
-  animation-delay: 0.2s;
-}
-.dapp-link i:nth-child(3) {
-  animation-delay: 0.4s;
-}
-@keyframes link-dot {
-  0%, 100% { opacity: 0.3; transform: scale(0.85); }
-  50% { opacity: 1; transform: scale(1); background: var(--accent-ink); }
-}
-html.mobile.approving h1 {
-  text-align: center;
-  font-size: 24px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .dapp-link i { animation: none; opacity: 0.6; }
-}
-
-/* ---- Account switcher ---- */
-html.mobile .account-switch-list {
-  padding: 0;
-  overflow: hidden;
-}
-html.mobile .account-switch-list .settings-row {
-  min-height: 68px;
-}
-html.mobile .account-switch-list .avatar {
-  width: 40px !important;
-  height: 40px !important;
-  border-radius: 50%;
-  overflow: hidden;
-}
-html.mobile .account-switch-list .avatar svg {
-  width: 100%;
-  height: 100%;
-}
-html.mobile .account-switch-list .settings-row .row > div:last-child > div:first-child {
-  font-size: 16px !important;
-  font-weight: 650 !important;
-}
-html.mobile .account-switch-list .settings-row[aria-current="true"] {
-  background: linear-gradient(90deg, rgba(162, 89, 255, 0.12), transparent 70%);
-}
-html.mobile .account-switch-list .settings-row[aria-current="true"] .settings-row-right {
-  color: var(--accent-ink);
-  font-size: 13px;
-  font-weight: 650;
-}
-html.mobile .account-switch-list .settings-row[aria-current="true"] .settings-row-right::before {
-  content: "✓ ";
-}
-
-/* =========================================================================================
-   Round 6: shield/unshield review, privacy guide, empty wallet
-   ========================================================================================= */
-
-/* ---- Shield / unshield review ---- */
-.rv-shield .rv-amount > span:first-child {
-  color: var(--private);
-}
-.rv-flow {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin: -6px 0 18px;
-}
-.rv-chip {
-  padding: 8px 14px;
-  border-radius: 999px;
-  font-size: 14px;
-  font-weight: 650;
-}
-.rv-chip-pub {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  border: 1px solid rgba(162, 89, 255, 0.3);
-}
-.rv-chip-priv {
-  background: var(--private-soft);
-  color: var(--private);
-  border: 1px solid var(--private-line);
-}
-.rv-arrow {
-  display: grid;
-  color: var(--text-3);
-}
-
-/* ---- Privacy guide ---- */
-.privacy-guide {
-  position: relative;
-  padding: 18px 18px 14px;
-  border-radius: var(--r-lg);
-  background:
-    radial-gradient(120% 120% at 100% 0%, rgba(111, 240, 207, 0.1), transparent 55%),
-    var(--s1);
-  border: 1px solid var(--private-line);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-  transition:
-    opacity 0.2s ease,
-    transform 0.2s ease;
-}
-.privacy-guide.leaving {
-  opacity: 0;
-  transform: scale(0.97);
-}
-.pg-title {
-  font-size: 16.5px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-.pg-steps {
-  list-style: none;
-  margin: 12px 0 6px;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.pg-steps li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 14px;
-  line-height: 1.4;
-  color: var(--text-2);
-}
-.pg-icon {
-  width: 32px;
-  height: 32px;
-  flex: none;
-  border-radius: 11px;
-  display: grid;
-  place-items: center;
-}
-.pg-pub .pg-icon {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-.pg-priv .pg-icon {
-  background: var(--private-soft);
-  color: var(--private);
-}
-html.mobile .pg-done {
-  width: auto;
-  min-height: 40px;
-  margin: 4px 0 0 auto;
+html.mobile .burn-note {
   padding: 0 4px;
-  display: block;
-  background: none;
-  border: 0;
-  color: var(--private);
-  font-size: 14.5px;
-  font-weight: 700;
-}
-
-/* ---- Empty wallet ---- */
-html.mobile .balances-card.assets-empty {
-  padding: 0;
-}
-html.mobile .assets-empty .empty-state {
-  padding: 28px 22px 22px;
-  gap: 6px;
-  background: radial-gradient(90% 80% at 50% 0%, rgba(162, 89, 255, 0.14), transparent 70%);
-  border-radius: var(--r-lg);
-}
-.ea-logo img {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  box-shadow: 0 12px 28px -10px rgba(252, 114, 255, 0.6);
-}
-.ea-title {
-  margin-top: 10px;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-.ea-body {
-  font-size: 14px;
-  color: var(--text-2);
-}
-html.mobile #app .ea-receive {
-  width: 100%;
-  min-height: 50px;
-  margin-top: 12px;
-}
-
-/* No fixed-height box around the assets on the phone (the extension caps it). */
-html.mobile .balances-card {
-  max-height: none;
-  overflow: visible;
+  font-size: 13px;
+  color: var(--text-3);
 }

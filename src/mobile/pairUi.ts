@@ -11,7 +11,7 @@ export function closePairingSheet(): boolean {
 }
 
 /** A short toast at the bottom of the screen. */
-export function showPairingNotice(message: string, kind: "ok" | "err"): void {
+export function showPairingNotice(message: string, kind: "ok" | "err", ms = 5000): void {
   let el = document.getElementById("wc-notice");
   if (!el) {
     el = document.createElement("div");
@@ -22,7 +22,7 @@ export function showPairingNotice(message: string, kind: "ok" | "err"): void {
   el.textContent = message;
   el.hidden = false;
   clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => (el!.hidden = true), 5000);
+  noticeTimer = setTimeout(() => (el!.hidden = true), ms);
 }
 
 /**
