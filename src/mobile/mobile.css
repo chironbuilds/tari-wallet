@@ -37,6 +37,9 @@ html.mobile {
   --r-lg: 22px;
   --r-xl: 28px;
   --gutter: 20px;
+  /* The page background; screens with a glow redefine it. Both the body and the strip under the
+     status bar paint it, sized to the viewport, so they line up pixel for pixel. */
+  --page-bg: var(--bg);
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   /* The shared popup's own token names, mapped onto the system above. */
   --card: var(--s1);
@@ -51,7 +54,7 @@ html.mobile {
    Base
    ========================================================================================= */
 html.mobile body {
-  background: var(--bg);
+  background: var(--page-bg);
   color: var(--text);
   font-family: "Roboto Flex", Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 15px;
@@ -100,8 +103,10 @@ html.mobile body::before {
   right: 0;
   height: env(safe-area-inset-top);
   z-index: 24;
-  background: inherit;
-  background-attachment: fixed;
+  background: var(--page-bg);
+  background-size: 100vw 100vh;
+  background-position: 0 0;
+  background-repeat: no-repeat;
   pointer-events: none;
 }
 html.scanning body::before {
@@ -714,8 +719,8 @@ html.mobile:not(.has-tabs):not(.approving) #app {
 }
 
 /* ---- Welcome ---- */
-html.mobile.screen-welcome body {
-  background:
+html.mobile.screen-welcome {
+  --page-bg:
     radial-gradient(120% 60% at 50% -8%, rgba(252, 114, 255, 0.22), transparent 60%),
     radial-gradient(90% 50% at 100% 30%, rgba(162, 89, 255, 0.16), transparent 70%),
     var(--bg);
@@ -850,12 +855,11 @@ html.mobile .hero + h1 {
 }
 
 /* ---- Home ---- */
-html.mobile.screen-home body {
-  background:
+html.mobile.screen-home {
+  --page-bg:
     radial-gradient(110% 42% at 50% -6%, rgba(162, 89, 255, 0.24), transparent 62%),
     radial-gradient(60% 30% at 90% 4%, rgba(252, 114, 255, 0.14), transparent 70%),
     var(--bg);
-  background-attachment: fixed;
 }
 html.mobile.screen-home #app {
   gap: 16px;
@@ -1142,11 +1146,10 @@ html.mobile .balance-row .token-amount-private {
 }
 
 /* ---- Token detail ---- */
-html.mobile.screen-token body {
-  background:
+html.mobile.screen-token {
+  --page-bg:
     radial-gradient(100% 38% at 50% -4%, rgba(162, 89, 255, 0.2), transparent 64%),
     var(--bg);
-  background-attachment: fixed;
 }
 .token-hero {
   display: flex;
@@ -1706,4 +1709,306 @@ html.scanning #ptr {
     animation: none;
     top: 50%;
   }
+}
+
+/* =========================================================================================
+   Hidden amounts, balance split, recent activity, day groups, receive, profile
+   ========================================================================================= */
+
+/* ---- Hidden amounts: every figure blurred until the eye is tapped again ---- */
+html.hide-amounts .hero-balance-amount,
+html.hide-amounts .private-balance,
+html.hide-amounts .token-amount,
+html.hide-amounts .token-amount-private,
+html.hide-amounts .history-amount,
+html.hide-amounts .token-hero-amount > span:first-child,
+html.hide-amounts .split-legend em {
+  filter: blur(9px);
+  -webkit-user-select: none;
+  user-select: none;
+}
+html.mobile .summary-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+html.mobile .amount-eye {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: transparent;
+  border: 0;
+  color: var(--text-3);
+}
+html.mobile .amount-eye[aria-pressed="true"] {
+  color: var(--accent-ink);
+}
+/* A slash through the eye while amounts are hidden. */
+html.mobile .amount-eye[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  transform: rotate(-40deg);
+}
+
+/* ---- Public / private split ---- */
+html.mobile .account-summary.has-split .private-balance {
+  display: none !important;
+}
+.balance-split {
+  width: min(300px, 86%);
+  margin: 18px auto 0;
+}
+.balance-split[hidden] {
+  display: none;
+}
+.split-bar {
+  display: flex;
+  gap: 3px;
+  height: 8px;
+}
+.split-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s var(--ease);
+}
+.split-pub {
+  background: var(--accent-grad);
+}
+.split-priv {
+  background: var(--private);
+}
+.split-legend {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.split-legend span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.split-legend b {
+  font-weight: 600;
+  color: var(--text-2);
+}
+.split-legend b::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.sl-priv b::before {
+  background: var(--private);
+}
+.split-legend em {
+  font-style: normal;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.sl-priv em {
+  color: var(--private);
+}
+
+/* ---- Recent activity on Home ---- */
+.recent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+html.mobile .see-all {
+  width: auto;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 4px;
+  background: none;
+  border: 0;
+  color: var(--accent-ink);
+  font-size: 14.5px;
+  font-weight: 650;
+}
+html.mobile .recent-card {
+  padding: 2px 16px;
+}
+html.mobile .recent-row {
+  width: 100%;
+  margin: 0;
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  color: var(--text);
+  font-weight: inherit;
+}
+html.mobile .recent-row .list-row-info > div:first-child {
+  font-size: 15.5px;
+  font-weight: 650;
+}
+html.mobile .recent-row .list-row-info .muted {
+  font-size: 13px;
+}
+html.mobile .recent-row .history-right {
+  align-self: center;
+  padding-top: 0;
+}
+
+/* ---- Activity grouped by day ---- */
+.day-head {
+  margin: 8px 4px -6px;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+html.mobile .history-day {
+  padding: 2px 16px;
+}
+
+/* ---- Receive: QR first ---- */
+html.mobile.screen-receive {
+  --page-bg:
+    radial-gradient(90% 40% at 50% 8%, rgba(162, 89, 255, 0.18), transparent 66%),
+    var(--bg);
+}
+html.mobile.screen-receive .hero {
+  display: none;
+}
+html.mobile .receive-address {
+  padding: 16px;
+}
+html.mobile .receive-address .copy-row {
+  display: block;
+}
+html.mobile .receive-address .addr {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--s2);
+  font-size: 13.5px;
+  line-height: 1.6;
+  word-break: break-all;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.receive-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+html.mobile #app .receive-actions > button {
+  min-height: 52px;
+  margin: 0;
+  border-radius: 16px;
+  font-size: 15.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+html.mobile #app .receive-actions > .receive-copy {
+  width: 100%;
+  background: var(--s2);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+html.mobile .receive-note {
+  font-size: 13px;
+  padding: 0 4px;
+  color: var(--text-3);
+}
+
+/* ---- Settings profile + version ---- */
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(162, 89, 255, 0.18), transparent 60%),
+    var(--s1);
+  border: 1px solid var(--line);
+}
+.profile-avatar {
+  width: 56px;
+  height: 56px;
+  flex: none;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 3px var(--s1),
+    0 0 0 5px rgba(162, 89, 255, 0.45);
+}
+.profile-avatar svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.profile-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.profile-text b {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.profile-text span {
+  font-family: "Roboto Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-net {
+  flex: none;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  color: #ffd08a;
+  background: rgba(255, 184, 77, 0.12);
+}
+.profile-card.is-mainnet .profile-net {
+  color: var(--good);
+  background: rgba(74, 222, 154, 0.12);
+}
+.app-version {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-3);
+  padding: 4px 0 8px;
+}
+
+/* The extension caps its history box at a fixed height; on the phone lists take the room they need. */
+html.mobile .history-list {
+  max-height: none;
+  overflow: visible;
+}
+
+html.mobile .history-tx {
+  font-family: inherit;
+}
+html.mobile .history-tx a {
+  white-space: nowrap;
 }

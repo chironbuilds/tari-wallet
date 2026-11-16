@@ -13,6 +13,7 @@ import { installConnectivityBar } from "./connectivity";
 import { initApprovalNotifications } from "./notifications";
 import { queuedWcRequestCount, rejectQueuedWcRequests, startWalletConnect } from "./wc";
 import { t } from "../lib/i18n";
+import type { TransactionHistoryEntry } from "../lib/storage";
 import { checkAutoLock, handlePopupRequest, initCore, onHostStartup, sanitizeForMessage } from "../background/core";
 
 const AUTO_LOCK_CHECK_MS = 60_000;
@@ -80,7 +81,10 @@ async function boot(): Promise<void> {
   void App.getLaunchUrl().then((launch) => {
     if (launch?.url) nav.openShortcut(launch.url);
   });
-  installRedesign();
+  installRedesign({
+    history: async () => (await handlePopupRequest({ kind: "popup-get-transaction-history" })) as TransactionHistoryEntry[],
+    status: () => popup.appNav.status(),
+  });
   installEnhancements({ receiveAddress: async () => (await popup.appNav.status()).receiveAddress, connectDapp: openPairingSheet });
 
   // "Request 1 of N" above an approval when more are waiting, with a Reject-all shortcut for a dApp

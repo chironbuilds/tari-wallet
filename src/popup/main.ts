@@ -1590,7 +1590,7 @@ async function renderHistory(status: WalletStatus) {
               : null;
             // data-kind and the separate amount/time spans render the same here; the Android app's
             // layout (src/mobile/redesign.ts) uses them to put the amount on the right.
-            return h("div", { class: `balance-row${entry.status === "failed" ? " status-failed" : ""}`, "data-kind": entry.kind }, [
+            return h("div", { class: `balance-row${entry.status === "failed" ? " status-failed" : ""}`, "data-kind": entry.kind, "data-ts": String(entry.createdAt) }, [
               h("div", { class: "history-icon", "aria-hidden": "true" }, [icon(HISTORY_KIND_ICON[entry.kind])]),
               h("div", { class: "list-row-info" }, [
                 h("div", {}, [historyKindLabel(entry.kind), entry.status === "failed" ? t("history.failedSuffix") : ""]),

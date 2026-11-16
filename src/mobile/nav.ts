@@ -168,7 +168,8 @@ export function installNav(
     topBar.hidden = !lifted;
     document.documentElement.classList.toggle("has-app-bar", lifted);
     if (lifted && h1) {
-      title.textContent = h1.textContent;
+      // A tab root is titled like its tab ("Activity", not the shared screen's "History").
+      title.textContent = tabRoot ? (tabs.find((x) => x.id === tabRoot)?.label ?? h1.textContent) : h1.textContent;
       h1.classList.add("lifted");
       // A tab's own root screen has no back arrow (as in any native app); its hardware back goes Home.
       const showBack = !!screenBack && !tabRoot;

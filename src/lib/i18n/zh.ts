@@ -80,6 +80,11 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     l1Body: "认领在 Tari 基础层销毁的资产",
     tapToCopy: "点按复制",
     details: "详情",
+    hideAmounts: "隐藏金额",
+    recentActivity: "最近活动",
+    seeAll: "查看全部",
+    today: "今天",
+    yesterday: "昨天",
   },
   tabs: {
     home: "首页",

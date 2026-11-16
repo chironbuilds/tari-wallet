@@ -81,6 +81,11 @@ const en = {
     l1Body: "Claim a burn from the Tari base layer",
     tapToCopy: "Tap to copy",
     details: "Details",
+    hideAmounts: "Hide amounts",
+    recentActivity: "Recent activity",
+    seeAll: "See all",
+    today: "Today",
+    yesterday: "Yesterday",
   },
   tabs: {
     home: "Home",
