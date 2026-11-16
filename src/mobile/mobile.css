@@ -2316,3 +2316,10 @@ html.mobile .hero-balance-unit {
   margin-left: 8px;
   white-space: nowrap;
 }
+
+/* The unit is a quiet label beside the figure. */
+html.mobile .hero-balance-unit {
+  font-size: 15px;
+  bottom: 9px;
+  color: var(--text-3);
+}
