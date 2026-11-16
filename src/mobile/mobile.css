@@ -2266,3 +2266,29 @@ html.mobile .burn-note {
   font-size: 13px;
   color: var(--text-3);
 }
+
+/* ---- Home review (same decisions as the extension) ---- */
+/* The split bar and legend repeated the headline figure; the private part is one line instead. */
+.balance-split {
+  display: none !important;
+}
+html.mobile .account-summary.has-split .private-balance {
+  display: inline-flex !important;
+}
+/* One size for the whole figure; the decimals are dimmed, not shrunk. */
+html.mobile .hero-balance-amount .frac {
+  font-size: 1em;
+  font-weight: 600;
+  color: var(--text-3);
+}
+html.mobile .hero-balance-amount {
+  font-size: 46px;
+}
+/* The refresh control beside "Assets" is a light icon, not a boxed button. */
+html.mobile.screen-home #app > .row .icon-btn {
+  min-width: 40px;
+  min-height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+}
