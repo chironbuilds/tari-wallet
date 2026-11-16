@@ -40,6 +40,8 @@ html.mobile {
   /* The page background; screens with a glow redefine it. Both the body and the strip under the
      status bar paint it, sized to the viewport, so they line up pixel for pixel. */
   --page-bg: var(--bg);
+  --font: "Geist Variable", Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono Variable", ui-monospace, Menlo, monospace;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   /* The shared popup's own token names, mapped onto the system above. */
   --card: var(--s1);
@@ -56,7 +58,8 @@ html.mobile {
 html.mobile body {
   background: var(--page-bg);
   color: var(--text);
-  font-family: "Roboto Flex", Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font);
+  font-feature-settings: "ss01", "cv11";
   font-size: 15px;
   line-height: 1.45;
   overscroll-behavior: none;
@@ -90,7 +93,7 @@ html.mobile .muted {
 html.mobile code,
 html.mobile .addr,
 html.mobile .detail-value {
-  font-family: "Roboto Mono", ui-monospace, Menlo, monospace;
+  font-family: var(--mono);
 }
 /* The status bar is transparent (edge-to-edge): this strip under it repeats the page background
    exactly (fixed attachment, same layers), so the Home glow shows through but content scrolling up
@@ -821,7 +824,7 @@ html.mobile .mnemonic-word {
   border-radius: 12px;
   background: var(--s1);
   border: 1px solid var(--line);
-  font-family: "Roboto Mono", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 14px;
   font-weight: 550;
   overflow: hidden;
@@ -857,8 +860,8 @@ html.mobile .hero + h1 {
 /* ---- Home ---- */
 html.mobile.screen-home {
   --page-bg:
-    radial-gradient(110% 42% at 50% -6%, rgba(162, 89, 255, 0.24), transparent 62%),
-    radial-gradient(60% 30% at 90% 4%, rgba(252, 114, 255, 0.14), transparent 70%),
+    radial-gradient(100% 34% at 50% 16%, rgba(162, 89, 255, 0.22), transparent 70%),
+    radial-gradient(55% 24% at 88% 12%, rgba(252, 114, 255, 0.12), transparent 72%),
     var(--bg);
 }
 html.mobile.screen-home #app {
@@ -1007,7 +1010,7 @@ html.mobile .account-summary .addr-pill {
   background: transparent;
   border: 1px solid var(--line);
   color: var(--text-2);
-  font-family: "Roboto Mono", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 12.5px;
   font-weight: 500;
 }
@@ -1973,7 +1976,7 @@ html.mobile .receive-note {
   letter-spacing: -0.01em;
 }
 .profile-text span {
-  font-family: "Roboto Mono", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 12.5px;
   color: var(--text-2);
   overflow: hidden;
@@ -2011,4 +2014,239 @@ html.mobile .history-tx {
 }
 html.mobile .history-tx a {
   white-space: nowrap;
+}
+
+/* =========================================================================================
+   Brand and finish
+   ========================================================================================= */
+
+/* Inputs and buttons inherit the brand face (form controls don't by default). */
+html.mobile button,
+html.mobile input,
+html.mobile select,
+html.mobile textarea {
+  font-family: var(--font);
+}
+html.mobile h1,
+html.mobile .app-bar-title,
+html.mobile .section-title,
+html.mobile .welcome-tagline {
+  letter-spacing: -0.035em;
+}
+
+/* Balances: the whole part large, the decimals smaller and dimmer. */
+.frac {
+  font-size: 0.56em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-2);
+}
+html.mobile .hero-balance-amount {
+  font-weight: 650;
+  letter-spacing: -0.055em;
+}
+.token-hero-amount {
+  font-weight: 650;
+}
+
+/* The Sapient eye, faint, inside the Home glow. */
+html.mobile .account-summary.card::after {
+  display: block;
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  width: 300px;
+  height: 180px;
+  margin-left: -150px;
+  z-index: -1;
+  opacity: 0.07;
+  pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 72'%3E%3Cpath d='M4 36 Q60 -6 116 36 Q60 78 4 36 Z' fill='none' stroke='white' stroke-width='3'/%3E%3Ccircle cx='60' cy='36' r='17' fill='none' stroke='white' stroke-width='3'/%3E%3Ccircle cx='60' cy='36' r='6' fill='white'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+html.mobile .account-summary.card {
+  isolation: isolate;
+}
+
+/* Material: a hairline of light along the top edge of raised surfaces. */
+html.mobile .card,
+html.mobile .action-row > button.action-btn,
+.l1-card,
+.profile-card,
+html.mobile #app .token-actions > button.token-action,
+html.mobile button.secondary {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+html.mobile .qr-card {
+  box-shadow: 0 24px 60px -24px rgba(162, 89, 255, 0.55);
+}
+
+/* Tab bar: the active tab's label in the brand gradient, a soft glow under its icon. */
+#tab-bar .tab.active .tab-label {
+  background: var(--accent-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+#tab-bar .tab:not(.tab-scan) .tab-icon {
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.25s var(--ease);
+}
+#tab-bar .tab.active:not(.tab-scan) .tab-icon {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -8px var(--accent-shadow);
+}
+
+/* Brand lockup on unlock / create / import. */
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.brand-lockup img {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  box-shadow: 0 6px 16px -6px rgba(252, 114, 255, 0.6);
+}
+html.mobile:not(.has-tabs):not(.approving) #app > .brand-lockup:first-child {
+  margin-top: auto;
+}
+
+/* Welcome: the logo breathes, once a few seconds, very gently. */
+html.mobile .welcome-hero img {
+  animation: logo-breathe 5s ease-in-out infinite;
+}
+@keyframes logo-breathe {
+  0%, 100% { box-shadow: 0 18px 40px -12px rgba(252, 114, 255, 0.5); }
+  50% { box-shadow: 0 22px 54px -10px rgba(252, 114, 255, 0.75); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.mobile .welcome-hero img { animation: none; }
+}
+
+/* The lockup follows its screen: left with a left-aligned form, centred over the unlock avatar. */
+.brand-lockup {
+  justify-content: flex-start;
+}
+.brand-lockup:has(+ .hero) {
+  justify-content: center;
+}
+
+/* Watermark: present, never competing with the figure. */
+html.mobile .account-summary.card::after {
+  opacity: 0.022;
+  width: 380px;
+  height: 228px;
+  margin-left: -190px;
+  top: -28px;
+}
+/* Legend items stay on one line: dot, label, amount. */
+.balance-split {
+  width: min(330px, 94%);
+}
+.split-legend span {
+  white-space: nowrap;
+  flex-wrap: nowrap;
+}
+
+/* =========================================================================================
+   Round 4: clean hero, legend spacing, Send / Shield / Unshield forms
+   ========================================================================================= */
+
+/* The number is the hero; no watermark behind it. */
+html.mobile .account-summary.card::after {
+  display: none;
+}
+.split-legend {
+  justify-content: center;
+  gap: 22px;
+}
+
+/* ---- Segmented control (Send / Send privately) ---- */
+html.mobile .tab-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 18px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+}
+html.mobile .tab-row .tab-btn {
+  min-height: 44px;
+  margin: 0;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 15px;
+  font-weight: 650;
+  box-shadow: none;
+}
+html.mobile .tab-row .tab-btn[aria-selected="true"],
+html.mobile .tab-row .tab-btn.active {
+  background: var(--s3);
+  color: var(--text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 4px 12px -6px rgba(0, 0, 0, 0.6);
+}
+/* The private tab, when chosen, says so in the privacy colour. */
+html.mobile .tab-row .tab-btn:last-child[aria-selected="true"] {
+  color: var(--private);
+}
+
+/* ---- Amount: the figure you're moving, large and central ---- */
+html.mobile .amount-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 10px 18px;
+  border-radius: 22px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+html.mobile .amount-field:focus-within {
+  border-color: rgba(162, 89, 255, 0.7);
+  box-shadow: 0 0 0 4px rgba(162, 89, 255, 0.14);
+}
+html.mobile .amount-field input,
+html.mobile .amount-field input:focus {
+  flex: 1;
+  min-width: 0;
+  min-height: 60px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 34px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+html.mobile .amount-field .max-btn {
+  width: auto;
+  min-height: 38px;
+  margin: 0;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(162, 89, 255, 0.35);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }

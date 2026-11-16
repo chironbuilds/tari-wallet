@@ -127,6 +127,7 @@ function composeHome(app: HTMLElement): void {
     balance.insertBefore(split, addr ?? null);
     const num = (v: string | null | undefined) => Number((v ?? "").replace(/[^0-9.]/g, "")) || 0;
     const update = () => {
+      if (amountEl) splitDecimals(amountEl);
       const pub = num(amountEl?.textContent);
       const privText = privEl && privEl.style.display !== "none" ? (privEl.textContent ?? "").split(" ")[0] : "";
       const priv = num(privText);
@@ -265,6 +266,32 @@ function relativeDay(ts: number): string {
   return `${dayLabel(ts)}, ${timeOf(ts)}`;
 }
 
+/** "2.475105" -> "2" + ".475105" in a smaller, dimmer span, as finance apps set a balance. Leaves
+ * anything without a decimal part alone, and is a no-op once split (it is re-run on every change
+ * the shared code makes to the figure). */
+function splitDecimals(target: HTMLElement): void {
+  if (target.querySelector(".frac")) return;
+  const text = target.textContent ?? "";
+  const dot = text.indexOf(".");
+  if (dot <= 0 || !/^[\d,]+\.\d+$/.test(text.trim())) return;
+  const whole = el("span", "whole");
+  whole.textContent = text.slice(0, dot);
+  const frac = el("span", "frac");
+  frac.textContent = text.slice(dot);
+  target.replaceChildren(whole, frac);
+}
+
+// ---------------- Brand lockup ----------------
+// Logo + wordmark atop the screens a person sees before the wallet opens (unlock, create, import).
+function composeLockup(app: HTMLElement): void {
+  if (app.querySelector(".welcome-hero, .brand-lockup")) return;
+  // The unlock screen (#unlock) and create/import (#pw2); not in-app password prompts.
+  if (!app.querySelector("#unlock, #pw2")) return;
+  const lockup = el("div", "brand-lockup");
+  lockup.innerHTML = '<img src="icons/icon48.png" width="28" height="28" alt=""><span>Sapient</span>';
+  app.prepend(lockup);
+}
+
 // ---------------- Hidden amounts ----------------
 const HIDE_KEY = "sapient:hide-amounts";
 function amountsHidden(): boolean {
@@ -349,6 +376,7 @@ function composeToken(app: HTMLElement): void {
   const big = el("div", "token-hero-amount");
   const num = el("span", "");
   num.textContent = amount;
+  splitDecimals(num);
   big.append(num);
   if (!isCount) {
     const unit = el("span", "token-hero-unit");
@@ -508,6 +536,7 @@ export function installRedesign(d: RedesignDeps): void {
     composeToken(app);
     composeHistory(app);
     composeReceive(app);
+    composeLockup(app);
   };
   new MutationObserver(compose).observe(app, { childList: true });
   compose();

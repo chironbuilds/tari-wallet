@@ -1,5 +1,8 @@
 // Android app entry. Sets up the Capacitor host, starts the wallet core in this same WebView, then
 // loads the existing popup UI on top of it.
+// Geist (OFL-1.1), bundled with the app: no network font loading, and the CSP allows only 'self'.
+import "@fontsource-variable/geist/wght.css";
+import "@fontsource-variable/geist-mono/wght.css";
 import "./mobile.css";
 import { App } from "@capacitor/app";
 import { SplashScreen } from "@capacitor/splash-screen";
