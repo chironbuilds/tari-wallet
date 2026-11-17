@@ -28,6 +28,8 @@ let host: AndroidPlatform | null = null;
 
 /** WalletConnect request ids this wallet is handling right now (delivered, not yet answered). */
 const handling = new Set<number>();
+/** Requests whose reply couldn't be sent (expired, or the session ended meanwhile). */
+const unanswered = new Set<number>();
 
 /** WalletConnect hands requests over one at a time and holds the rest until the current one is
  * answered; this is how many are still waiting there, beyond those already being handled. */
@@ -170,6 +172,42 @@ async function onRequest(k: Kit, event: WalletKitTypes.SessionRequest): Promise<
     await handleRequest(k, event);
   } finally {
     handling.delete(event.id);
+    keepQueueMoving(k, event.id);
+  }
+}
+
+/** The part of WalletKit's sign engine that hands requests over one at a time. */
+interface RequestQueueEngine {
+  sessionRequestQueue?: { state: string; queue: { id: number }[] };
+  processSessionRequestQueue?: () => void;
+  deletePendingSessionRequest?: (id: number, reason: { code: number; message: string }) => Promise<void>;
+}
+function queueEngine(k: Kit): RequestQueueEngine | null {
+  return ((k as unknown as { engine?: { signClient?: { engine?: RequestQueueEngine } } }).engine?.signClient?.engine) ?? null;
+}
+
+/**
+ * WalletKit hands over one request at a time and only moves to the next once a reply is sent. A reply that
+ * can't be sent (the request expired while the app sat locked in the background, or its session ended) leaves
+ * that queue busy, and every later request from every dApp then waits until the app restarts. After each
+ * request, and when the app comes back to the front, drop a request that is done but still queued, and start
+ * the next one.
+ */
+function keepQueueMoving(k: Kit, doneId?: number): void {
+  const engine = queueEngine(k);
+  const q = engine?.sessionRequestQueue;
+  if (!engine || !q) return;
+  try {
+    if (doneId !== undefined && unanswered.delete(doneId) && q.queue.some((r) => r.id === doneId)) {
+      q.queue = q.queue.filter((r) => r.id !== doneId);
+      void engine.deletePendingSessionRequest?.(doneId, getSdkError("USER_DISCONNECTED")).catch(() => {});
+      q.state = "IDLE";
+    }
+    // Busy with a request nobody here is handling: it was dropped (handed over while the app was frozen).
+    if (q.state !== "IDLE" && handling.size === 0) q.state = "IDLE";
+    if (q.state === "IDLE" && q.queue.length) engine.processSessionRequestQueue?.();
+  } catch {
+    // WalletKit internals changed: nothing to fix up here, its own handling applies.
   }
 }
 
@@ -180,7 +218,8 @@ async function handleRequest(k: Kit, event: WalletKitTypes.SessionRequest): Prom
     try {
       await k.respondSessionRequest({ topic, response: { id, jsonrpc: "2.0", ...response } });
     } catch {
-      // The session ended while this request was being handled; there is no one left to tell.
+      // The request expired or its session ended while it was being handled; there is no one left to tell.
+      unanswered.add(id);
     }
   };
 
@@ -341,6 +380,7 @@ export async function startWalletConnect(androidHost: AndroidPlatform): Promise<
     void pairWithUri(uri).catch((e) => showPairingNotice(String(e?.message ?? e), "err"));
   };
   App.addListener("appUrlOpen", ({ url }) => handleUrl(url));
+  App.addListener("resume", () => setTimeout(() => keepQueueMoving(k), 600));
   const launch = await App.getLaunchUrl();
   if (launch?.url) handleUrl(launch.url);
 }

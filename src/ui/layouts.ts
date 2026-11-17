@@ -16,6 +16,8 @@ export interface RedesignDeps {
   host: "android" | "extension";
   history(): Promise<TransactionHistoryEntry[]>;
   status(): Promise<{ address: string | null; receiveAddress: string | null; network: string; accounts: { id: string; label: string }[]; activeAccountId: string }>;
+  /** Opens the account switcher (Settings' profile card). */
+  openAccounts?(): void;
 }
 let deps: RedesignDeps;
 
@@ -29,7 +31,19 @@ const ICON = {
   unlock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
   ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   down: '<path d="M6 9l6 6 6-6"/>',
+  fingerprint:
+    '<path d="M12 11v3a8 8 0 0 1-1.5 4.7"/><path d="M8.5 13a3.5 3.5 0 0 1 7 0c0 1.6-.2 3.1-.6 4.5"/><path d="M5.3 16.5A10 10 0 0 1 5 13a7 7 0 0 1 12.2-4.7"/><path d="M19 12.5c0 1.3-.1 2.6-.4 3.8"/><path d="M8.6 20.3c.6-.9 1-1.9 1.3-2.9"/>',
+  timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/>',
+  network: '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/>',
+  language: '<path d="M4 5h9M8.5 3v2M6 5c.6 3.4 2.6 6 5.5 7.5M11 5c-.7 3.6-3 6.6-7 8"/><path d="M12 21l4.5-10 4.5 10M13.5 18h6"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/>',
+  sendPrivate: '<path d="M12 15V4M7 9l5-5 5 5"/><rect x="7" y="15" width="10" height="6" rx="1.5"/>',
 };
+
+function iconSpan(paths: string, size = 20): HTMLElement {
+  return el("span", "icon-svg", svg(paths, size));
+}
 
 function svg(paths: string, size = 20): string {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
@@ -306,7 +320,14 @@ async function addRecentActivity(app: HTMLElement): Promise<void> {
   all.textContent = t("mobile.seeAll");
   head.append(title, all);
   const card = el("div", "card recent-card history-list");
-  for (const e of entries.slice(0, 3)) {
+  for (const e of entries.slice(0, 3)) card.append(activityRow(e));
+  all.addEventListener("click", openActivity);
+  anchor.after(head, card);
+}
+
+/** One activity entry as a compact row (Home's recent activity, a token's own activity). */
+function activityRow(e: TransactionHistoryEntry): HTMLElement {
+  {
     const row = el("button", "balance-row recent-row");
     row.type = "button";
     const kind = e.kind;
@@ -332,10 +353,8 @@ async function addRecentActivity(app: HTMLElement): Promise<void> {
       row.append(right);
     }
     row.addEventListener("click", openActivity);
-    card.append(row);
+    return row;
   }
-  all.addEventListener("click", openActivity);
-  anchor.after(head, card);
 }
 
 /** The Activity tab on Android; Home's own History button in the extension. */
@@ -621,11 +640,62 @@ function composeSettings(app: HTMLElement): void {
   // The biometric row has no id; it is rendered right before Auto-lock and filled in later.
   const biometric = autoLock?.previousElementSibling as HTMLElement | null;
 
+  // Every row gets a leading icon, like the navigation rows already have.
+  const leading = (row: HTMLElement | null, paths: string) => {
+    if (!row || row.querySelector(".settings-row-left")) return;
+    const label = row.firstElementChild as HTMLElement | null;
+    if (!label) return;
+    const left = el("span", "settings-row-left");
+    left.append(iconSpan(paths));
+    row.prepend(left);
+    left.append(label);
+  };
+  // The biometric row is filled in after this runs (once the device says it has a biometric).
+  const bio = byId("biometricRow");
+  if (bio) {
+    leading(bio, ICON.fingerprint);
+    if (!bio.querySelector(".settings-row-left")) {
+      const watch = new MutationObserver(() => {
+        if (!bio.firstElementChild) return;
+        watch.disconnect();
+        leading(bio, ICON.fingerprint);
+      });
+      watch.observe(bio, { childList: true });
+    }
+  }
+  leading(autoLock, ICON.timer);
+  leading(rowOf("network"), ICON.network);
+  leading(rowOf("language"), ICON.language);
+
+  // Fee privacy reads as one switch with a line saying what it does; the switch's own
+  // "Transparent | Private" captions are hidden on the phone.
+  const fee = rowOf("feePrivacyDefault");
+  if (fee && !fee.classList.contains("fee-row")) {
+    fee.classList.add("fee-row");
+    const label = fee.firstElementChild as HTMLElement | null;
+    if (label) {
+      const text = el("span", "settings-row-text");
+      const title = el("span", "");
+      title.textContent = t("mobile.privateFees");
+      const hint = el("span", "settings-row-hint");
+      hint.textContent = t("mobile.privateFeesHint");
+      text.append(title, hint);
+      const left = el("span", "settings-row-left");
+      left.append(iconSpan(ICON.shield), text);
+      label.replaceWith(left);
+    }
+  }
+
+  // A daemon wallet is an advanced setup: its rows go last, and the list row only once one exists.
+  const daemons = byId("daemons");
+  if (daemons && daemons.querySelector(".settings-row-trailing")?.textContent?.trim() === "0") daemons.remove();
+
   const groups: [string, (HTMLElement | null)[]][] = [
-    [t("mobile.sectionAccounts"), [byId("addAccount"), byId("importAccount"), byId("connectDaemon"), byId("daemons")]],
+    [t("mobile.sectionAccounts"), [byId("addAccount"), byId("importAccount")]],
     [t("mobile.sectionSecurity"), [byId("backup"), biometric?.classList.contains("settings-row") ? biometric : null, autoLock]],
     [t("mobile.sectionConnections"), [byId("sites"), byId("addressBook")]],
-    [t("mobile.sectionPreferences"), [rowOf("network"), rowOf("language"), rowOf("feePrivacyDefault")]],
+    [t("mobile.sectionPreferences"), [rowOf("network"), rowOf("language"), fee]],
+    [t("mobile.sectionAdvanced"), [byId("connectDaemon"), daemons?.isConnected ? daemons : null]],
   ];
   const frag = document.createDocumentFragment();
   for (const [title, rows] of groups) {
@@ -641,6 +711,13 @@ function composeSettings(app: HTMLElement): void {
   // Anything not placed above (a row added later in the shared code) stays in the original card.
   card.before(frag);
   if (!card.children.length) card.remove();
+
+  // Locking is routine, not destructive: a plain button with a lock.
+  const lock = byId("lock");
+  if (lock && !lock.classList.contains("lock-btn")) {
+    lock.classList.add("lock-btn");
+    lock.prepend(iconSpan(ICON.lock, 18));
+  }
   void addSettingsProfile(app);
 }
 
@@ -714,6 +791,18 @@ function composeToken(app: HTMLElement): void {
   details.textContent = t("mobile.details");
   card.before(details);
 
+  if (deps.host === "android") {
+    composeTokenPhone(app, top, card, {
+      resource: hero.dataset.resource ?? "",
+      symbol,
+      exact: amount,
+      privateExact: privatePair?.[1].textContent ?? null,
+      isCount,
+      namePair,
+    });
+    return;
+  }
+
   // Shield / Unshield / Send privately: tiles in one row above the details.
   const actions = [...app.querySelectorAll<HTMLButtonElement>("#app > button.secondary:not(#back)")];
   if (actions.length) {
@@ -726,6 +815,158 @@ function composeToken(app: HTMLElement): void {
     }
     top.after(row);
   }
+}
+
+/** Adds two decimal amounts given as display strings ("1,234.5"), keeping full precision. */
+export function addDecimals(a: string, b: string): string {
+  const parse = (x: string) => {
+    const [w = "0", f = ""] = x.replace(/[,\s]/g, "").split(".");
+    return { w: w || "0", f };
+  };
+  const x = parse(a);
+  const y = parse(b);
+  const places = Math.max(x.f.length, y.f.length);
+  const sum = BigInt(x.w + x.f.padEnd(places, "0")) + BigInt(y.w + y.f.padEnd(places, "0"));
+  const digits = sum.toString().padStart(places + 1, "0");
+  const whole = digits.slice(0, digits.length - places).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const frac = places ? digits.slice(digits.length - places).replace(/0+$/, "") : "";
+  return frac ? `${whole}.${frac}` : whole;
+}
+
+const TOKEN_ACTIONS: Record<string, { icon: string; label: () => string; cls: string }> = {
+  tokenSend: { icon: ICON.up, label: () => t("home.send"), cls: "ta-public" },
+  tokenShield: { icon: ICON.lock, label: () => t("home.shield"), cls: "ta-private" },
+  tokenUnshield: { icon: ICON.unlock, label: () => t("home.unshield"), cls: "ta-private" },
+  tokenSendPrivate: { icon: ICON.sendPrivate, label: () => t("mobile.sendPrivateShort"), cls: "ta-private" },
+};
+
+/**
+ * The phone's token screen: the name is the screen title, the actions are Home's round buttons,
+ * a balance card gives the exact public / private / total figures (the hero rounds to two
+ * decimals), the details are compact rows, and the token's own activity closes the screen.
+ */
+function composeTokenPhone(
+  app: HTMLElement,
+  top: HTMLElement,
+  card: HTMLElement,
+  o: { resource: string; symbol: string; exact: string; privateExact: string | null; isCount: boolean; namePair: [HTMLElement, HTMLElement] }
+): void {
+  document.documentElement.classList.add("screen-token-phone");
+  if (o.privateExact) {
+    const label = top.querySelector<HTMLElement>(".token-hero-label");
+    if (label) label.textContent = t("mobile.publicBalanceLabel");
+  }
+
+  // Actions: round buttons with short labels, Home's style.
+  const buttons = Object.keys(TOKEN_ACTIONS)
+    .map((id) => app.querySelector<HTMLButtonElement>(`#${id}`))
+    .filter((b): b is HTMLButtonElement => !!b);
+  let after: HTMLElement = top;
+  if (buttons.length) {
+    const row = el("div", "action-row token-action-row");
+    row.style.setProperty("--n", String(buttons.length));
+    for (const b of buttons) {
+      const spec = TOKEN_ACTIONS[b.id]!;
+      const ic = el("div", "action-icon");
+      ic.setAttribute("aria-hidden", "true");
+      ic.append(iconSpan(spec.icon, 22));
+      b.className = `action-btn ${spec.cls}`;
+      b.replaceChildren(ic, document.createTextNode(spec.label()));
+      row.append(b);
+    }
+    top.after(row);
+    after = row;
+  }
+
+  // Exact balances, when there is a private part to add up.
+  if (o.privateExact && !o.isCount) {
+    const title = el("div", "section-title");
+    title.textContent = t("mobile.balanceTitle");
+    const bal = el("div", "card token-balance-card");
+    const line = (label: string, value: string, cls = "") => {
+      const r = el("div", `kv ${cls}`.trim());
+      const l = el("div", "muted");
+      l.textContent = label;
+      const v = el("div", "detail-value");
+      v.textContent = `${value} ${o.symbol}`;
+      r.append(l, v);
+      return r;
+    };
+    let total = "";
+    try {
+      total = addDecimals(o.exact, o.privateExact);
+    } catch {
+      total = "";
+    }
+    bal.append(line(t("mobile.publicBalanceLabel"), o.exact), line(t("mobile.privateBalanceLabel"), o.privateExact, "kv-private"));
+    if (total) bal.append(line(t("mobile.totalBalanceLabel"), total, "kv-total"));
+    after.after(title, bal);
+  }
+
+  // Details: the name is already the title; the resource address shortened, with a copy button.
+  const nameRow = o.namePair[0].parentElement;
+  if (nameRow?.classList.contains("kv")) nameRow.remove();
+  const addrRow = card.querySelector<HTMLElement>(".kv-stack");
+  const addr = addrRow?.querySelector<HTMLElement>(".addr");
+  const copy = addrRow?.querySelector<HTMLElement>(".icon-btn");
+  if (addrRow && addr && copy) {
+    addrRow.classList.remove("kv-stack");
+    addrRow.classList.add("kv-address");
+    const full = addr.textContent ?? "";
+    const value = el("div", "detail-value kv-address-value");
+    const short = el("span", "mono");
+    short.textContent = shortAddr(full, 8);
+    short.title = full;
+    copy.classList.add("copy-icon");
+    copy.setAttribute("aria-label", t("mobile.copyAddress"));
+    copy.replaceChildren(iconSpan(ICON.copy, 18), el("span", "sr-only"));
+    // The shared handler writes "Copied" into the label it was given (now detached); show it here.
+    copy.addEventListener("click", () => {
+      copy.classList.add("copied");
+      setTimeout(() => copy.classList.remove("copied"), 1200);
+    });
+    value.append(short, copy);
+    const label = addrRow.querySelector<HTMLElement>(".muted");
+    if (label) label.textContent = t("mobile.resourceAddressShort");
+    addrRow.replaceChildren(...(label ? [label] : []), value);
+  }
+
+  void addTokenActivity(app, o.resource);
+}
+
+async function addTokenActivity(app: HTMLElement, resource: string): Promise<void> {
+  if (!resource) return;
+  let entries: TransactionHistoryEntry[];
+  try {
+    entries = await deps.history();
+  } catch {
+    return;
+  }
+  // The screen may have been left (or re-rendered) while this loaded.
+  const details = app.querySelector<HTMLElement>(".token-details-title");
+  const detailsCard = details?.nextElementSibling as HTMLElement | null;
+  if (!details || !detailsCard || app.querySelector(".token-activity")) return;
+  const mine = entries.filter((e) => e.resourceAddress === resource).sort((a, b) => b.createdAt - a.createdAt);
+  const head = el("div", "recent-head token-activity");
+  const title = el("div", "section-title");
+  title.textContent = t("mobile.tokenActivity");
+  head.append(title);
+  let body: HTMLElement;
+  if (mine.length) {
+    if (mine.length > 5) {
+      const all = el("button", "see-all");
+      all.type = "button";
+      all.textContent = t("mobile.seeAll");
+      all.addEventListener("click", openActivity);
+      head.append(all);
+    }
+    body = el("div", "card recent-card history-list");
+    for (const e of mine.slice(0, 5)) body.append(activityRow(e));
+  } else {
+    body = el("p", "token-activity-empty");
+    body.textContent = t("mobile.tokenNoActivity");
+  }
+  detailsCard.after(head, body);
 }
 
 // ---------------- Activity ----------------
@@ -809,8 +1050,14 @@ async function addSettingsProfile(app: HTMLElement): Promise<void> {
   const first = app.querySelector<HTMLElement>(".settings-group-title");
   if (!first || app.querySelector(".profile-card")) return;
   const acct = s.accounts.find((a) => a.id === s.activeAccountId);
-  const card = el("div", "profile-card");
-  card.innerHTML = `<div class="profile-avatar">${s.address ? avatarSvg(s.address, 56) : ""}</div><div class="profile-text"><b></b><span></span></div><span class="profile-net"></span>`;
+  // With more than one account (or a way to add one), the card opens the account switcher.
+  const card = el(deps.openAccounts ? "button" : "div", "profile-card");
+  if (card instanceof HTMLButtonElement) {
+    card.type = "button";
+    card.setAttribute("aria-label", t("mobile.switchAccount"));
+    card.addEventListener("click", () => deps.openAccounts?.());
+  }
+  card.innerHTML = `<div class="profile-avatar">${s.address ? avatarSvg(s.address, 56) : ""}</div><div class="profile-text"><b></b><span></span></div><span class="profile-net"></span>${deps.openAccounts ? `<span class="profile-chevron">${svg(ICON.chevron, 18)}</span>` : ""}`;
   card.querySelector("b")!.textContent = acct?.label ?? t("home.accountFallback");
   card.querySelector(".profile-text span")!.textContent = s.receiveAddress ? shortAddr(s.receiveAddress, 10) : "";
   card.querySelector(".profile-net")!.textContent = s.network.charAt(0).toUpperCase() + s.network.slice(1);
@@ -838,7 +1085,7 @@ export function installRedesign(d: RedesignDeps): void {
     // Screen flags for CSS, reset on every render.
     if (!app.querySelector(".welcome-hero")) root.classList.remove("screen-welcome");
     if (!app.querySelector(".account-summary")) root.classList.remove("screen-home");
-    if (!app.querySelector(".token-hero, .hero .token-avatar")) root.classList.remove("screen-token");
+    if (!app.querySelector(".token-hero, .hero .token-avatar")) root.classList.remove("screen-token", "screen-token-phone");
     if (!app.querySelector(".qr-card")) root.classList.remove("screen-receive");
     composeWelcome(app);
     composeHome(app);

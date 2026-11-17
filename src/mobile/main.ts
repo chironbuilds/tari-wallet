@@ -95,6 +95,7 @@ async function boot(): Promise<void> {
     host: "android",
     history: async () => (await handlePopupRequest({ kind: "popup-get-transaction-history" })) as TransactionHistoryEntry[],
     status: () => popup.appNav.status(),
+    openAccounts: () => void popup.appNav.accounts(),
   });
   installEnhancements({ receiveAddress: async () => (await popup.appNav.status()).receiveAddress, connectDapp: openPairingSheet });
 

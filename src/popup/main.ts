@@ -198,6 +198,44 @@ function render(...nodes: (Node | string)[]) {
   app.classList.remove("view-enter");
   void app.offsetWidth;
   app.classList.add("view-enter");
+  // Drop the class once the entrance has played. Left on, any later change to which animation
+  // applies (the phone app picks one per navigation direction, set on the tap that leaves a screen)
+  // restarts it, so the screen being left flashed in again before the next one arrived.
+  const seq = screenSeq;
+  setTimeout(() => {
+    if (seq === screenSeq) app.classList.remove("view-enter");
+  }, 450);
+}
+
+/**
+ * The last balances fetched for the active account. Send, Shield and Unshield open on these when
+ * they're recent instead of waiting on the indexer again (seconds on a phone): Home fetches them
+ * on show and every 15s while it's up, so they're as current as what the person is looking at.
+ */
+let balanceCache: { accountId: string; at: number; balances: Balance[] } | null = null;
+const BALANCE_CACHE_MS = 60_000;
+
+async function fetchBalances(status: WalletStatus, background = false): Promise<Balance[]> {
+  const balances = await send<Balance[]>(background ? { kind: "popup-get-balances", background: true } : { kind: "popup-get-balances" });
+  balanceCache = { accountId: status.activeAccountId, at: Date.now(), balances };
+  return balances;
+}
+
+/**
+ * Balances for opening an action screen: the recent ones at once, else a fetch, with `btn` showing
+ * a spinner (and ignoring further taps) meanwhile so the tap visibly registered.
+ */
+async function balancesForAction(status: WalletStatus, btn?: HTMLElement): Promise<Balance[]> {
+  const c = balanceCache;
+  if (c && c.accountId === status.activeAccountId && Date.now() - c.at < BALANCE_CACHE_MS) return c.balances;
+  btn?.classList.add("is-busy");
+  btn?.setAttribute("aria-busy", "true");
+  try {
+    return await fetchBalances(status);
+  } finally {
+    btn?.classList.remove("is-busy");
+    btn?.removeAttribute("aria-busy");
+  }
 }
 
 /** Copies `text` and flashes `label`'s text to "Copied!" for a beat, then restores it. */
@@ -910,8 +948,10 @@ async function renderHome(status: WalletStatus) {
   };
 
   sendActionBtn.addEventListener("click", async () => {
+    if (sendActionBtn.classList.contains("is-busy")) return;
     try {
-      const balances = await send<Balance[]>({ kind: "popup-get-balances" });
+      const balances = await balancesForAction(status, sendActionBtn);
+      if (!sendActionBtn.isConnected) return;
       renderSend(status, balances);
     } catch (e) {
       homeStatusEl.style.display = "block";
@@ -924,9 +964,15 @@ async function renderHome(status: WalletStatus) {
   burnActionBtn?.addEventListener("click", () => renderClaimBurn(status));
   // Shield/Unshield TARI straight from Home: the same screens a token's detail page opens, fed
   // TARI's current balance.
-  const openTariPrivacy = async (open: (status: WalletStatus, balance: Balance, onBack: () => void) => void, needs: "public" | "private") => {
+  const openTariPrivacy = async (
+    open: (status: WalletStatus, balance: Balance, onBack: () => void) => void,
+    needs: "public" | "private",
+    btn: HTMLElement
+  ) => {
+    if (btn.classList.contains("is-busy")) return;
     try {
-      const balances = await send<Balance[]>({ kind: "popup-get-balances" });
+      const balances = await balancesForAction(status, btn);
+      if (!btn.isConnected) return;
       const xtr = balances.find((b) => b.resourceAddress === TARI_RESOURCE_ADDRESS);
       const held = needs === "public" ? BigInt(xtr?.amount ?? "0") : BigInt(xtr?.confidentialAmount ?? "0");
       if (!xtr || held === 0n) {
@@ -943,8 +989,8 @@ async function renderHome(status: WalletStatus) {
       homeStatusEl.textContent = e instanceof Error ? e.message : String(e);
     }
   };
-  shieldActionBtn.addEventListener("click", () => void openTariPrivacy(renderShield, "public"));
-  unshieldActionBtn.addEventListener("click", () => void openTariPrivacy(renderUnshield, "private"));
+  shieldActionBtn.addEventListener("click", () => void openTariPrivacy(renderShield, "public", shieldActionBtn));
+  unshieldActionBtn.addEventListener("click", () => void openTariPrivacy(renderUnshield, "private", unshieldActionBtn));
 
   // Fired here rather than awaited before this point (or blocking buildStatus() the way it used
   // to) so the home screen it's shown alongside is already interactive -- see the removed call in
@@ -959,7 +1005,7 @@ async function renderHome(status: WalletStatus) {
         if (claimed > 0) {
           rescanControl.statusEl.style.display = "block";
           rescanControl.statusEl.textContent = t("rescan.found", { count: claimed, word: claimed === 1 ? "payment" : "payments" });
-          const balances = await send<Balance[]>({ kind: "popup-get-balances" });
+          const balances = await fetchBalances(status);
           renderBalances(balancesCard, balances, status);
           updateHeroBalance(balances);
         }
@@ -972,7 +1018,7 @@ async function renderHome(status: WalletStatus) {
 
   let shownBalances = "";
   try {
-    const balances = await send<Balance[]>({ kind: "popup-get-balances" });
+    const balances = await fetchBalances(status);
     renderBalances(balancesCard, balances, status);
     updateHeroBalance(balances);
     shownBalances = JSON.stringify(balances);
@@ -993,7 +1039,7 @@ async function renderHome(status: WalletStatus) {
     if (refreshing || !balancesCard.isConnected || document.visibilityState !== "visible") return;
     refreshing = true;
     try {
-      const balances = await send<Balance[]>({ kind: "popup-get-balances", background: true });
+      const balances = await fetchBalances(status, true);
       const next = JSON.stringify(balances);
       if (balancesCard.isConnected && next !== shownBalances) {
         renderBalances(balancesCard, balances, status);
@@ -1064,7 +1110,7 @@ function renderImportAccount(status: WalletStatus) {
 function renderSettings(status: WalletStatus) {
   const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
   const addAccountBtn = settingsRow("addAccount", t("settings.addAccount"), ICON_USER_PLUS);
-  const importAccountBtn = settingsRow("importAccount", t("settings.importAccount"), ICON_USER_PLUS);
+  const importAccountBtn = settingsRow("importAccount", t("settings.importAccount"), ICON_INBOX);
   const connectDaemonBtn = settingsRow("connectDaemon", t("settings.connectDaemon"), ICON_SERVER);
   const daemonsBtn = settingsRow("daemons", t("settings.daemonConnections"), ICON_SERVER, String(status.daemonConnections.length));
   const sitesBtn = settingsRow("sites", t("settings.connectedSites"), ICON_GLOBE);
@@ -1081,7 +1127,7 @@ function renderSettings(status: WalletStatus) {
       ])
     )
   );
-  const autoLockRow = h("div", { class: "settings-row settings-row-static" }, [
+  const autoLockRow = h("div", { class: "settings-row settings-row-static", id: "autoLockRow" }, [
     h("span", {}, [t("settings.autoLockAfter")]),
     autoLockSelect,
   ]);
@@ -1115,13 +1161,13 @@ function renderSettings(status: WalletStatus) {
     t("settings.feePrivacyTransparent"),
     t("settings.feePrivacyPrivate")
   );
-  const feePrivacyRow = h("div", { class: "settings-row settings-row-static" }, [
+  const feePrivacyRow = h("div", { class: "settings-row settings-row-static", id: "feePrivacyRow" }, [
     h("span", {}, [t("settings.defaultFeePrivacy")]),
     feePrivacySwitch,
   ]);
 
   // Android only, and only on a device with a strong biometric enrolled (filled in asynchronously).
-  const biometricRow = h("div", { class: "settings-row settings-row-static", style: "display:none" }, []);
+  const biometricRow = h("div", { class: "settings-row settings-row-static", id: "biometricRow", style: "display:none" }, []);
   const biometricStatusEl = h("div", { class: "status", style: "display:none" });
 
   render(
@@ -1146,6 +1192,14 @@ function renderSettings(status: WalletStatus) {
     lockBtn
   );
   void setupBiometricRow(biometricRow, biometricStatusEl);
+  // How many sites are connected, like the address book's count.
+  void send<unknown[]>({ kind: "popup-get-connected-sites" })
+    .then((sites) => {
+      const right = sitesBtn.querySelector(".settings-row-right");
+      if (!right || !sitesBtn.isConnected || right.querySelector(".settings-row-trailing")) return;
+      right.prepend(h("span", { class: "settings-row-trailing" }, [String(sites.length)]));
+    })
+    .catch(() => {});
 
   document.getElementById("back")!.addEventListener("click", () => renderHome(status));
   document.getElementById("lock")!.addEventListener("click", async () => {
@@ -2251,29 +2305,29 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
   // Send screen on this token and returning here.
   const sendBtn = balance.kind !== "NonFungible" ? h("button", { class: "secondary", id: "tokenSend" }, [t("home.send")]) : null;
   sendBtn?.addEventListener("click", async () => {
-    sendBtn.setAttribute("disabled", "true");
+    if (sendBtn.classList.contains("is-busy")) return;
     try {
-      const balances = await send<Balance[]>({ kind: "popup-get-balances" });
+      const balances = await balancesForAction(status, sendBtn);
+      if (!sendBtn.isConnected) return;
       renderSend(status, balances, { initialTab: "public", initialResourceAddress: balance.resourceAddress, onBack: () => renderTokenDetail(status, balance) });
     } catch (e) {
-      sendBtn.removeAttribute("disabled");
       sendBtn.textContent = e instanceof Error ? e.message : String(e);
     }
   });
 
   const shieldBtn =
-    hasPrivacyActions && isStealthResource ? h("button", { class: "secondary" }, [t("tokenDetail.shieldButton", { symbol: displaySymbol })]) : null;
+    hasPrivacyActions && isStealthResource ? h("button", { class: "secondary", id: "tokenShield" }, [t("tokenDetail.shieldButton", { symbol: displaySymbol })]) : null;
   if (shieldBtn) shieldBtn.addEventListener("click", () => renderShield(status, balance));
 
   const unshieldBtn =
     hasPrivacyActions && isConfidential && isStealthResource
-      ? h("button", { class: "secondary" }, [t("tokenDetail.unshieldButton", { symbol: displaySymbol })])
+      ? h("button", { class: "secondary", id: "tokenUnshield" }, [t("tokenDetail.unshieldButton", { symbol: displaySymbol })])
       : null;
   if (unshieldBtn) unshieldBtn.addEventListener("click", () => renderUnshield(status, balance));
 
   const sendPrivatelyBtn =
     hasPrivacyActions && isConfidential && isStealthResource
-      ? h("button", { class: "secondary" }, [t("tokenDetail.sendPrivatelyButton", { symbol: displaySymbol })])
+      ? h("button", { class: "secondary", id: "tokenSendPrivate" }, [t("tokenDetail.sendPrivatelyButton", { symbol: displaySymbol })])
       : null;
 
   // A real Confidential-vault resource (distinct from Stealth -- see above) can genuinely carry a
@@ -2288,9 +2342,10 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
       : null;
   if (sendPrivatelyBtn) {
     sendPrivatelyBtn.addEventListener("click", async () => {
-      sendPrivatelyBtn.setAttribute("disabled", "true");
+      if (sendPrivatelyBtn.classList.contains("is-busy")) return;
       try {
-        const balances = await send<Balance[]>({ kind: "popup-get-balances" });
+        const balances = await balancesForAction(status, sendPrivatelyBtn);
+        if (!sendPrivatelyBtn.isConnected) return;
         renderSend(status, balances, {
           initialTab: "private",
           initialResourceAddress: balance.resourceAddress,
@@ -2299,7 +2354,6 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
       } catch (e) {
         // Otherwise a failed fetch here (e.g. a daemon connection that just dropped) makes this
         // button look broken -- it visibly does nothing at all, with no error anywhere on screen.
-        sendPrivatelyBtn.removeAttribute("disabled");
         const original = sendPrivatelyBtn.textContent;
         sendPrivatelyBtn.textContent = e instanceof Error ? e.message : String(e);
         setTimeout(() => {
@@ -2334,8 +2388,12 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
   }
 
   render(
-    h("h1", {}, [t("tokenDetail.title")]),
-    h("div", { class: "hero" }, [tokenAvatar(balance.resourceAddress, balance.symbol, true)]),
+    h("h1", {}, [displayName && displayName !== "—" ? displayName : t("tokenDetail.title")]),
+    h(
+      "div",
+      { class: "hero", "data-resource": balance.resourceAddress, "data-symbol": displaySymbol, "data-divisibility": String(balance.divisibility ?? 0) },
+      [tokenAvatar(balance.resourceAddress, balance.symbol, true)]
+    ),
     h("div", { class: "card" }, [
       h("div", { class: "muted" }, [t("tokenDetail.name")]),
       h("div", { class: "detail-value" }, [displayName]),
@@ -3187,6 +3245,10 @@ export const appNav = {
   async receive() {
     const status = await latestStatus();
     if (status) renderReceive(status);
+  },
+  async accounts() {
+    const status = await latestStatus();
+    if (status) renderAccountSwitcher(status);
   },
   titles: () => ({
     activity: t("history.title"),

@@ -2362,3 +2362,162 @@ html.mobile .home-header-right .amount-eye {
 html.mobile .account-summary.card {
   padding-top: 32px;
 }
+
+/* ---- Settings, round 2 ---- */
+/* The profile card opens the account switcher. */
+html.mobile button.profile-card {
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+html.mobile button.profile-card:active {
+  background: var(--s2);
+  transform: none;
+}
+.profile-chevron {
+  display: grid;
+  flex: none;
+  margin-left: -4px;
+  color: var(--text-3);
+}
+/* A row's title with a one-line explanation under it. */
+html.mobile .settings-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+html.mobile .settings-row-hint {
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--text-3);
+}
+html.mobile .settings-row.fee-row {
+  flex-wrap: nowrap;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+html.mobile .fee-row .switch-side {
+  display: none;
+}
+html.mobile .fee-row label.switch-label {
+  flex: none;
+  margin-left: auto;
+}
+/* Rows with a picker or switch line up with the navigation rows' icons. */
+html.mobile .settings-row-static > .settings-row-left {
+  flex: 1;
+}
+/* Lock: a plain, quiet button. */
+html.mobile #app #lock.lock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+html.mobile #lock.lock-btn .icon-svg {
+  display: grid;
+  color: var(--text-2);
+}
+
+/* ---- Token, round 2 ---- */
+html.mobile.screen-token-phone .token-hero-name {
+  display: none;
+}
+html.mobile.screen-token-phone .token-hero-label {
+  margin-top: 6px;
+}
+html.mobile .token-action-row {
+  grid-template-columns: repeat(var(--n, 4), 1fr);
+  margin-top: 4px;
+}
+html.mobile .token-action-row .ta-public .action-icon {
+  background: var(--primary-bg);
+  border-color: transparent;
+  color: var(--primary-ink);
+}
+html.mobile .token-action-row .ta-private .action-icon {
+  color: var(--private);
+}
+/* Exact amounts: the hero rounds, this card doesn't. */
+html.mobile .token-balance-card .kv {
+  min-height: 48px;
+}
+html.mobile .token-balance-card .detail-value {
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+html.mobile .token-balance-card .kv-private .detail-value,
+html.mobile .token-balance-card .kv-private .muted {
+  color: var(--private);
+}
+html.mobile .token-balance-card .kv-total .muted,
+html.mobile .token-balance-card .kv-total .detail-value {
+  color: var(--text);
+  font-weight: 600;
+}
+/* Label and value centred on one line (the shared markup gives the value a top margin). */
+html.mobile .kv > .detail-value,
+html.mobile .kv > .muted {
+  margin: 0;
+  align-self: center;
+}
+html.mobile .kv-address-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+html.mobile .kv-address-value .mono {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-2);
+}
+html.mobile #app .kv-address-value .copy-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  min-height: 0;
+  margin: 0 -8px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-2);
+}
+html.mobile #app .kv-address-value .copy-icon:active {
+  background: var(--s2);
+}
+html.mobile #app .kv-address-value .copy-icon.copied {
+  color: var(--good);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+html.mobile .token-activity-empty {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 13.5px;
+  color: var(--text-3);
+}
+
+/* Busy action button (styles.css): a larger spinner in the phone's 52px circle. */
+html.mobile .action-btn.is-busy .action-icon::after {
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-width: 2.5px;
+}

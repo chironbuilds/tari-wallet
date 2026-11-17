@@ -2533,3 +2533,81 @@ html:not(.mobile) .home-header-right .amount-eye svg {
 html:not(.mobile) .account-summary.card {
   padding-top: 26px;
 }
+
+/* Settings: a row's title with a one-line explanation (Private fees), and a quiet Lock button. */
+html:not(.mobile) .settings-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+html:not(.mobile) .settings-row-hint {
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--muted-dim);
+}
+html:not(.mobile) .settings-row.fee-row {
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+html:not(.mobile) .fee-row .switch-side {
+  display: none;
+}
+html:not(.mobile) .fee-row label.switch-label {
+  flex: none;
+  margin-left: auto;
+}
+html:not(.mobile) .settings-row-static > .settings-row-left {
+  flex: 1;
+}
+html:not(.mobile) #lock.lock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--box);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+html:not(.mobile) #lock.lock-btn:hover {
+  border-color: var(--border-hover);
+}
+html:not(.mobile) #lock.lock-btn .icon-svg {
+  display: grid;
+  color: var(--muted);
+}
+html:not(.mobile) #lock.lock-btn .icon-svg svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* A tap waiting on the network to open the next screen (balancesForAction): a spinner on the
+   button itself, so the tap visibly registered; further taps are ignored meanwhile. */
+button.is-busy {
+  pointer-events: none;
+}
+button.is-busy:not(.action-btn) {
+  position: relative;
+  color: transparent !important;
+}
+button.is-busy:not(.action-btn)::after,
+.action-btn.is-busy .action-icon::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  border: 2px solid var(--text, currentColor);
+  border-right-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+.action-btn.is-busy .action-icon {
+  position: relative;
+}
+.action-btn.is-busy .action-icon > * {
+  opacity: 0;
+}
