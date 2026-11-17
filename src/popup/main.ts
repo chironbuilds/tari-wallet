@@ -303,7 +303,15 @@ function confirmThenRun(button: HTMLButtonElement, message: string, confirmLabel
       h("div", { class: "muted", style: "margin-bottom:6px" }, [message]),
       h("div", { class: "row", style: "gap:8px" }, [yes, no]),
     ]);
-    yes.addEventListener("click", () => void action());
+    // Both buttons wait out the action, so a second tap can't run it twice.
+    yes.addEventListener("click", async () => {
+      yes.disabled = no.disabled = true;
+      try {
+        await action();
+      } finally {
+        yes.disabled = no.disabled = false;
+      }
+    });
     no.addEventListener("click", () => prompt.replaceWith(button));
     button.replaceWith(prompt);
   });
@@ -1196,7 +1204,7 @@ function renderSettings(status: WalletStatus) {
   void send<unknown[]>({ kind: "popup-get-connected-sites" })
     .then((sites) => {
       const right = sitesBtn.querySelector(".settings-row-right");
-      if (!right || !sitesBtn.isConnected || right.querySelector(".settings-row-trailing")) return;
+      if (!right || !sitesBtn.isConnected || !sites.length || right.querySelector(".settings-row-trailing")) return;
       right.prepend(h("span", { class: "settings-row-trailing" }, [String(sites.length)]));
     })
     .catch(() => {});
@@ -2833,8 +2841,17 @@ async function renderConnectedSites() {
             // book/daemon connections rows -- an unusually long origin shouldn't be able to
             // blow out the row width and squeeze the Disconnect button off-screen.
             const hasView = s.viewAccessGrantedAt !== undefined;
+            // A WalletConnect dApp: its name as the title, the host and trust level under it
+            // (one run-on "“Name” — host ✓ verified" line wrapped badly beside the button).
+            const parts = originParts(s.origin);
+            const trustLine = parts
+              ? h("div", { class: `list-row-subtitle site-trust site-trust-${parts.trust}` }, [
+                  [parts.host ?? t("siteCard.noWebsite"), t(`siteCard.${parts.trust}`)].join(" · "),
+                ])
+              : "";
             const info = h("div", { class: "list-row-info" }, [
-              h("div", { class: "list-row-title", title: s.origin }, [originDisplay(s.origin)]),
+              h("div", { class: "list-row-title", title: originDisplay(s.origin) }, [parts ? parts.name : s.origin]),
+              trustLine,
               // Only shown when granted. A site with no private view access is the normal case and
               // needs no label; a site that can read the user's confidential balance is exactly the
               // thing this screen exists to make visible, so it says so in the row itself rather
@@ -2844,14 +2861,18 @@ async function renderConnectedSites() {
             const removeBtn = h("button", { class: "secondary btn-compact" }, [t("connectedSites.disconnectButton")]) as HTMLButtonElement;
             confirmThenRun(
               removeBtn,
-              t("connectedSites.disconnectConfirm", { origin: originDisplay(s.origin) }),
+              t("connectedSites.disconnectConfirm", { origin: originShort(s.origin) }),
               t("connectedSites.disconnectButton"),
               async () => {
                 await send({ kind: "popup-disconnect-site", origin: s.origin });
-                await renderConnectedSites();
+                // Only this site's rows go; redrawing the whole list flashed it and slid it in again.
+                row.remove();
+                viewRow?.remove();
+                if (!list.querySelector(".balance-row")) await renderConnectedSites();
               }
             );
             const row = h("div", { class: "balance-row" }, [info, removeBtn]);
+            let viewRow: HTMLElement | null = null;
             if (!hasView) return [row];
             // Revoking view access is offered as its own action, on its own row, rather than only
             // via Disconnect: a user who wants a dApp to keep working but stop reading their
@@ -2859,14 +2880,17 @@ async function renderConnectedSites() {
             const revokeBtn = h("button", { class: "secondary btn-compact" }, [t("connectedSites.revokeViewAccessButton")]) as HTMLButtonElement;
             confirmThenRun(
               revokeBtn,
-              t("connectedSites.revokeConfirm", { origin: originDisplay(s.origin) }),
+              t("connectedSites.revokeConfirm", { origin: originShort(s.origin) }),
               t("connectedSites.revokeButton"),
               async () => {
                 await send({ kind: "popup-revoke-site-view-access", origin: s.origin });
-                await renderConnectedSites();
+                info.querySelector(".view-access-note")?.remove();
+                viewRow?.remove();
+                viewRow = null;
               }
             );
-            return [row, h("div", { class: "balance-row view-access-row" }, [h("div", { class: "list-row-info" }, []), revokeBtn])];
+            viewRow = h("div", { class: "balance-row view-access-row" }, [h("div", { class: "list-row-info" }, []), revokeBtn]);
+            return [row, viewRow];
           })
         );
   const back = h("button", { class: "secondary", id: "back" }, [t("common.back")]);

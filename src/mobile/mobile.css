@@ -2521,3 +2521,54 @@ html.mobile .action-btn.is-busy .action-icon::after {
   margin: -11px 0 0 -11px;
   border-width: 2.5px;
 }
+
+/* ---- Settings, round 3 ---- */
+/* Switches in settings rows have no captions on the phone, so every switch ends at the same edge
+   (an empty caption span was leaving the biometric switch 8px short of the fee switch). */
+html.mobile .settings-row .switch-side {
+  display: none;
+}
+html.mobile .settings-row label.switch-label {
+  flex: none;
+  gap: 0;
+  margin-left: auto;
+}
+/* Rows with a description line: a little more air, the chevron centred on both lines. */
+html.mobile .settings-row:has(.settings-row-hint) {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+html.mobile .settings-row-left:has(.settings-row-text) {
+  flex: 1;
+}
+/* The network on the profile card: a pill with a status dot, as on Home. */
+html.mobile .profile-net {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 12px;
+}
+html.mobile .profile-net::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+html.mobile .profile-card.is-mainnet .profile-net {
+  color: var(--text-2);
+}
+html.mobile .profile-card.is-mainnet .profile-net::before {
+  background: var(--good);
+}
+/* A hairline under the app bar once content scrolls beneath it. */
+#app-bar {
+  transition: box-shadow 0.15s ease-out;
+}
+#app-bar.scrolled {
+  box-shadow: 0 1px 0 var(--line);
+}

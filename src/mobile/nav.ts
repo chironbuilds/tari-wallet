@@ -57,6 +57,9 @@ export function installNav(
   const topBar = document.createElement("header");
   topBar.id = "app-bar";
   topBar.hidden = true;
+  // A hairline under the bar once the screen scrolls beneath it (#app is the scroller).
+  const markScrolled = () => topBar.classList.toggle("scrolled", app.scrollTop > 2);
+  app.addEventListener("scroll", markScrolled, { passive: true });
   const backBtn = document.createElement("button");
   backBtn.type = "button";
   backBtn.className = "app-bar-back";
@@ -154,6 +157,7 @@ export function installNav(
   }
 
   function apply(): void {
+    markScrolled();
     const onApproval = window.location.hash.startsWith("#/approve/");
     const visible = showChrome && !onApproval;
     tabBar.hidden = !visible;

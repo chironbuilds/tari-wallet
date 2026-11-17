@@ -2611,3 +2611,24 @@ button.is-busy:not(.action-btn)::after,
 .action-btn.is-busy .action-icon > * {
   opacity: 0;
 }
+
+/* An inline confirmation opened from a list row (Disconnect, Revoke, Remove) takes its own full
+   line under the row. Beside the title it squeezed the title to a sliver one letter wide. */
+.balance-row:has(> .inline-confirm) {
+  flex-wrap: wrap;
+}
+.balance-row > .inline-confirm {
+  flex: 1 1 100%;
+  margin-top: 8px;
+}
+.balance-row > .inline-confirm .row > button {
+  flex: 1;
+}
+/* A connected dApp's host and trust level, under its name. */
+.site-trust-verified {
+  color: var(--good);
+}
+.site-trust-mismatch,
+.site-trust-scam {
+  color: var(--bad);
+}

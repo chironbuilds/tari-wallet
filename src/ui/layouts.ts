@@ -686,6 +686,48 @@ function composeSettings(app: HTMLElement): void {
     }
   }
 
+  // On the phone every row says in one line what it's for (the extension's popup is too narrow).
+  if (deps.host === "android") {
+    const describe = (row: HTMLElement | null, hint: string, title?: string) => {
+      const left = row?.querySelector<HTMLElement>(".settings-row-left");
+      if (!left || left.querySelector(".settings-row-text")) return;
+      const label = [...left.childNodes].find((n) => !(n instanceof HTMLElement && n.classList.contains("icon-svg")));
+      if (!label) return;
+      const text = el("span", "settings-row-text");
+      const name = el("span", "");
+      name.textContent = title ?? label.textContent ?? "";
+      const line = el("span", "settings-row-hint");
+      line.textContent = hint;
+      text.append(name, line);
+      label.replaceWith(text);
+    };
+    describe(byId("addAccount"), t("mobile.hintAddAccount"));
+    describe(byId("importAccount"), t("mobile.hintImportAccount"), t("mobile.importAccountShort"));
+    describe(byId("backup"), t("mobile.hintRevealPhrase"));
+    describe(byId("sites"), t("mobile.hintSites"));
+    describe(byId("addressBook"), t("mobile.hintAddressBook"));
+    describe(byId("connectDaemon"), t("mobile.hintConnectDaemon"));
+    if (bio) {
+      const bioHint = () => describe(bio, t("mobile.hintBiometric"));
+      bioHint();
+      if (!bio.querySelector(".settings-row-text")) {
+        const watch = new MutationObserver(() => {
+          if (!bio.querySelector(".settings-row-left")) return;
+          watch.disconnect();
+          bioHint();
+        });
+        watch.observe(bio, { childList: true, subtree: true });
+      }
+    }
+    // A count of nothing says nothing: the hint already explains the row.
+    const hideZero = (row: HTMLElement | null) => {
+      const tr = row?.querySelector<HTMLElement>(".settings-row-trailing");
+      if (tr?.textContent?.trim() === "0") tr.remove();
+    };
+    hideZero(byId("addressBook"));
+    hideZero(byId("sites"));
+  }
+
   // A daemon wallet is an advanced setup: its rows go last, and the list row only once one exists.
   const daemons = byId("daemons");
   if (daemons && daemons.querySelector(".settings-row-trailing")?.textContent?.trim() === "0") daemons.remove();
@@ -1059,7 +1101,7 @@ async function addSettingsProfile(app: HTMLElement): Promise<void> {
   }
   card.innerHTML = `<div class="profile-avatar">${s.address ? avatarSvg(s.address, 56) : ""}</div><div class="profile-text"><b></b><span></span></div><span class="profile-net"></span>${deps.openAccounts ? `<span class="profile-chevron">${svg(ICON.chevron, 18)}</span>` : ""}`;
   card.querySelector("b")!.textContent = acct?.label ?? t("home.accountFallback");
-  card.querySelector(".profile-text span")!.textContent = s.receiveAddress ? shortAddr(s.receiveAddress, 10) : "";
+  card.querySelector(".profile-text span")!.textContent = s.receiveAddress ? shortAddr(s.receiveAddress, 8) : "";
   card.querySelector(".profile-net")!.textContent = s.network.charAt(0).toUpperCase() + s.network.slice(1);
   card.classList.toggle("is-mainnet", s.network === "mainnet");
   first.before(card);
