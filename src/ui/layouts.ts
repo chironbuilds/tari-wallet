@@ -347,7 +347,8 @@ function activityRow(e: TransactionHistoryEntry): HTMLElement {
       const sign = INCOMING.has(kind) ? "+" : OUTGOING.has(kind) ? "−" : "";
       const exact = formatBalanceAmountGrouped(e.amount, e.divisibility ?? 6);
       const unit = resourceLabel(e.resourceAddress, e.symbol ?? null);
-      amt.textContent = `${sign}${twoDecimals(exact)} ${unit}`;
+      // A token without decimals (an NFT count) stays a whole number.
+      amt.textContent = `${sign}${e.divisibility === 0 ? exact : twoDecimals(exact)} ${unit}`;
       amt.title = `${exact} ${unit}`;
       right.append(amt);
       row.append(right);
@@ -1029,9 +1030,10 @@ function composeHistory(app: HTMLElement): void {
     const sign = INCOMING.has(kind) ? "+" : OUTGOING.has(kind) ? "−" : "";
     const exact = amount.textContent ?? "";
     amount.title = exact;
-    amount.textContent = `${sign}${exact.replace(/[\d,]+(?:\.\d+)?/, (n) => twoDecimals(n))}`;
+    amount.textContent = row.dataset.divisibility === "0" ? `${sign}${exact}` : `${sign}${exact.replace(/[\d,]+(?:\.\d+)?/, (n) => twoDecimals(n))}`;
     right.append(amount);
     row.append(right);
+    if (deps.host === "android" && row.querySelector(".history-tx, .list-row-subtitle")) phoneHistoryRow(row, kind);
   }
 
   // Group the full list by day: a heading, then that day's rows in their own card.
@@ -1056,6 +1058,164 @@ function composeHistory(app: HTMLElement): void {
     currentCard.append(row);
   }
   list.replaceWith(frag);
+}
+
+/**
+ * The phone's Activity row: "Sent", then "8:33 AM · otl_esm_1a…rjvnv", amount on the right. The
+ * transaction id, explorer link, memo and full address move to a details sheet opened by a tap
+ * (on every row they made each entry ~300px tall).
+ */
+function phoneHistoryRow(row: HTMLElement, kind: string): void {
+  const info = row.querySelector<HTMLElement>(".list-row-info");
+  if (!info) return;
+  const txLine = info.querySelector<HTMLElement>(".history-tx");
+  const subs = [...info.querySelectorAll<HTMLElement>(":scope > .list-row-subtitle:not(.history-tx)")];
+  const party = subs.find((x) => x.title);
+  const memoEl = subs.find((x) => !x.title);
+  const amount = row.querySelector<HTMLElement>(".history-amount");
+  const d: TxDetails = {
+    title: info.firstElementChild?.textContent ?? "",
+    amount: amount?.textContent ?? "",
+    exact: amount?.title ?? "",
+    tone: INCOMING.has(kind) ? "in" : OUTGOING.has(kind) ? "out" : "other",
+    ts: Number(row.dataset.ts) || 0,
+    party: party?.title ?? null,
+    partyIsAddress: kind !== "dapp-transaction",
+    memo: memoEl?.textContent?.replace(/^"|"$/g, "") ?? null,
+    txId: txLine?.title ?? null,
+    href: txLine?.querySelector("a")?.href ?? null,
+    failed: row.classList.contains("status-failed"),
+    nfts: row.dataset.nfts ?? null,
+  };
+  txLine?.remove();
+  memoEl?.remove();
+  if (party && d.partyIsAddress) {
+    // One line: the time, then who it was with.
+    const when = info.querySelector<HTMLElement>(".history-when")?.parentElement;
+    party.remove();
+    if (when) when.append(` · ${shortAddr(party.title, 6)}`);
+  }
+  row.classList.add("history-tappable");
+  row.setAttribute("role", "button");
+  row.tabIndex = 0;
+  const open = () => openTxSheet(d);
+  row.addEventListener("click", open);
+  row.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      open();
+    }
+  });
+}
+
+interface TxDetails {
+  title: string;
+  amount: string;
+  exact: string;
+  tone: "in" | "out" | "other";
+  ts: number;
+  party: string | null;
+  partyIsAddress: boolean;
+  memo: string | null;
+  txId: string | null;
+  href: string | null;
+  failed: boolean;
+  nfts: string | null;
+}
+
+let txSheet: HTMLElement | null = null;
+
+/** Closes the transaction details sheet if open (hardware back); true when it was. */
+export function closeTxSheet(): boolean {
+  if (!txSheet) return false;
+  const s = txSheet;
+  txSheet = null;
+  s.classList.remove("open");
+  setTimeout(() => s.remove(), 260);
+  return true;
+}
+
+function openTxSheet(d: TxDetails): void {
+  closeTxSheet();
+  const wrap = el("div", "review-sheet tx-sheet");
+  wrap.setAttribute("role", "dialog");
+  wrap.setAttribute("aria-modal", "true");
+  wrap.setAttribute("aria-label", t("mobile.txDetails"));
+  const card = el("div", "review-card tx-card");
+  card.append(el("div", "wc-sheet-handle"));
+
+  const head = el("div", "tx-head");
+  const kind = el("div", "tx-kind");
+  kind.textContent = d.title;
+  const big = el("div", `tx-amount tx-${d.tone}`);
+  // The exact figure here (rows round to two decimals), with the row's sign.
+  const sign = d.amount.match(/^[+−]/)?.[0] ?? "";
+  big.textContent = d.exact ? `${sign}${d.exact}` : d.amount;
+  head.append(kind);
+  if (big.textContent) head.append(big);
+  card.append(head);
+
+  const list = el("div", "tx-rows");
+  const line = (label: string, value: string, opts: { mono?: boolean; copy?: string } = {}) => {
+    const r = el("div", "tx-row");
+    const l = el("div", "tx-label");
+    l.textContent = label;
+    const v = el("div", `tx-value${opts.mono ? " mono" : ""}`);
+    v.textContent = value;
+    r.append(l, v);
+    if (opts.copy) {
+      const copyText = opts.copy;
+      const b = el("button", "tx-copy");
+      b.type = "button";
+      b.setAttribute("aria-label", t("common.copy"));
+      b.append(iconSpan(ICON.copy, 18));
+      b.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(copyText);
+          b.classList.add("copied");
+          setTimeout(() => b.classList.remove("copied"), 1200);
+        } catch {
+          /* clipboard unavailable: the value is still selectable */
+        }
+      });
+      r.append(b);
+    }
+    list.append(r);
+  };
+  if (d.ts > 0) line(t("mobile.txDate"), new Date(d.ts).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
+  if (d.party) {
+    const label = !d.partyIsAddress ? t("mobile.txDapp") : d.tone === "in" ? t("mobile.txFrom") : t("mobile.txTo");
+    line(label, d.party, d.partyIsAddress ? { mono: true, copy: d.party } : {});
+  }
+  if (d.nfts) line(t("nft.label"), d.nfts);
+  if (d.memo) line(t("mobile.txMemo"), d.memo);
+  if (d.txId) line(t("mobile.txId"), shortAddr(d.txId, 10), { mono: true, copy: d.txId });
+  card.append(list);
+
+  const actions = el("div", "tx-actions");
+  if (d.href) {
+    const a = document.createElement("a");
+    a.className = "tx-explorer";
+    a.href = d.href;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = t("history.viewOnExplorer");
+    actions.append(a);
+  }
+  const close = el("button", "secondary tx-close");
+  close.type = "button";
+  close.textContent = t("mobile.close");
+  close.addEventListener("click", () => closeTxSheet());
+  actions.append(close);
+  card.append(actions);
+
+  wrap.append(card);
+  wrap.addEventListener("click", (e) => {
+    if (e.target === wrap) closeTxSheet();
+  });
+  document.body.append(wrap);
+  txSheet = wrap;
+  requestAnimationFrame(() => requestAnimationFrame(() => wrap.classList.add("open")));
 }
 
 // ---------------- Receive ----------------

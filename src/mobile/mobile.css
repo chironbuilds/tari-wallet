@@ -2572,3 +2572,194 @@ html.mobile .profile-card.is-mainnet .profile-net::before {
 #app-bar.scrolled {
   box-shadow: 0 1px 0 var(--line);
 }
+
+/* ---- Activity, round 2 ---- */
+/* Rows are compact and open a details sheet. */
+html.mobile .history-tappable {
+  cursor: pointer;
+}
+html.mobile .history-tappable:active {
+  background: var(--s2);
+}
+html.mobile .history-day .balance-row .list-row-info > .muted {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Transaction details sheet (shares the review sheet's frame). */
+.tx-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.tx-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.tx-kind {
+  font-size: 15px;
+  color: var(--text-2);
+}
+.tx-amount {
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.tx-amount.tx-in {
+  color: var(--good);
+}
+.tx-rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+.tx-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  min-height: 48px;
+}
+.tx-row + .tx-row {
+  border-top: 1px solid var(--line);
+}
+.tx-label {
+  font-size: 13.5px;
+  color: var(--text-3);
+}
+.tx-value {
+  font-size: 14px;
+  text-align: right;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.tx-value.mono {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.tx-row:not(:has(.tx-copy)) .tx-value {
+  grid-column: 2 / 4;
+}
+html.mobile .tx-copy {
+  width: 36px !important;
+  height: 36px;
+  min-height: 36px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  border: 0 !important;
+  background: var(--s2) !important;
+  color: var(--text-2);
+  display: grid;
+  place-items: center;
+}
+html.mobile .tx-copy.copied {
+  color: var(--good);
+}
+.tx-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tx-explorer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  border-radius: var(--r-md, 14px);
+  background: var(--primary-bg, var(--text));
+  color: var(--primary-ink, var(--bg));
+  font-weight: 600;
+  text-decoration: none;
+}
+html.mobile .tx-close {
+  margin: 0;
+}
+
+/* ---- NFTs on the phone: roomier grid and touch targets ---- */
+html.mobile .nft-hero-count {
+  font-size: 34px;
+}
+html.mobile .nft-actions > button {
+  min-height: 48px;
+}
+html.mobile .nft-grid {
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 14px;
+}
+html.mobile .nft-card-name {
+  font-size: 14px;
+}
+html.mobile .nft-art-id {
+  font-size: 20px;
+}
+html.mobile .nft-art-big {
+  width: min(100%, 300px);
+}
+html.mobile .nft-art-big .nft-art-id {
+  font-size: 44px;
+}
+html.mobile .nft-pick {
+  min-height: 56px;
+  padding: 8px 12px;
+}
+html.mobile .nft-picks {
+  max-height: none;
+}
+html.mobile .nft-facts {
+  padding: 4px 16px;
+}
+html.mobile .nft-facts .kv {
+  padding: 12px 0;
+}
+html.mobile .nft-grid > .nft-card,
+html.mobile .nft-actions > button,
+html.mobile .nft-confirm-buttons > button {
+  margin-top: 0;
+}
+html.mobile .nft-grid {
+  align-items: start;
+}
+
+/* ---- Home: Tokens | NFTs on the phone ---- */
+html.mobile .asset-tabs {
+  background: var(--s1);
+  border-color: var(--line);
+  padding: 4px;
+}
+html.mobile .asset-tab {
+  min-height: 36px !important;
+  padding: 6px 18px;
+  font-size: 15px;
+  color: var(--text-3);
+}
+html.mobile .asset-tab[aria-selected="true"] {
+  background: var(--s3);
+  color: var(--text);
+}
+html.mobile .nft-gallery-head {
+  min-height: 44px;
+  font-size: 16px;
+}
+html.mobile .nft-gallery-count {
+  font-size: 14px;
+  color: var(--text-3);
+}
+html.mobile .nft-gallery .nft-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+html.mobile .nft-gallery .nft-art-id {
+  font-size: 16px;
+}
+html.mobile .nft-gallery .nft-card-name {
+  font-size: 13px;
+}

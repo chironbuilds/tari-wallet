@@ -131,6 +131,8 @@ export interface TransactionHistoryEntry {
    * before this field existed -- the popup falls back to a current-balance lookup for those. */
   divisibility?: number;
   symbol?: string | null;
+  /** For an NFT send: which tokens went (canonical ids, `u64_5`). `amount` is then their count. */
+  nftIds?: string[];
 }
 
 const MAX_TRANSACTION_HISTORY_ENTRIES = 500;

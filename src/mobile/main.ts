@@ -12,7 +12,7 @@ import { cancelScan, closePairingSheet, openPairingSheet } from "./pairUi";
 import { ImpactStyle } from "@capacitor/haptics";
 import { installNav, tick } from "./nav";
 import { installEnhancements } from "./enhance";
-import { installRedesign } from "../ui/layouts";
+import { closeTxSheet, installRedesign } from "../ui/layouts";
 import { closeReviewSheet, installReview } from "../ui/review";
 import { installConnectivityBar } from "./connectivity";
 import { initApprovalNotifications } from "./notifications";
@@ -50,6 +50,7 @@ async function boot(): Promise<void> {
     if (cancelScan()) return;
     if (closePairingSheet()) return;
     if (closeReviewSheet()) return;
+    if (closeTxSheet()) return;
     if (platform.currentApproval()) {
       platform.dismissCurrentApproval();
       return;

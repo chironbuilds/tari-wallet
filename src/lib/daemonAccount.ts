@@ -265,6 +265,7 @@ export class DaemonAccount implements WalletAccountApi {
       // vault-container path in OotleAccount.getBalances()) -- daemon-relayed NonFungible display
       // is out of scope for this fix.
       nonFungibleTokenIds: null,
+      nonFungibleIds: null,
     }));
   }
 

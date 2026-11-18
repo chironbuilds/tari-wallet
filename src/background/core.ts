@@ -1814,6 +1814,24 @@ export async function handlePopupRequest(message: PopupRequest): Promise<unknown
       );
     }
 
+    case "popup-send-nfts": {
+      const activeAccount = await getActiveAccount();
+      if (!activeAccount) throw new Error("Wallet is locked.");
+      const account = requireLocalAccount(activeAccount, "Sending NFTs");
+      const { activeAccountId } = await getState();
+      return withHistory(
+        {
+          accountId: activeAccountId,
+          kind: "send",
+          resourceAddress: message.resourceAddress,
+          amount: String(message.ids.length),
+          counterparty: message.recipientWalletAddress,
+          nftIds: message.ids,
+        },
+        () => account.sendNonFungibles(message.recipientWalletAddress, message.resourceAddress, message.ids)
+      );
+    }
+
     case "popup-shield": {
       const activeAccount = await getActiveAccount();
       if (!activeAccount) throw new Error("Wallet is locked.");

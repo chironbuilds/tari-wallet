@@ -12,6 +12,8 @@ export type Balance = {
   symbol: string | null;
   name: string | null;
   nonFungibleTokenIds: string[] | null;
+  /** The same NFTs as canonical typed ids (`u64_5`), which sending needs. Null for every other kind. */
+  nonFungibleIds: string[] | null;
 };
 
 // Mirrors `TARI_RESOURCE_ADDRESS` from `@tari-project/ootle` (not imported directly here — that
@@ -181,4 +183,11 @@ export function networkOfOotleWalletAddress(address: string): "mainnet" | "esmer
 /** An `otl_` address on exactly `network`: what a Send form on that network should accept. */
 export function isOotleWalletAddressOn(address: string, network: string): boolean {
   return networkOfOotleWalletAddress(address) === network;
+}
+
+/** An NFT id as people read it: a canonical id (`u64_5`, `str_name`, `uuid_<hex>`) without its type
+ * prefix; anything else as given. (The SDK has the same helper; the popup doesn't load the SDK.) */
+export function displayNonFungibleId(id: string): string {
+  const m = /^(?:uuid|str|u32|u64)_(.+)$/s.exec(id);
+  return m ? m[1]! : id;
 }

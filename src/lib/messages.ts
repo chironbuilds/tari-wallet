@@ -789,6 +789,8 @@ export type PopupRequest =
   | { kind: "popup-get-nft-details"; resourceAddress: string; tokenIds: string[] }
   | { kind: "popup-claim-testnet-xtr" }
   | { kind: "popup-send"; recipientWalletAddress: string; resourceAddress: string; amount: string }
+  /** Sends specific NFTs; `ids` are canonical (`u64_5`, see Balance.nonFungibleIds). Local accounts only. */
+  | { kind: "popup-send-nfts"; recipientWalletAddress: string; resourceAddress: string; ids: string[] }
   | { kind: "popup-shield"; resourceAddress: string; amount: string; maxFee?: string; memo?: string }
   | { kind: "popup-unshield"; resourceAddress: string; revealedAmount: string; maxFee?: string; memo?: string }
   | {
@@ -898,6 +900,8 @@ export interface TransactionHistoryEntry {
   memo?: string;
   divisibility?: number;
   symbol?: string | null;
+  /** For an NFT send: which tokens went (canonical ids). `amount` is then their count. */
+  nftIds?: string[];
 }
 
 /** One account as reported by a wallet daemon's `accounts.list`/`accounts.get` JRPC, surfaced to
