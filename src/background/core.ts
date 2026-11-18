@@ -1039,6 +1039,23 @@ function rejectPrivateFeeForDaemon(feeType: "private" | "transparent" | undefine
  * resource is meaningful here, almost always TARI) — found the same way the wallet's own send UI
  * does: the balance whose `symbol` is `"TARI"`.
  */
+/**
+ * Runs an operation that may pay its fee from a private UTXO, trying again if that UTXO turned out
+ * to be spent already (from another device on this seed, or a spend this wallet never saw). The SDK
+ * marks such a UTXO spent -- so it leaves the balance and is never picked again -- and throws
+ * `SpentFeeInputError` before anything is sent, so each new attempt pays from another UTXO.
+ * Matched by name: the class lives in the SDK bundle.
+ */
+async function retryOnSpentFeeInput<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await run();
+    } catch (e) {
+      if (i >= attempts || !(e instanceof Error) || e.name !== "SpentFeeInputError") throw e;
+    }
+  }
+}
+
 async function resolveFeeType(account: WalletAccountApi, feeType: "private" | "transparent" | undefined): Promise<FeeType> {
   if (feeType !== "private") return { kind: "transparent" };
   requireLocalAccount(account, "Paying a private fee");
@@ -1262,7 +1279,7 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
 
   const counterparty = operationHistoryLabel(record.origin, operation);
   try {
-    const result = await withHistory({ accountId: record.accountId, kind: "dapp-transaction", counterparty }, doExecute);
+    const result = await withHistory({ accountId: record.accountId, kind: "dapp-transaction", counterparty }, () => retryOnSpentFeeInput(doExecute));
     await setTransactionRequestStatus(record.id, { status: "submitted", result: sanitizeForMessage(result) });
     return result;
   } catch (e) {
@@ -1911,16 +1928,12 @@ export async function handlePopupRequest(message: PopupRequest): Promise<unknown
           counterparty: message.recipientWalletAddress,
           memo: message.memo,
         },
-        async () =>
-          account.sendPrivately(
-            message.resourceAddress,
-            message.recipientWalletAddress,
-            BigInt(message.amount),
-            maxFee,
-            message.memo,
-            undefined,
-            await resolveFeeType(account, feeType)
-          )
+        async () => {
+          const fee = await resolveFeeType(account, feeType);
+          return retryOnSpentFeeInput(() =>
+            account.sendPrivately(message.resourceAddress, message.recipientWalletAddress, BigInt(message.amount), maxFee, message.memo, undefined, fee)
+          );
+        }
       );
     }
 
