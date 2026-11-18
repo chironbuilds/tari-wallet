@@ -4,6 +4,7 @@
  * screens (e.g. "Password") lives under `common` instead of being duplicated per screen. */
 const en = {
   common: {
+    byErebus: "by Erebus Lab",
     password: "Password",
     back: "Back",
     backArrow: "← Back",

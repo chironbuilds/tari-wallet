@@ -2850,3 +2850,21 @@ button.is-busy:not(.action-btn)::after,
 .nft-note[hidden] {
   display: none !important;
 }
+
+/* "by Erebus Lab" under or beside the Sapient name. */
+.brand-by {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-dim);
+}
+.welcome-hero p.brand-by {
+  margin: 0 0 10px;
+}
+.brand-lockup .brand-by {
+  margin-left: 2px;
+  padding-left: 9px;
+  border-left: 1px solid currentColor;
+  line-height: 1;
+}

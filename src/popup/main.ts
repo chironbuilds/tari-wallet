@@ -412,6 +412,7 @@ function renderWelcome() {
     h("div", { class: "welcome-hero" }, [
       h("img", { src: "icons/icon128.png", width: "56", height: "56", alt: "" }),
       h("h1", {}, ["Sapient", h("span", {}, [" Wallet"])]),
+      h("p", { class: "brand-by" }, [t("common.byErebus")]),
       h("p", { class: "muted" }, [t("welcome.description")]),
     ]),
     h("button", { class: "primary", id: "create" }, [t("welcome.createButton")]),

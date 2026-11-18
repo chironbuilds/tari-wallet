@@ -612,7 +612,8 @@ function composeLockup(app: HTMLElement): void {
   // The unlock screen (#unlock) and create/import (#pw2); not in-app password prompts.
   if (!app.querySelector("#unlock, #pw2")) return;
   const lockup = el("div", "brand-lockup");
-  lockup.innerHTML = '<img src="icons/icon48.png" width="28" height="28" alt=""><span>Sapient</span>';
+  lockup.innerHTML = '<img src="icons/icon48.png" width="28" height="28" alt=""><span>Sapient</span><small class="brand-by"></small>';
+  lockup.querySelector(".brand-by")!.textContent = t("common.byErebus");
   app.prepend(lockup);
 }
 
@@ -1269,7 +1270,7 @@ async function addSettingsProfile(app: HTMLElement): Promise<void> {
   const lock = app.querySelector<HTMLElement>("#lock");
   if (lock && !app.querySelector(".app-version")) {
     const v = el("div", "app-version");
-    v.textContent = `Sapient ${platform().appVersion()}`;
+    v.textContent = `Sapient ${platform().appVersion()} · ${t("common.byErebus")}`;
     lock.after(v);
   }
 }

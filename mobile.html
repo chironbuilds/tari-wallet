@@ -6,6 +6,7 @@
 <!-- The extension gets its CSP from manifest.json; the app page needs its own. Same script policy
      (own bundle + WebAssembly only, no inline or remote script), network limited to TLS. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https: wss:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; worker-src 'self' blob:" />
+<meta name="author" content="Erebus Lab">
 <title>Sapient</title>
 <link rel="stylesheet" href="src/popup/styles.css" />
 </head>

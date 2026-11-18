@@ -4,6 +4,7 @@ import type { TranslationTree } from "./en";
  * a key added to `en.ts` without a translation here is a compile error, not a silent fallback. */
 const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: string } } = {
   common: {
+    byErebus: "Erebus Lab 出品",
     password: "密码",
     back: "返回",
     backArrow: "← 返回",
