@@ -787,6 +787,8 @@ export type PopupRequest =
   /** `background`: Home's periodic refresh, which must not count as user activity for auto-lock. */
   | { kind: "popup-get-balances"; background?: true }
   | { kind: "popup-get-nft-details"; resourceAddress: string; tokenIds: string[] }
+  /** Whether the active account can send this collection's NFTs (see nftSendability.ts). */
+  | { kind: "popup-get-nft-sendability"; resourceAddress: string }
   | { kind: "popup-claim-testnet-xtr" }
   | { kind: "popup-send"; recipientWalletAddress: string; resourceAddress: string; amount: string }
   /** Sends specific NFTs; `ids` are canonical (`u64_5`, see Balance.nonFungibleIds). Local accounts only. */

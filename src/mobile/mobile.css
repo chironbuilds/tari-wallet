@@ -2707,13 +2707,6 @@ html.mobile .nft-art-big {
 html.mobile .nft-art-big .nft-art-id {
   font-size: 44px;
 }
-html.mobile .nft-pick {
-  min-height: 56px;
-  padding: 8px 12px;
-}
-html.mobile .nft-picks {
-  max-height: none;
-}
 html.mobile .nft-facts {
   padding: 4px 16px;
 }
@@ -2762,4 +2755,11 @@ html.mobile .nft-gallery .nft-art-id {
 }
 html.mobile .nft-gallery .nft-card-name {
   font-size: 13px;
+}
+html.mobile .nft-send-item .nft-art {
+  width: 72px;
+  border-radius: 12px;
+}
+html.mobile .nft-send-name {
+  font-size: 17px;
 }

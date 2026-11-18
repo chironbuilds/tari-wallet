@@ -1,5 +1,7 @@
 import { createWalletSeed, deserializeSeed, importWalletSeed, seedToMnemonic, serializeSeed } from "../lib/cipherSeed";
-import { decodeSubstateResponse, decodeTransactionResultResponse } from "../lib/bor";
+import { decodeSubstateResponse, decodeSubstateValue, decodeTransactionResultResponse } from "../lib/bor";
+import { getVaultIdsForAccount } from "@tari-project/ootle";
+import { nftSendability, type ResourceRules, type VaultState } from "./nftSendability";
 import { decryptVault, encryptVault } from "../lib/vault";
 import {
   addAddressBookEntry,
@@ -1812,6 +1814,29 @@ export async function handlePopupRequest(message: PopupRequest): Promise<unknown
         },
         () => account.send(message.recipientWalletAddress, message.resourceAddress, BigInt(message.amount))
       );
+    }
+
+    case "popup-get-nft-sendability": {
+      const activeAccount = await getActiveAccount();
+      if (!activeAccount) throw new Error("Wallet is locked.");
+      // A daemon-relayed account can't send NFTs from here at all (see popup-send-nfts).
+      if (!(activeAccount instanceof OotleAccount)) return { canSend: false, reason: "unknown" };
+      try {
+        const provider = await activeAccount.getProvider();
+        const component = await activeAccount.getComponentAddress();
+        const vaultIds = await getVaultIdsForAccount(provider, component as Parameters<typeof getVaultIdsForAccount>[1]);
+        const { substates } = await provider.fetchSubstates([message.resourceAddress, ...vaultIds] as Parameters<typeof provider.fetchSubstates>[0]);
+        const resource = (decodeSubstateValue(substates[message.resourceAddress]?.value) as { Resource?: ResourceRules } | undefined)?.Resource;
+        let vault: VaultState | undefined;
+        for (const id of vaultIds) {
+          const v = (decodeSubstateValue(substates[id]?.value) as { Vault?: VaultState & { resource_container?: Record<string, { address?: string }> } } | undefined)?.Vault;
+          const address = v?.resource_container ? Object.values(v.resource_container)[0]?.address : undefined;
+          if (address === message.resourceAddress) vault = v;
+        }
+        return nftSendability(resource, vault);
+      } catch {
+        return { canSend: false, reason: "unknown" };
+      }
     }
 
     case "popup-send-nfts": {

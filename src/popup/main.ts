@@ -2256,10 +2256,13 @@ function renderNftGallery(container: HTMLElement, collections: Balance[], status
       const { ids } = nftIdsOf(balance);
       const shown = ids.slice(0, NFTS_PER_COLLECTION);
       const names = new Map<string, HTMLElement>();
+      const arts = new Map<string, HTMLElement>();
       const cards = shown.map((id) => {
         const name = h("div", { class: "nft-card-name" }, [nftLabel(id)]);
         names.set(id, name);
-        const card = h("button", { class: "nft-card", "data-id": id }, [nftArt(balance.resourceAddress, id), name]);
+        const art = nftArt(balance.resourceAddress, id, false, cachedNftImage(balance, id));
+        arts.set(id, art);
+        const card = h("button", { class: "nft-card", "data-id": id }, [art, name]);
         card.addEventListener("click", () => renderNftDetail(status, balance, id, () => void renderHome(status)));
         return card;
       });
@@ -2271,7 +2274,10 @@ function renderNftGallery(container: HTMLElement, collections: Balance[], status
       open.addEventListener("click", () => renderNftCollection(status, balance));
       void loadNftDetails(balance, shown)
         .then((details) => {
-          for (const [id, d] of details) if (d.name) names.get(id)!.textContent = d.name;
+          for (const [id, d] of details) {
+            if (d.name) names.get(id)!.textContent = d.name;
+            if (d.image && arts.get(id)?.isConnected) arts.get(id)!.replaceWith(nftArt(balance.resourceAddress, id, false, d.image));
+          }
         })
         .catch(() => {
           /* names stay as numbers */
@@ -2521,7 +2527,12 @@ async function addAccount(onBack: () => void) {
 // NFTs
 // ---------------------------------------------------------------------------
 
-type NftInfo = { tokenId: string; name: string | null; attributes: Array<[string, string]> };
+type NftInfo = { tokenId: string; name: string | null; attributes: Array<[string, string]>; image: string | null };
+
+/** The background hands over a token's picture only as checked raster data (nftDetails.ts,
+ * loadNftImage); this is checked again here before it reaches an <img>, so nothing else ever does. */
+const SAFE_NFT_IMAGE = /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/;
+const NFT_IMAGE_KEYS = ["image", "image_url", "imageurl", "image_uri", "imageuri"];
 
 /** The NFTs of a collection: canonical typed ids where the SDK could read them (needed to send),
  * else the display ids (shown, but not sendable). */
@@ -2543,7 +2554,12 @@ const NFT_TONES = ["#2f3b5e", "#45305e", "#5e2f4b", "#2f5e52", "#5e4b2f", "#2f4f
  * data would tell that server who holds it, so every NFT gets a calm generated tile instead: a tone
  * picked from its collection and id, with its number on it.
  */
-function nftArt(resourceAddress: string, id: string, big = false): HTMLElement {
+function nftArt(resourceAddress: string, id: string, big = false, image: string | null = null): HTMLElement {
+  if (image && SAFE_NFT_IMAGE.test(image)) {
+    return h("div", { class: `nft-art nft-art-img${big ? " nft-art-big" : ""}` }, [
+      h("img", { src: image, alt: "", decoding: "async", draggable: "false" }),
+    ]);
+  }
   let hash = 0;
   for (const ch of resourceAddress + id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   return h("div", { class: `nft-art${big ? " nft-art-big" : ""}`, style: `background:${NFT_TONES[hash % NFT_TONES.length]}`, "aria-hidden": "true" }, [
@@ -2568,6 +2584,42 @@ async function loadNftDetails(balance: Balance, ids: string[]): Promise<Map<stri
   return out;
 }
 
+function cachedNftImage(balance: Balance, id: string): string | null {
+  return nftDetailsCache.get(`${balance.resourceAddress}:${id}`)?.image ?? null;
+}
+
+/** An attribute's value as shown: a picture field reads as "Embedded image" or its link, not raw data. */
+function nftAttrValue(key: string, value: string): string {
+  if (!NFT_IMAGE_KEYS.includes(key.toLowerCase())) return value;
+  if (value.startsWith("data:")) return t("nft.embeddedImage");
+  return value.length > 60 ? `${value.slice(0, 40)}…${value.slice(-12)}` : value;
+}
+
+type NftSendability = { canSend: true } | { canSend: false; reason: "rules" | "frozen" | "unknown" };
+const nftSendabilityCache = new Map<string, Promise<NftSendability>>();
+
+/** Whether this account may send this collection's NFTs: the collection's transfer rules and this
+ * account's vault, read from the chain (background/nftSendability.ts). Asked once per screen visit
+ * set; a failed check is not cached, so it is retried next time. */
+function nftSendabilityFor(status: WalletStatus, balance: Balance): Promise<NftSendability> {
+  const key = `${status.activeAccountId}:${balance.resourceAddress}`;
+  let p = nftSendabilityCache.get(key);
+  if (!p) {
+    p = send<NftSendability>({ kind: "popup-get-nft-sendability", resourceAddress: balance.resourceAddress }).catch(
+      () => ({ canSend: false, reason: "unknown" }) as NftSendability
+    );
+    nftSendabilityCache.set(key, p);
+    void p.then((r) => {
+      if (!r.canSend && r.reason === "unknown") nftSendabilityCache.delete(key);
+    });
+  }
+  return p;
+}
+
+function nftCannotSendText(reason: "rules" | "frozen" | "unknown"): string {
+  return reason === "rules" ? t("nft.notTransferable") : reason === "frozen" ? t("nft.frozen") : t("nft.checkFailed");
+}
+
 function nftCountText(n: number): string {
   return n === 1 ? t("nft.countOne") : t("nft.countMany", { count: n });
 }
@@ -2578,16 +2630,17 @@ function renderNftCollection(status: WalletStatus, balance: Balance) {
   const { ids, sendable } = nftIdsOf(balance);
   const isLocal = activeAccountSummary(status)?.kind !== "daemon";
 
-  const sendBtn = h("button", { class: "secondary", id: "nftSend" }, [t("nft.send")]);
   const receiveBtn = h("button", { class: "secondary", id: "nftReceive" }, [t("nft.receive")]);
-  const note = !isLocal ? t("nft.localOnly") : !sendable && ids.length > 0 ? t("nft.unreadable") : null;
-  if (!isLocal || !sendable) sendBtn.setAttribute("disabled", "true");
+  const note = !isLocal ? t("nft.localOnly") : !sendable && ids.length > 0 ? t("nft.unreadable") : ids.length > 0 ? t("nft.tapHint") : null;
 
   const names = new Map<string, HTMLElement>();
+  const arts = new Map<string, HTMLElement>();
   const cards = ids.map((id) => {
     const name = h("div", { class: "nft-card-name" }, [nftLabel(id)]);
     names.set(id, name);
-    const card = h("button", { class: "nft-card", "data-id": id }, [nftArt(balance.resourceAddress, id), name]);
+    const art = nftArt(balance.resourceAddress, id, false, cachedNftImage(balance, id));
+    arts.set(id, art);
+    const card = h("button", { class: "nft-card", "data-id": id }, [art, name]);
     card.addEventListener("click", () => renderNftDetail(status, balance, id));
     return card;
   });
@@ -2602,8 +2655,8 @@ function renderNftCollection(status: WalletStatus, balance: Balance) {
       h("div", { class: "nft-hero-count" }, [nftCountText(ids.length)]),
       h("div", { class: "muted" }, [resourceLabel(balance.resourceAddress, balance.symbol)]),
     ]),
-    h("div", { class: "nft-actions" }, [sendBtn, receiveBtn]),
-    ...(note ? [h("p", { class: "muted nft-note" }, [note])] : []),
+    h("div", { class: "nft-actions nft-actions-one" }, [receiveBtn]),
+    ...(note ? [h("p", { class: "muted nft-note", id: "nftNote" }, [note])] : []),
     h("div", { class: "section-title" }, [t("nft.yourNfts")]),
     h("div", { class: "nft-grid" }, cards),
     h("div", { class: "section-title" }, [t("mobile.details")]),
@@ -2614,12 +2667,20 @@ function renderNftCollection(status: WalletStatus, balance: Balance) {
     back
   );
   back.addEventListener("click", () => void renderHome(status));
-  sendBtn.addEventListener("click", () => renderSendNfts(status, balance, []));
   receiveBtn.addEventListener("click", () => renderReceive(status));
+  if (isLocal && sendable && ids.length > 0) {
+    void nftSendabilityFor(status, balance).then((r) => {
+      const el = document.getElementById("nftNote");
+      if (!r.canSend && r.reason !== "unknown" && el) el.textContent = nftCannotSendText(r.reason);
+    });
+  }
 
   void loadNftDetails(balance, ids)
     .then((details) => {
-      for (const [id, d] of details) if (d.name) names.get(id)!.textContent = d.name;
+      for (const [id, d] of details) {
+        if (d.name) names.get(id)!.textContent = d.name;
+        if (d.image) arts.get(id)!.replaceWith(nftArt(balance.resourceAddress, id, false, d.image));
+      }
     })
     .catch(() => {
       /* names stay as numbers */
@@ -2639,18 +2700,34 @@ function renderNftDetail(status: WalletStatus, balance: Balance, id: string, onB
     h("div", { class: "kv" }, [h("div", { class: "muted" }, [t("nft.tokenId")]), h("div", { class: "detail-value mono" }, [displayNonFungibleId(id)])]),
   ]);
   const attrs = h("div", { class: "card nft-facts" }, [h("div", { class: "muted" }, [t("tokenDetail.nftLoading")])]);
-  const sendBtn = h("button", { class: "primary", id: "nftSendThis" }, [t("nft.sendThis")]);
-  if (!isLocal || !sendable) sendBtn.setAttribute("disabled", "true");
+  const sendBtn = h("button", { class: "primary", id: "nftSendThis", hidden: "" }, [t("nft.sendThis")]);
+  const sendNote = h("p", { class: "muted nft-note", id: "nftSendNote", hidden: "" }, []);
 
-  render(heading, nftArt(balance.resourceAddress, id, true), facts, h("div", { class: "section-title" }, [t("mobile.details")]), attrs, sendBtn, back);
+  const bigArt = nftArt(balance.resourceAddress, id, true, cachedNftImage(balance, id));
+  render(heading, bigArt, facts, h("div", { class: "section-title" }, [t("mobile.details")]), attrs, sendNote, sendBtn, back);
   back.addEventListener("click", () => (onBack ? onBack() : renderNftCollection(status, balance)));
-  sendBtn.addEventListener("click", () => renderSendNfts(status, balance, [id]));
+  sendBtn.addEventListener("click", () => renderSendNft(status, balance, id, () => renderNftDetail(status, balance, id, onBack)));
+  const showCannot = (text: string) => {
+    sendNote.textContent = text;
+    sendNote.hidden = false;
+  };
+  if (!isLocal) showCannot(t("nft.localOnly"));
+  else if (!sendable) showCannot(t("nft.unreadable"));
+  else {
+    const shownScreen = screenSeq;
+    void nftSendabilityFor(status, balance).then((r) => {
+      if (shownScreen !== screenSeq) return;
+      if (r.canSend) sendBtn.hidden = false;
+      else showCannot(nftCannotSendText(r.reason));
+    });
+  }
 
   const screen = screenSeq;
   void loadNftDetails(balance, [id])
     .then((details) => {
       if (screen !== screenSeq) return;
       const d = details.get(id);
+      if (d?.image && !bigArt.classList.contains("nft-art-img")) bigArt.replaceWith(nftArt(balance.resourceAddress, id, true, d.image));
       if (d?.name) {
         heading.textContent = d.name;
         // The phone lifts the title into its app bar when the screen draws; keep that in step.
@@ -2659,36 +2736,22 @@ function renderNftDetail(status: WalletStatus, balance: Balance, id: string, onB
       }
       attrs.replaceChildren(
         ...(d && d.attributes.length > 0
-          ? d.attributes.map(([k, v]) => h("div", { class: "kv" }, [h("div", { class: "muted" }, [k]), h("div", { class: "detail-value nft-attr" }, [v])]))
+          ? d.attributes.map(([k, v]) => h("div", { class: "kv" }, [h("div", { class: "muted" }, [k]), h("div", { class: "detail-value nft-attr" }, [nftAttrValue(k, v)])]))
           : [h("div", { class: "muted" }, [t("nft.noDetails")])])
       );
     })
     .catch(() => attrs.replaceChildren(h("div", { class: "muted" }, [t("nft.noDetails")])));
 }
 
-function renderSendNfts(status: WalletStatus, balance: Balance, preselected: string[]) {
+/** Sends one NFT: the token at the top, then the recipient, a review, and confirm. */
+function renderSendNft(status: WalletStatus, balance: Balance, id: string, onBack: () => void) {
   const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
-  const { ids } = nftIdsOf(balance);
+  const name = nftDetailsCache.get(`${balance.resourceAddress}:${id}`)?.name ?? nftLabel(id);
+  const collection = balance.name ?? resourceLabel(balance.resourceAddress, balance.symbol);
   const toInput = h("input", { type: "text", placeholder: "otl_…", maxlength: "200", id: "nftRecipient" }) as HTMLInputElement;
   const onNetwork = (v: string) => isOotleWalletAddressOn(v, status.network);
   wireLiveValidation(toInput, onNetwork);
   const addressPicker = buildAddressPicker(status.addressBook, onNetwork, toInput);
-
-  const chosen = new Set(preselected.length > 0 ? preselected : ids.length === 1 ? ids : []);
-  const picks = ids.map((id) => {
-    const box = h("input", { type: "checkbox" }) as HTMLInputElement;
-    box.checked = chosen.has(id);
-    box.addEventListener("change", () => (box.checked ? chosen.add(id) : chosen.delete(id)));
-    const name = h("span", { class: "nft-pick-name" }, [nftLabel(id)]);
-    const d = nftDetailsCache.get(`${balance.resourceAddress}:${id}`);
-    if (d?.name) name.textContent = `${d.name} · ${nftLabel(id)}`;
-    return h("label", { class: "nft-pick" }, [box, nftArt(balance.resourceAddress, id), name]);
-  });
-  const selectAll = h("button", { class: "link-btn", type: "button" }, [t("nft.selectAll")]);
-  selectAll.addEventListener("click", () => {
-    ids.forEach((id) => chosen.add(id));
-    picks.forEach((p) => ((p.querySelector("input") as HTMLInputElement).checked = true));
-  });
 
   const statusEl = h("div", { class: "status", style: "display:none" });
   const showStatus = bindStatus(statusEl);
@@ -2697,48 +2760,45 @@ function renderSendNfts(status: WalletStatus, balance: Balance, preselected: str
 
   render(
     h("h1", {}, [t("nft.sendTitle")]),
+    h("div", { class: "card nft-send-item" }, [
+      nftArt(balance.resourceAddress, id, false, cachedNftImage(balance, id)),
+      h("div", { class: "nft-send-text" }, [h("div", { class: "nft-send-name" }, [name]), h("div", { class: "muted" }, [`${nftLabel(id)} · ${collection}`])]),
+    ]),
     h("label", {}, [t("send.recipientAddressLabel")]),
     ...(addressPicker ? [addressPicker] : []),
     toInput,
-    h("div", { class: "nft-pick-head" }, [h("label", {}, [t("nft.chooseLabel")]), ids.length > 1 ? selectAll : ""]),
-    h("div", { class: "nft-picks" }, picks),
     statusEl,
     confirmBox,
     reviewBtn,
     back
   );
-  back.addEventListener("click", () => renderNftCollection(status, balance));
+  back.addEventListener("click", onBack);
 
   reviewBtn.addEventListener("click", () => {
     const to = toInput.value.trim();
-    const list = ids.filter((id) => chosen.has(id));
     if (!onNetwork(to)) return showStatus(t("nft.badAddress", { network: networkLabel(status.network) }), "err");
-    if (list.length === 0) return showStatus(t("nft.chooseOne"), "err");
     statusEl.style.display = "none";
     const confirm = h("button", { class: "primary", id: "nftConfirm" }, [t("nft.confirm")]);
     const cancel = h("button", { class: "secondary" }, [t("common.cancel")]);
-    const what =
-      list.length === 1
-        ? t("nft.reviewOne", { name: nftDetailsCache.get(`${balance.resourceAddress}:${list[0]}`)?.name ?? nftLabel(list[0]!) })
-        : t("nft.reviewMany", { count: list.length });
     confirmBox.replaceChildren(
-      h("div", { class: "nft-confirm-what" }, [what]),
+      h("div", { class: "nft-confirm-what" }, [t("nft.reviewOne", { name })]),
       h("div", { class: "addr nft-confirm-to" }, [to]),
-      h("div", { class: "nft-confirm-arts" }, list.slice(0, 6).map((id) => nftArt(balance.resourceAddress, id))),
       h("div", { class: "row nft-confirm-buttons" }, [confirm, cancel])
     );
     confirmBox.style.display = "";
     reviewBtn.style.display = "none";
+    toInput.disabled = true;
     cancel.addEventListener("click", () => {
       confirmBox.style.display = "none";
       reviewBtn.style.display = "";
+      toInput.disabled = false;
     });
     confirm.addEventListener("click", async () => {
       confirm.setAttribute("disabled", "true");
       cancel.setAttribute("disabled", "true");
       confirm.textContent = t("nft.sending");
       try {
-        await send({ kind: "popup-send-nfts", recipientWalletAddress: to, resourceAddress: balance.resourceAddress, ids: list });
+        await send({ kind: "popup-send-nfts", recipientWalletAddress: to, resourceAddress: balance.resourceAddress, ids: [id] });
         balanceCache = null;
         showStatus(t("nft.sent"), "ok");
         confirmBox.style.display = "none";
