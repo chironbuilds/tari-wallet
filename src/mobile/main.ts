@@ -161,6 +161,9 @@ async function boot(): Promise<void> {
       .finished.catch(() => {});
   }
   platform.markUiReady();
+  // CI screenshot tour (simulator builds only; the constant is empty in every other build, so the
+  // tour is not even bundled).
+  if (import.meta.env.VITE_E2E_SHOTS) void import("./e2e").then((m) => m.runScreenshotTour(import.meta.env.VITE_E2E_SHOTS!));
   await initApprovalNotifications(platform);
   await startWalletConnect(platform);
 }

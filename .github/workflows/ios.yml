@@ -124,8 +124,22 @@ jobs:
           path: sim/
           retention-days: 30
 
-      - name: Launch smoke test (screenshots)
-        timeout-minutes: 12
+      - name: Build the screenshot-tour variant
+        # Same app plus src/mobile/e2e.ts, which walks a throwaway wallet through the main screens and
+        # asks scripts/ios-e2e-server.mjs for a screenshot at each stop. The Appetize zip above is
+        # built without it. CSP and ATS are opened to the local server in this variant only.
+        run: |
+          VITE_E2E_SHOTS=http://127.0.0.1:8765 pnpm run build:mobile
+          sed -i '' "s#connect-src 'self'#connect-src 'self' http://127.0.0.1:8765#" dist-mobile/index.html
+          grep -q "127.0.0.1:8765" dist-mobile/index.html
+          npx cap copy ios
+          PL=ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" $PL
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" $PL
+          cd ios/App && xcodebuild build -workspace App.xcworkspace -scheme App -configuration Release             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/dd"             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO > "$RUNNER_TEMP/xcodebuild-tour.log" 2>&1             || { grep -E "error:" "$RUNNER_TEMP/xcodebuild-tour.log" | head -50; exit 1; }
+
+      - name: Screenshot tour
+        timeout-minutes: 20
         continue-on-error: true
         run: |
           mkdir -p shots
@@ -135,19 +149,22 @@ jobs:
               for (const [rt,list] of Object.entries(d)) if (rt.includes("iOS")) for (const x of list) if (x.name===want) { console.log(x.udid); process.exit(0); }' "$MODEL" || true)
             if [ -z "$UDID" ]; then echo "no simulator named $MODEL"; continue; fi
             SLUG=$(echo "$MODEL" | tr -cd '[:alnum:]')
+            echo "::group::$MODEL"
             xcrun simctl boot "$UDID" || true
-            echo "== $MODEL"
-            date; xcrun simctl bootstatus "$UDID" -b > /dev/null; date
+            xcrun simctl bootstatus "$UDID" -b > /dev/null
             xcrun simctl install "$UDID" "$APP"
-            xcrun simctl launch --terminate-running-process "$UDID" mw.tari.sapient &
-            LPID=$!
-            sleep 25
-            xcrun simctl io "$UDID" screenshot "shots/$SLUG-launch.png"
-            # Still running? (a crash would leave nothing to list)
-            xcrun simctl spawn "$UDID" launchctl list | grep -i sapient || echo "WARNING: app not running on $MODEL"
-            kill $LPID 2>/dev/null || true
+            UDID=$UDID PREFIX=$SLUG OUT=shots node scripts/ios-e2e-server.mjs &
+            SPID=$!
+            sleep 1
+            xcrun simctl launch "$UDID" mw.tari.sapient
+            # The server exits when the tour reports /done; give up after 8 minutes.
+            for i in $(seq 1 480); do kill -0 $SPID 2>/dev/null || break; sleep 1; done
+            kill $SPID 2>/dev/null || true
+            xcrun simctl terminate "$UDID" mw.tari.sapient || true
             xcrun simctl shutdown "$UDID" || true
+            echo "::endgroup::"
           done
+          ls shots
 
       - uses: actions/upload-artifact@v4
         if: always()
