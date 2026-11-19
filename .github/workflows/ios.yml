@@ -129,7 +129,7 @@ jobs:
         # asks scripts/ios-e2e-server.mjs for a screenshot at each stop. The Appetize zip above is
         # built without it. CSP and ATS are opened to the local server in this variant only.
         run: |
-          VITE_E2E_SHOTS=http://127.0.0.1:8765 pnpm run build:mobile
+          VITE_E2E_SHOTS=http://127.0.0.1:8765 npx vite build -c vite.mobile.config.ts
           sed -i '' "s#connect-src 'self'#connect-src 'self' http://127.0.0.1:8765#" dist-mobile/index.html
           grep -q "127.0.0.1:8765" dist-mobile/index.html
           npx cap copy ios
