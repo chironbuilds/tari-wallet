@@ -1,6 +1,7 @@
 // The Android-only "Connect a dApp" bottom sheet (opened from the Scan tab): scan a WalletConnect QR
 // code or paste its link. Lives outside #app so the shared popup screens don't need to know about it.
 import { BarcodeFormat, BarcodeScanner } from "@capacitor-mlkit/barcode-scanning";
+import { Capacitor } from "@capacitor/core";
 
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 let closeSheet: () => boolean = () => false;
@@ -32,6 +33,8 @@ export function showPairingNotice(message: string, kind: "ok" | "err", ms = 5000
  * downloads in the background for next time. Resolves null if the user cancels.
  */
 export async function scanQr(): Promise<string | null> {
+  // Google's code scanner is a Play-services module: Android only. iOS uses the built-in scanner.
+  if (Capacitor.getPlatform() !== "android") return builtInScan();
   try {
     const { available } = await BarcodeScanner.isGoogleBarcodeScannerModuleAvailable();
     if (available) {

@@ -1,0 +1,62 @@
+name: iOS build
+
+# Builds Sapient for iPhone/iPad on a macOS runner. Without signing secrets the result is an
+# UNSIGNED .ipa, to be signed and installed with your own Apple ID (e.g. Sideloadly). Once Apple
+# Developer Program secrets are added, this job is the place to add signing + TestFlight upload.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios]
+    tags: ["ios-v*"]
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck and unit tests
+        run: pnpm run typecheck && pnpm run test
+
+      - name: Build the mobile web app and sync it into the Xcode project
+        # cap sync also runs `pod install` (ML Kit QR scanner, Capacitor plugins).
+        run: pnpm run build:mobile && npx cap sync ios
+
+      - name: Archive (unsigned)
+        working-directory: ios/App
+        run: |
+          xcodebuild archive \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Sapient.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            > "$RUNNER_TEMP/xcodebuild.log" 2>&1 \
+            || { grep -E "error:" "$RUNNER_TEMP/xcodebuild.log" | head -50; tail -150 "$RUNNER_TEMP/xcodebuild.log"; exit 1; }
+
+      - name: Package the .ipa
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p out/Payload
+          cp -R "$RUNNER_TEMP/Sapient.xcarchive/Products/Applications/App.app" out/Payload/
+          (cd out && zip -qry "Sapient-$VERSION-unsigned.ipa" Payload && rm -rf Payload && shasum -a 256 *.ipa > SHA256SUMS)
+          cat out/SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sapient-ios-unsigned
+          path: out/
+          retention-days: 30

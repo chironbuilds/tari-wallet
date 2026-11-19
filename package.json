@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:crypto": "tsx scripts/test-crypto.ts"
+    "test:crypto": "tsx scripts/test-crypto.ts",
+    "ios:sync": "vite build -c vite.mobile.config.ts && cap sync ios"
   },
   "license": "MIT",
   "packageManager": "pnpm@11.9.0",
@@ -26,6 +27,7 @@
     "@capacitor/clipboard": "^8.0.1",
     "@capacitor/core": "^8.6.2",
     "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.6.2",
     "@capacitor/local-notifications": "^8.3.1",
     "@capacitor/network": "^8.0.1",
     "@capacitor/preferences": "^8.0.1",

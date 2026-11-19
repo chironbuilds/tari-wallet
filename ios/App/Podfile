@@ -1,0 +1,32 @@
+require_relative '../../node_modules/.pnpm/@capacitor+ios@8.6.2_@capacitor+core@8.6.2/node_modules/@capacitor/ios/scripts/pods_helpers'
+
+platform :ios, '15.5'
+use_frameworks!
+
+# workaround to avoid Xcode caching of Pods that requires
+# Product -> Clean Build Folder after new Cordova plugins installed
+# Requires CocoaPods 1.6 or newer
+install! 'cocoapods', :disable_input_output_paths => true
+
+def capacitor_pods
+  pod 'Capacitor', :path => '../../node_modules/.pnpm/@capacitor+ios@8.6.2_@capacitor+core@8.6.2/node_modules/@capacitor/ios'
+  pod 'CapacitorCordova', :path => '../../node_modules/.pnpm/@capacitor+ios@8.6.2_@capacitor+core@8.6.2/node_modules/@capacitor/ios'
+  pod 'CapacitorMlkitBarcodeScanning', :path => '../../node_modules/.pnpm/@capacitor-mlkit+barcode-sc_a5234de4a7016df76297ac6e1cabeb86/node_modules/@capacitor-mlkit/barcode-scanning'
+  pod 'CapacitorApp', :path => '../../node_modules/.pnpm/@capacitor+app@8.1.2_@capacitor+core@8.6.2/node_modules/@capacitor/app'
+  pod 'CapacitorClipboard', :path => '../../node_modules/.pnpm/@capacitor+clipboard@8.0.1_@capacitor+core@8.6.2/node_modules/@capacitor/clipboard'
+  pod 'CapacitorHaptics', :path => '../../node_modules/.pnpm/@capacitor+haptics@8.0.2_@capacitor+core@8.6.2/node_modules/@capacitor/haptics'
+  pod 'CapacitorLocalNotifications', :path => '../../node_modules/.pnpm/@capacitor+local-notifications@8.3.1_@capacitor+core@8.6.2/node_modules/@capacitor/local-notifications'
+  pod 'CapacitorNetwork', :path => '../../node_modules/.pnpm/@capacitor+network@8.0.1_@capacitor+core@8.6.2/node_modules/@capacitor/network'
+  pod 'CapacitorPreferences', :path => '../../node_modules/.pnpm/@capacitor+preferences@8.0.1_@capacitor+core@8.6.2/node_modules/@capacitor/preferences'
+  pod 'CapacitorShare', :path => '../../node_modules/.pnpm/@capacitor+share@8.0.3_@capacitor+core@8.6.2/node_modules/@capacitor/share'
+  pod 'CapacitorSplashScreen', :path => '../../node_modules/.pnpm/@capacitor+splash-screen@8.0.2_@capacitor+core@8.6.2/node_modules/@capacitor/splash-screen'
+end
+
+target 'App' do
+  capacitor_pods
+  # Add your Pods here
+end
+
+post_install do |installer|
+  assertDeploymentTarget(installer)
+end

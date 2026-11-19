@@ -2,6 +2,7 @@
 // extension's window.tari uses, under the origin "wc:<session topic>" -- so connection, view
 // access, transaction-request ownership and approval caps all apply per session, unchanged.
 import { App } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 import { Core } from "@walletconnect/core";
 import { WalletKit, type WalletKitTypes } from "@reown/walletkit";
 import { getSdkError } from "@walletconnect/utils";
@@ -60,6 +61,12 @@ export async function rejectQueuedWcRequests(): Promise<void> {
  * Called only once the reply is on its way, so backgrounding can't cut it off. */
 function returnToCallerIfDone(): void {
   if (!host?.takeReturnToCaller()) return;
+  // iOS doesn't let an app send itself to the background; the system's "◀ Safari" back link
+  // at the top left returns to the dApp instead.
+  if (Capacitor.getPlatform() === "ios") {
+    showPairingNotice("Done — go back to the dApp with the link at the top left.", "ok");
+    return;
+  }
   showPairingNotice("Done — returning to the dApp…", "ok");
   setTimeout(() => void App.minimizeApp(), 900);
 }
