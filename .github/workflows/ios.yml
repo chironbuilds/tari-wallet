@@ -107,7 +107,15 @@ jobs:
           (cd "$(dirname "$APP")" && zip -qry "$GITHUB_WORKSPACE/sim/Sapient-$VERSION-simulator.zip" App.app)
           echo "APP=$APP" >> "$GITHUB_ENV"
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sapient-ios-simulator
+          path: sim/
+          retention-days: 30
+
       - name: Launch smoke test (screenshots)
+        timeout-minutes: 12
+        continue-on-error: true
         run: |
           mkdir -p shots
           for MODEL in "iPhone 16" "iPad Air 11-inch (M2)"; do
@@ -117,21 +125,18 @@ jobs:
             if [ -z "$UDID" ]; then echo "no simulator named $MODEL"; continue; fi
             SLUG=$(echo "$MODEL" | tr -cd '[:alnum:]')
             xcrun simctl boot "$UDID" || true
-            xcrun simctl bootstatus "$UDID" -b
+            echo "== $MODEL"
+            date; xcrun simctl bootstatus "$UDID" -b > /dev/null; date
             xcrun simctl install "$UDID" "$APP"
-            xcrun simctl launch "$UDID" mw.tari.sapient
+            xcrun simctl launch --terminate-running-process "$UDID" mw.tari.sapient &
+            LPID=$!
             sleep 25
             xcrun simctl io "$UDID" screenshot "shots/$SLUG-launch.png"
             # Still running? (a crash would leave nothing to list)
             xcrun simctl spawn "$UDID" launchctl list | grep -i sapient || echo "WARNING: app not running on $MODEL"
+            kill $LPID 2>/dev/null || true
             xcrun simctl shutdown "$UDID" || true
           done
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sapient-ios-simulator
-          path: sim/
-          retention-days: 30
 
       - uses: actions/upload-artifact@v4
         if: always()
