@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="Erebus Labs">
   <title>Sapient: a self-custody wallet for Tari Ootle</title>
   <meta name="description" content="Sapient is a self-custody Chrome extension wallet for Tari Ootle. Your own 24-word seed, stealth-private transfers with view-key-gated balances, native HTLCs, a MetaMask-style window.tari provider, and two rounds of publicly documented security self-audit." />
-  <link rel="icon" href="assets/favicon.png" />
+  <link rel="icon" href="assets/favicon.png?v=brand3" />
   <meta property="og:title" content="Sapient: a Tari Ootle wallet" />
   <meta property="og:description" content="Self-custody, stealth-private by design, no wallet daemon required. Your seed, your keys, straight to the network." />
   <meta property="og:type" content="website" />
@@ -13,15 +14,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=brand3" />
 </head>
 <body>
 
   <nav class="nav">
     <div class="wrap">
       <a class="brand" href="#top">
-        <img src="assets/logo.svg" alt="" />
-        Sapient
+        <img src="assets/logo.svg?v=brand3" alt="" />
+        Sapient <span class="brand-by">by Erebus Labs</span>
       </a>
       <div class="nav-links">
         <a href="#features">Features</a>
@@ -44,7 +45,7 @@
   <div class="banner">
     <div class="wrap">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      Testnet only. Under active development. Do not use to hold real value.
+      Live on Ootle mainnet. Sapient is new software, so start with small amounts.
     </div>
   </div>
 
@@ -103,7 +104,7 @@
         <div class="hero-stage" data-reveal>
           <canvas id="orb-canvas"></canvas>
           <div class="mock-frame" id="tilt-hero">
-            <img src="assets/screenshots/home.png" alt="Sapient wallet popup showing account balances" />
+            <img src="assets/screenshots/home.png?v=brand3" alt="Sapient wallet popup showing account balances" />
           </div>
         </div>
       </div>
@@ -163,7 +164,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/></svg>
             </div>
             <h3>Network switching</h3>
-            <p>Move between Esmeralda and Igor testnets from Settings, with a confirmation step so you never sign on the wrong one by accident.</p>
+            <p>Switch between Ootle mainnet and the Esmeralda testnet from Settings, with a confirmation step so you never sign on the wrong one by accident.</p>
           </div>
 
           <div class="feature-card" data-reveal>
@@ -186,8 +187,8 @@
             <div class="feature-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="m6.34 6.34 2.83 2.83"/><path d="M2 12h4"/><path d="m6.34 17.66 2.83-2.83"/><path d="M12 18v4"/><path d="m14.83 14.83 2.83 2.83"/><path d="M18 12h4"/><path d="m14.83 9.17 2.83-2.83"/></svg>
             </div>
-            <h3>Testnet faucet built in</h3>
-            <p>Claim testnet TARI straight from the home screen, including the self-funding path a brand-new, empty account needs for its very first transaction.</p>
+            <h3>Testnet faucet for practice</h3>
+            <p>On the Esmeralda testnet, claim free test TARI straight from the home screen, including the self-funding path a brand-new, empty account needs for its very first transaction.</p>
           </div>
 
           <div class="feature-card" data-reveal>
@@ -370,10 +371,10 @@
             <div class="shot-image">
               <div class="shot-toolbar">
                 <span class="shot-dot"></span><span class="shot-dot"></span><span class="shot-dot"></span>
-                <span class="shot-toolbar-chip"><img src="assets/logo.svg" alt="" />Sapient</span>
+                <span class="shot-toolbar-chip"><img src="assets/logo.svg?v=brand3" alt="" />Sapient</span>
               </div>
               <div class="shot-frame">
-                <img src="assets/screenshots/home.png" alt="Balances and account view in the Sapient popup" loading="lazy" />
+                <img src="assets/screenshots/home.png?v=brand3" alt="Balances and account view in the Sapient popup" loading="lazy" />
               </div>
             </div>
             <div class="shot-caption">
@@ -386,10 +387,10 @@
             <div class="shot-image">
               <div class="shot-toolbar">
                 <span class="shot-dot"></span><span class="shot-dot"></span><span class="shot-dot"></span>
-                <span class="shot-toolbar-chip"><img src="assets/logo.svg" alt="" />Sapient</span>
+                <span class="shot-toolbar-chip"><img src="assets/logo.svg?v=brand3" alt="" />Sapient</span>
               </div>
               <div class="shot-frame">
-                <img src="assets/screenshots/send.png" alt="Send screen with a wallet address and amount filled in" loading="lazy" />
+                <img src="assets/screenshots/send.png?v=brand3" alt="Send screen with a wallet address and amount filled in" loading="lazy" />
               </div>
             </div>
             <div class="shot-caption">
@@ -402,10 +403,10 @@
             <div class="shot-image">
               <div class="shot-toolbar">
                 <span class="shot-dot"></span><span class="shot-dot"></span><span class="shot-dot"></span>
-                <span class="shot-toolbar-chip"><img src="assets/logo.svg" alt="" />Sapient</span>
+                <span class="shot-toolbar-chip"><img src="assets/logo.svg?v=brand3" alt="" />Sapient</span>
               </div>
               <div class="shot-frame">
-                <img src="assets/screenshots/connect.png" alt="dApp connection approval popup" loading="lazy" />
+                <img src="assets/screenshots/connect.png?v=brand3" alt="dApp connection approval popup" loading="lazy" />
               </div>
             </div>
             <div class="shot-caption">
@@ -466,7 +467,7 @@
           </div>
         </a>
         <div class="origin" data-reveal>
-          <img class="origin-mark" src="assets/logo.svg" alt="" />
+          <img class="origin-mark" src="assets/logo.svg?v=brand3" alt="" />
           <div>
             <h3>Why "Sapient"?</h3>
             <p>
@@ -483,7 +484,7 @@
     <section class="cta">
       <div class="wrap">
         <h2>Own your keys on Ootle.</h2>
-        <p>Free, open-source, and built for testnet experimentation today.</p>
+        <p>Free, open-source, and live on Ootle mainnet.</p>
         <div class="hero-cta">
           <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/tari-ootle-wallet/demkeckolenopkgnfbnpflkpbbdhpgkl" target="_blank" rel="noopener">
             Install from Chrome Web Store
@@ -532,8 +533,8 @@
   <footer>
     <div class="wrap">
       <a class="footer-brand" href="#top">
-        <img src="assets/logo.svg" alt="" />
-        Sapient
+        <img src="assets/logo.svg?v=brand3" alt="" />
+        Sapient <span class="brand-by">by Erebus Labs</span>
       </a>
       <div class="footer-links">
         <a href="https://github.com/chironbuilds/tari-wallet" target="_blank" rel="noopener">GitHub</a>
@@ -552,6 +553,6 @@
     </div>
   </footer>
 
-  <script src="script.js"></script>
+  <script src="script.js?v=brand3"></script>
 </body>
 </html>

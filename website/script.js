@@ -145,8 +145,8 @@
         const depth = (af + bf) / 2; // ~0.6..1.3, front edges brighter
         const alpha = Math.max(0.08, Math.min(0.85, (depth - 0.55) * 1.3));
         const grad = ctx.createLinearGradient(ax, ay, bx, by);
-        grad.addColorStop(0, `rgba(252, 114, 255, ${alpha})`);
-        grad.addColorStop(1, `rgba(162, 89, 255, ${alpha})`);
+        grad.addColorStop(0, `rgba(212, 165, 255, ${alpha})`);
+        grad.addColorStop(1, `rgba(164, 91, 244, ${alpha})`);
         ctx.strokeStyle = grad;
         ctx.lineWidth = 1.1;
         ctx.beginPath();

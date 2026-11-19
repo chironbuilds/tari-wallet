@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sapient mark (Sapient Identity Kit v2, svg/sapient-monochrome.svg geometry, 256-unit space). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 220 units tall scaled to 54 of 108: inside the adaptive icon's 66dp safe zone. -->
+    <group android:scaleX="0.245" android:scaleY="0.245" android:translateX="22.64" android:translateY="22.64">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M128,18 L215,57 Q223,61 223,70 L223,102 C198,72 157,70 120,71 C80,72 50,81 34,102 L34,70 Q34,61 42,57 Z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M34,102 C47,87 67,86 87,89 C132,91 188,103 211,123 Q224,134 222,150 C220,171 209,183 190,198 L128,238 L66,198 C48,185 36,171 34,145 C58,163 84,169 116,169 C151,169 184,161 201,145 C181,126 158,116 128,116 C96,116 75,125 63,137 C49,134 37,126 34,119 Z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M109,142 A19,19 0 1,0 147,142 A19,19 0 1,0 109,142 Z M119,142 A9,9 0 1,1 137,142 A9,9 0 1,1 119,142 Z" android:fillType="evenOdd" />
+    </group>
+</vector>

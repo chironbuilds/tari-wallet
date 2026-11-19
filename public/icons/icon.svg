@@ -1,12 +1,16 @@
-<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Sapient Identity Kit v2: dimensional mark on the dark app tile. -->
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#fc72ff"/>
-      <stop offset="1" stop-color="#a259ff"/>
+    <linearGradient id="g" x1="34" y1="18" x2="223" y2="238" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ecd3ff"/>
+      <stop offset=".44" stop-color="#ad61f3"/>
+      <stop offset="1" stop-color="#6325b6"/>
     </linearGradient>
   </defs>
-  <rect width="128" height="128" rx="28" fill="url(#g)"/>
-  <path d="M 22 64 Q 64 32 106 64 Q 64 96 22 64 Z" fill="#180a20"/>
-  <circle cx="64" cy="64" r="15" fill="url(#g)"/>
-  <circle cx="64" cy="64" r="6" fill="#180a20"/>
+  <rect width="256" height="256" rx="56" fill="#140f20"/>
+  <g transform="translate(128 128) scale(0.78) translate(-128 -128)" fill="url(#g)">
+    <path d="M128,18 L215,57 Q223,61 223,70 L223,102 C198,72 157,70 120,71 C80,72 50,81 34,102 L34,70 Q34,61 42,57 Z"/>
+    <path d="M34,102 C47,87 67,86 87,89 C132,91 188,103 211,123 Q224,134 222,150 C220,171 209,183 190,198 L128,238 L66,198 C48,185 36,171 34,145 C58,163 84,169 116,169 C151,169 184,161 201,145 C181,126 158,116 128,116 C96,116 75,125 63,137 C49,134 37,126 34,119 Z"/>
+    <path fill-rule="evenodd" d="M109,142 A19,19 0 1,0 147,142 A19,19 0 1,0 109,142 Z M119,142 A9,9 0 1,1 137,142 A9,9 0 1,1 119,142 Z"/>
+  </g>
 </svg>

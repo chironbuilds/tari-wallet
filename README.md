@@ -502,17 +502,15 @@ a plain module variable would not have survived that.
 
 ## Icon
 
-`public/icons/icon.svg` is the source of truth for the eye mark (a vesica-shaped "eye" — the
-sapience/self-awareness half of "sapient pearwood" — filled with the app's own accent gradient).
-`icon16/48/128.png` are rasterized from it (`sharp`, not committed as a project dependency — it
-was run once via a throwaway scratch script, since pnpm's install-script allowlist deliberately
-keeps native-binary dev tools like this out of the real dependency tree unless they're needed at
-build time). To regenerate after editing the SVG: rasterize it to 16/48/128px PNGs with any
-SVG-to-PNG tool (e.g. `npx sharp-cli`) and overwrite the files in `public/icons/`.
+The mark comes from the Sapient Identity Kit v2: a shield-shaped "S" around an eye.
+`public/icons/icon.svg` draws it from the kit's own vector geometry (dimensional gradient on the dark
+`#140f20` app tile) and is what the website's `assets/logo.svg` copies. `icon16/48/128.png` are the
+kit's `web/icon-*.png`. On Android, `res/drawable/ic_sapient_foreground.xml` (launcher),
+`ic_sapient_monochrome.xml` (themed icon) and `avd_sapient_splash.xml` (launch animation) carry the
+same paths; the legacy mipmap PNGs and splash images are made from the kit's artwork.
 
-**Known stale asset:** `store-assets/screenshot-*.png` were captured before this rename and still
-show the old icon/wordmark — regenerate them next time the extension is loaded for real (see
-"Loading it in Chrome" below), they weren't auto-updated here.
+`store-assets/` holds the Chrome Web Store images (1400x560 marquee, 440x280 tile, three 1280x800
+screenshots of the real popup with sample balances) and the 512px Android icon.
 
 ## Building
 
