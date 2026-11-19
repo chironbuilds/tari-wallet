@@ -9,6 +9,12 @@ on:
     branches: [ios]
     tags: ["ios-v*"]
 
+# The Reown (WalletConnect) project ID is baked into the web bundle by Vite. Locally it comes from
+# .env.local (git-ignored); here from the repository secret of the same name. Without it the app
+# builds fine but WalletConnect pairing reports "not configured".
+env:
+  VITE_REOWN_PROJECT_ID: ${{ secrets.VITE_REOWN_PROJECT_ID }}
+
 jobs:
   ipa:
     runs-on: macos-15
