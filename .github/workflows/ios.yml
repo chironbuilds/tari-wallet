@@ -62,9 +62,8 @@ jobs:
           retention-days: 30
 
   simulator:
-    # Simulator build (no signing needed) for Appetize.io or a local simulator, plus a launch
-    # smoke test with screenshots. ML Kit ships no arm64-simulator slice, so this is x86_64
-    # (runs under Rosetta on Apple-silicon simulators).
+    # Simulator build (no signing needed, arm64 + x86_64) for Appetize.io or a local simulator,
+    # plus a launch smoke test with screenshots.
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -81,8 +80,14 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build the mobile web app and sync it into the Xcode project
-        run: pnpm run build:mobile && npx cap sync ios
+      - name: Build the mobile web app and sync it into the Xcode project (no QR scanner)
+        # ML Kit has no arm64-simulator slice, and a simulator has no camera: drop the scanner's
+        # native pod from this build only (Scan then reports it unavailable; paste still works).
+        run: |
+          pnpm run build:mobile
+          node -e "const f='package.json',p=JSON.parse(require('fs').readFileSync(f));delete p.dependencies['@capacitor-mlkit/barcode-scanning'];require('fs').writeFileSync(f,JSON.stringify(p,null,2))"
+          npx cap sync ios
+          ! grep -q MlkitBarcode ios/App/Podfile
 
       - name: Build for the simulator
         working-directory: ios/App
@@ -94,7 +99,7 @@ jobs:
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
-            ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
+            ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO \
             > "$RUNNER_TEMP/xcodebuild-sim.log" 2>&1 \
             || { grep -E "error:" "$RUNNER_TEMP/xcodebuild-sim.log" | head -50; tail -150 "$RUNNER_TEMP/xcodebuild-sim.log"; exit 1; }
