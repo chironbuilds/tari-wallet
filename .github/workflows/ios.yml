@@ -60,3 +60,82 @@ jobs:
           name: sapient-ios-unsigned
           path: out/
           retention-days: 30
+
+  simulator:
+    # Simulator build (no signing needed) for Appetize.io or a local simulator, plus a launch
+    # smoke test with screenshots. ML Kit ships no arm64-simulator slice, so this is x86_64
+    # (runs under Rosetta on Apple-silicon simulators).
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the mobile web app and sync it into the Xcode project
+        run: pnpm run build:mobile && npx cap sync ios
+
+      - name: Build for the simulator
+        working-directory: ios/App
+        run: |
+          xcodebuild build \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            > "$RUNNER_TEMP/xcodebuild-sim.log" 2>&1 \
+            || { grep -E "error:" "$RUNNER_TEMP/xcodebuild-sim.log" | head -50; tail -150 "$RUNNER_TEMP/xcodebuild-sim.log"; exit 1; }
+
+      - name: Package for Appetize
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p sim
+          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphonesimulator/App.app"
+          (cd "$(dirname "$APP")" && zip -qry "$GITHUB_WORKSPACE/sim/Sapient-$VERSION-simulator.zip" App.app)
+          echo "APP=$APP" >> "$GITHUB_ENV"
+
+      - name: Launch smoke test (screenshots)
+        run: |
+          mkdir -p shots
+          for MODEL in "iPhone 16" "iPad Air 11-inch (M2)"; do
+            UDID=$(xcrun simctl list devices available -j | node -e '
+              const d=JSON.parse(require("fs").readFileSync(0)).devices;const want=process.argv[1];
+              for (const [rt,list] of Object.entries(d)) if (rt.includes("iOS")) for (const x of list) if (x.name===want) { console.log(x.udid); process.exit(0); }' "$MODEL" || true)
+            if [ -z "$UDID" ]; then echo "no simulator named $MODEL"; continue; fi
+            SLUG=$(echo "$MODEL" | tr -cd '[:alnum:]')
+            xcrun simctl boot "$UDID" || true
+            xcrun simctl bootstatus "$UDID" -b
+            xcrun simctl install "$UDID" "$APP"
+            xcrun simctl launch "$UDID" mw.tari.sapient
+            sleep 25
+            xcrun simctl io "$UDID" screenshot "shots/$SLUG-launch.png"
+            # Still running? (a crash would leave nothing to list)
+            xcrun simctl spawn "$UDID" launchctl list | grep -i sapient || echo "WARNING: app not running on $MODEL"
+            xcrun simctl shutdown "$UDID" || true
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sapient-ios-simulator
+          path: sim/
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sapient-ios-screenshots
+          path: shots/
+          retention-days: 14
