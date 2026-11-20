@@ -47,6 +47,17 @@
 
         </activity>
 
+        <!-- Keeps WalletConnect reachable while the user is in the browser with a dApp connected
+             (RelayKeepAliveService). Runs only in the background, at most 30 minutes at a time. -->
+        <service
+            android:name=".RelayKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the wallet's WalletConnect relay connection open while the user is in a browser using a connected dApp, so the dApp's signing requests reach the wallet and its replies reach the dApp." />
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -61,6 +72,9 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- RelayKeepAliveService: dApp requests keep flowing while the user is in the browser. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Built-in QR scanner (WalletConnect pairing, recipient addresses). Asked for only when the
          user taps Scan and Google's code scanner module isn't on the device. -->
     <uses-permission android:name="android.permission.CAMERA" />

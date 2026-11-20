@@ -15,10 +15,25 @@ public class MainActivity extends BridgeActivity {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         registerPlugin(BiometricVaultPlugin.class);
         registerPlugin(ApprovalNotifierPlugin.class);
+        registerPlugin(RelayKeepAlivePlugin.class);
         super.onCreate(savedInstanceState);
         // The wallet shows recovery phrases and balances: block screenshots, screen recording and
         // the recent-apps thumbnail. Debug builds skip it so UI tests can capture the screen.
         boolean debuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         if (!debuggable) getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
+    }
+
+    // Leaving for another app (the browser a dApp is in) with a dApp connected: keep the process
+    // running so its requests and our replies keep flowing. See RelayKeepAliveService.
+    @Override
+    public void onPause() {
+        super.onPause();
+        if (RelayKeepAlivePlugin.enabled && !isFinishing()) RelayKeepAliveService.start(this);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        RelayKeepAliveService.stop(this);
     }
 }

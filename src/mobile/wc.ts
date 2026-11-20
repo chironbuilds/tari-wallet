@@ -2,6 +2,7 @@
 // extension's window.tari uses, under the origin "wc:<session topic>" -- so connection, view
 // access, transaction-request ownership and approval caps all apply per session, unchanged.
 import { App } from "@capacitor/app";
+import { registerPlugin } from "@capacitor/core";
 import { Core } from "@walletconnect/core";
 import { WalletKit, type WalletKitTypes } from "@reown/walletkit";
 import { getSdkError } from "@walletconnect/utils";
@@ -18,6 +19,27 @@ import { platform } from "../platform";
 import type { AndroidPlatform } from "./platform";
 import { installPairingUi, showPairingNotice } from "./pairUi";
 import { requestNotificationPermissionIfUndecided } from "./notifications";
+import { t } from "../lib/i18n";
+
+/** Native side: RelayKeepAlivePlugin.java / RelayKeepAliveService.java. */
+const RelayKeepAlive = registerPlugin<{
+  setEnabled(options: { enabled: boolean; title?: string; body?: string; stopLabel?: string }): Promise<void>;
+}>("RelayKeepAlive");
+
+/**
+ * While any dApp is connected, Android keeps Sapient running when the user switches to another app
+ * (the browser the dApp is in). Without it Android freezes the backgrounded app: the dApp's requests
+ * wait in the relay and a reply still being prepared never goes out, so the dApp just keeps waiting.
+ */
+function syncKeepAlive(k: Kit): void {
+  const enabled = Object.keys(k.getActiveSessions()).length > 0;
+  void RelayKeepAlive.setEnabled({
+    enabled,
+    title: t("notify.keepAliveTitle"),
+    body: t("notify.keepAliveBody"),
+    stopLabel: t("notify.keepAliveStop"),
+  }).catch(() => {});
+}
 
 type Kit = Awaited<ReturnType<typeof WalletKit.init>>;
 
@@ -160,6 +182,7 @@ async function onProposal(k: Kit, proposal: WalletKitTypes.SessionProposal): Pro
   await addConnectedSite(wcOrigin(session.topic), activeAccountId);
   labelSession(session.topic, session.peer.metadata, verify);
   await saveVerify(session.topic, verify);
+  syncKeepAlive(k);
   showPairingNotice(`Connected to ${sanitizeDappName(session.peer.metadata.name ?? "")}.`, "ok");
   // Now that a dApp can reach the wallet, approvals may arrive while it is in the background.
   void requestNotificationPermissionIfUndecided();
@@ -233,6 +256,12 @@ async function handleRequest(k: Kit, event: WalletKitTypes.SessionRequest): Prom
   // A request that waited in the relay while the app was backgrounded must not be served after the
   // auto-lock deadline: lock first, and the core then treats it as a locked-wallet request.
   await lockIfDue();
+  // Arrived while the user was in another app (the dApp's browser): once they have opened Sapient
+  // from the notification and decided, take them back there, as for a deep-linked request.
+  const inBackground = await App.getState()
+    .then((s) => !s.isActive)
+    .catch(() => false);
+  if (inBackground) host?.expectReturnToCaller();
 
   const { network } = await getState();
   const verdict = checkRequest(params.request.method, params.chainId, network);
@@ -281,6 +310,7 @@ async function reconcile(k: Kit): Promise<void> {
     const topic = site.origin.slice(3);
     if (!sessions[topic]) await forgetSession(topic);
   }
+  syncKeepAlive(k);
 }
 
 /** Forwards accounts/network changes to every live session. On a network change, a session that
@@ -359,7 +389,7 @@ export async function startWalletConnect(androidHost: AndroidPlatform): Promise<
 
   k.on("session_proposal", (p) => void onProposal(k, p).catch((e) => showPairingNotice(String(e?.message ?? e), "err")));
   k.on("session_request", (r) => void onRequest(k, r).catch(() => {}));
-  k.on("session_delete", ({ topic }) => void forgetSession(topic));
+  k.on("session_delete", ({ topic }) => void forgetSession(topic).finally(() => syncKeepAlive(k)));
 
   androidHost.onBroadcast((m) => track(forward(k, m)));
   androidHost.onSitesChanged(() => void reconcile(k));
