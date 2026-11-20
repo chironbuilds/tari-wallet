@@ -1644,6 +1644,35 @@ async function withHistory<T>(
   }
 }
 
+/** Every private-output commitment this account has on record, spent or not. */
+async function shieldedCommitments(account: OotleAccount): Promise<Set<string>> {
+  return new Set((await listShieldedOutputs(account.ledgerId)).map((o) => o.commitment));
+}
+
+/**
+ * The unspent private outputs a scan added to this account's records since `before` -- whichever
+ * scan found them (the transaction scan, or the UTXO scan that catches outputs it cannot see).
+ * The popup announces these, so a private payment never just silently changes the balance. Outputs
+ * only the UTXO scan found get their History entry here; the transaction scan's (`alreadyRecorded`)
+ * already have one.
+ */
+async function receivedSince(
+  account: OotleAccount,
+  accountId: string,
+  before: Set<string>,
+  alreadyRecorded: { commitment: string }[]
+): Promise<{ resourceAddress: string; amount: string }[]> {
+  const fresh = (await listShieldedOutputs(account.ledgerId)).filter((o) => !o.spent && !before.has(o.commitment));
+  const recorded = new Set(alreadyRecorded.map((f) => f.commitment));
+  await recordPrivatePaymentHistory(
+    accountId,
+    fresh
+      .filter((o) => !recorded.has(o.commitment))
+      .map((o) => ({ resourceAddress: o.resourceAddress, amount: BigInt(o.amount), transactionId: o.transactionId, memo: o.memo }))
+  );
+  return fresh.map((o) => ({ resourceAddress: o.resourceAddress, amount: o.amount }));
+}
+
 /**
  * Records a `"private-payment-received"` history entry for each output `scanForPrivatePayments()`
  * newly discovered -- shared by `buildStatus()`'s opportunistic auto-scan, the manual
@@ -1941,7 +1970,7 @@ export async function handlePopupRequest(message: PopupRequest): Promise<unknown
       // The popup's own opportunistic scan, triggered once the home screen is already showing
       // (see renderHome()) instead of blocking buildStatus() -- see that removal's comment for why.
       const account = await getActiveAccount();
-      if (!account || !(account instanceof OotleAccount)) return { claimed: 0 };
+      if (!account || !(account instanceof OotleAccount)) return { claimed: 0, received: [] };
       const { activeAccountId, walletOrigin, network } = await getState();
       // The SDK keeps this account's records under its own ledger id, which names the network
       // (and an imported seed's ledger slot) -- not Sapient's account id.
@@ -1955,8 +1984,11 @@ export async function handlePopupRequest(message: PopupRequest): Promise<unknown
       // regardless of origin.
       const maxPages = !hasCursor && walletOrigin === "created" ? 3 : undefined;
       try {
-        const { claimed, found } = await account.scanForPrivatePayments(maxPages);
+        const before = await shieldedCommitments(account);
+        const { claimed, found } = await account.scanForPrivatePayments(message.light && hasCursor ? 3 : maxPages);
         await recordPrivatePaymentHistory(activeAccountId, found);
+        // The periodic check while Home is open stops here: the deeper passes below run on open.
+        if (message.light) return { claimed, received: await receivedSince(account, activeAccountId, before, found) };
         // Private outputs spent from another wallet on this seed stay listed until checked; drop
         // them so the private balance is the real one.
         await account.pruneSpentShieldedOutputs().catch(() => 0);
@@ -1974,9 +2006,9 @@ export async function handlePopupRequest(message: PopupRequest): Promise<unknown
           await account.scanForOwnedUtxos(resourceAddress, indexerBaseUrl).catch(() => undefined);
         }
 
-        return { claimed };
+        return { claimed, received: await receivedSince(account, activeAccountId, before, found) };
       } catch {
-        return { claimed: 0 }; // best-effort -- an indexer hiccup here shouldn't surface as an error the user has to dismiss
+        return { claimed: 0, received: [] }; // best-effort -- an indexer hiccup here shouldn't surface as an error the user has to dismiss
       }
     }
 
@@ -1991,9 +2023,10 @@ export async function handlePopupRequest(message: PopupRequest): Promise<unknown
       // 50 each = 150 transactions) -- this is the user explicitly asking to go looking, so it's
       // worth the extra round trips to actually catch up on a long gap since the wallet was last
       // opened, not just the same shallow window the automatic scan already covers.
+      const before = await shieldedCommitments(account);
       const { claimed, found } = await account.scanForPrivatePayments(20, 50);
       await recordPrivatePaymentHistory(activeAccountId, found);
-      return { claimed };
+      return { claimed, received: await receivedSince(account, activeAccountId, before, found) };
     }
 
     case "popup-claim-private-payment": {

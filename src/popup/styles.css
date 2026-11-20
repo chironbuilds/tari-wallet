@@ -2872,3 +2872,68 @@ button.is-busy:not(.action-btn)::after,
   border-left: 1px solid currentColor;
   line-height: 1;
 }
+
+/* ---- Home: total balance with its public/private split, and the private-payment notice ---- */
+.balance-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+html:not(.mobile) .balance-breakdown {
+  justify-content: center;
+}
+.balance-breakdown span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.balance-breakdown span::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent);
+}
+.balance-breakdown .bd-priv {
+  color: var(--private);
+}
+.balance-breakdown .bd-priv::before {
+  background: var(--private);
+}
+html.hide-amounts .balance-breakdown {
+  filter: blur(7px);
+  user-select: none;
+}
+.received-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 2px;
+}
+.received-banner .received-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.received-banner strong {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.received-banner .received-text span {
+  color: var(--muted);
+}
+.received-banner .received-dismiss {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  color: inherit;
+}

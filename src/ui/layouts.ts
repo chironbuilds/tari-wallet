@@ -129,22 +129,14 @@ function composeHome(app: HTMLElement): void {
     split.querySelector(".sl-pub b")!.textContent = t("mobile.publicLabel");
     split.querySelector(".sl-priv b")!.textContent = t("mobile.privateLabel");
     const amountEl = hero.querySelector<HTMLElement>(".hero-balance-amount");
-    const privEl = hero.querySelector<HTMLElement>(".private-balance");
     balance.insertBefore(split, addr ?? null);
     const num = (v: string | null | undefined) => Number((v ?? "").replace(/[^0-9.]/g, "")) || 0;
     const update = () => {
       if (amountEl) splitDecimals(amountEl);
-      if (privEl && privEl.style.display !== "none") {
-        // "0.50 private": the unit is already beside the balance above it.
-        const n = (privEl.textContent ?? "").match(/[\d,]+(?:\.\d+)?/)?.[0];
-        const next = n ? t("mobile.privateAmount", { amount: twoDecimals(n) }) : null;
-        if (next && privEl.textContent !== next) {
-          privEl.title = privEl.textContent ?? "";
-          privEl.textContent = next;
-        }
-      }
-      const pub = num(amountEl?.textContent);
-      const privText = privEl && privEl.style.display !== "none" ? (privEl.textContent ?? "").split(" ")[0] : "";
+      // The headline is the total; Home publishes the public and private parts on the card itself.
+      const pubText = hero.dataset.public ?? "";
+      const privText = hero.dataset.private ?? "";
+      const pub = num(pubText);
       const priv = num(privText);
       const total = pub + priv;
       split.hidden = !(priv > 0 && total > 0);
@@ -153,13 +145,13 @@ function composeHome(app: HTMLElement): void {
       const p = Math.max(4, Math.min(96, (pub / total) * 100));
       split.querySelector<HTMLElement>(".split-pub")!.style.width = `${p}%`;
       split.querySelector<HTMLElement>(".split-priv")!.style.width = `${100 - p}%`;
-      split.querySelector(".sl-pub em")!.textContent = amountEl?.textContent ?? "";
-      split.querySelector(".sl-priv em")!.textContent = privText ?? "";
+      split.querySelector(".sl-pub em")!.textContent = twoDecimals(pubText);
+      split.querySelector(".sl-priv em")!.textContent = twoDecimals(privText);
     };
-    // Only the two figures, never the hero as a whole: update() itself writes styles into it.
+    // The figure and the two data attributes, never the hero's class or style: update() writes those.
     const watch = new MutationObserver(update);
     if (amountEl) watch.observe(amountEl, { subtree: true, childList: true, characterData: true });
-    if (privEl) watch.observe(privEl, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["style"] });
+    watch.observe(hero, { attributes: true, attributeFilter: ["data-public", "data-private"] });
     update();
   }
 

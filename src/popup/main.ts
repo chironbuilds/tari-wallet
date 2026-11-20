@@ -101,6 +101,7 @@ const ICON_BOOK =
 const ICON_KEY =
   '<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>';
 const ICON_INBOX = '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>';
+const ICON_CLOSE = '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>';
 
 function icon(paths: string): HTMLSpanElement {
   const span = document.createElement("span");
@@ -865,22 +866,20 @@ async function renderHome(status: WalletStatus) {
   addrPill.addEventListener("click", () => copyToClipboard(status.receiveAddress ?? "", copyLabel));
   const heroBalanceAmount = h("span", { class: "hero-balance-amount skeleton", style: "display:inline-block;width:96px;height:30px" }, [""]);
   const heroBalance = h("div", { class: "hero-balance" }, [heroBalanceAmount, h("span", { class: "hero-balance-unit" }, ["TARI"])]);
-  // Hidden until updateHeroBalance() knows whether there's actually a private balance to show --
-  // a permanent "Private: 0" line under every account would just be noise for one that's never
-  // shielded anything.
-  const heroPrivateBalance = h("div", { class: "private-balance", style: "display:none;margin-top:2px" }, [""]);
+  // The headline is everything the account holds (public + private TARI): privacy is a property
+  // of the funds, not a second wallet the user has to add up. The public/private split is one small
+  // line under it, hidden until updateHeroBalance() knows there is private TARI to split out.
+  const heroBreakdown = h("div", { class: "balance-breakdown", style: "display:none" }, []);
   const summaryHead = h("div", { class: "summary-head" }, [accountAvatar(status.address, 32), addrPill]);
-  // Not "Total Balance" -- heroBalance below is only ever the public/revealed TARI amount
-  // (updateHeroBalance() reads xtr.amount, never confidentialAmount), and heroPrivateBalance is a
-  // separate figure shown underneath, not summed into it. Calling that a "total" reads as "this is
-  // everything," which for an account holding shielded funds is actively wrong -- an asset row or
-  // hero number that's really "public only" needs to say so.
   const summaryBalance = h("div", { class: "summary-balance" }, [
-    h("div", { class: "summary-label" }, [t("home.publicBalance")]),
+    h("div", { class: "summary-label" }, [t("home.totalBalance")]),
     heroBalance,
-    heroPrivateBalance,
+    heroBreakdown,
   ]);
   const hero = h("div", { class: "account-summary card" }, [summaryHead, summaryBalance]);
+  // A private payment is invisible on-chain until this wallet scans for it, so its arrival gets an
+  // explicit notice -- otherwise a balance that silently grows (or hasn't yet) reads as missing money.
+  const receivedBanner = h("div", { class: "status ok received-banner", role: "status", style: "display:none" }, []);
 
   const sendActionBtn = h("button", { class: "action-btn", id: "sendAction" }, [h("div", { class: "action-icon", "aria-hidden": "true" }, [icon(ICON_ARROW_UP)]), t("home.send")]);
   const receiveActionBtn = h("button", { class: "action-btn", id: "receiveAction" }, [
@@ -951,6 +950,7 @@ async function renderHome(status: WalletStatus) {
     nav,
     ...(updateBanner ? [updateBanner] : []),
     hero,
+    receivedBanner,
     actionRow,
     homeStatusEl,
     balancesTitleRow,
@@ -961,20 +961,51 @@ async function renderHome(status: WalletStatus) {
 
   const updateHeroBalance = (balances: Balance[]) => {
     const xtr = balances.find((b) => b.resourceAddress === TARI_RESOURCE_ADDRESS);
+    const divisibility = xtr?.divisibility ?? 6;
+    const publicAmount = BigInt(xtr?.amount ?? "0");
+    const privateAmount = BigInt(xtr?.confidentialAmount ?? "0");
     heroBalanceAmount.className = "hero-balance-amount";
     heroBalanceAmount.removeAttribute("style");
-    heroBalanceAmount.textContent = formatBalanceAmountGrouped(xtr?.amount ?? "0", xtr?.divisibility ?? 6);
+    heroBalanceAmount.textContent = formatBalanceAmountGrouped((publicAmount + privateAmount).toString(), divisibility);
 
-    const privateAmount = BigInt(xtr?.confidentialAmount ?? "0");
+    const publicText = formatBalanceAmountGrouped(publicAmount.toString(), divisibility);
+    const privateText = formatBalanceAmountGrouped(privateAmount.toString(), divisibility);
+    // The mobile layout reads the split from here rather than parsing the figures' text.
+    hero.dataset.public = publicText;
+    hero.dataset.private = privateAmount > 0n ? privateText : "";
     if (privateAmount > 0n) {
-      heroPrivateBalance.style.display = "inline-flex";
-      heroPrivateBalance.textContent = t("home.privateSuffix", {
-        amount: formatBalanceAmountGrouped(privateAmount.toString(), xtr?.divisibility ?? 6),
-        symbol: "TARI",
-      });
+      heroBreakdown.style.display = "";
+      heroBreakdown.replaceChildren(
+        h("span", { class: "bd-pub" }, [t("home.publicPart", { amount: publicText })]),
+        h("span", { class: "bd-priv" }, [t("home.privatePart", { amount: privateText })])
+      );
     } else {
-      heroPrivateBalance.style.display = "none";
+      heroBreakdown.style.display = "none";
+      heroBreakdown.replaceChildren();
     }
+  };
+
+  const showReceived = (received: ReceivedPayment[], balances: Balance[] | null) => {
+    if (received.length === 0) return;
+    const totals = new Map<string, bigint>();
+    for (const r of received) totals.set(r.resourceAddress, (totals.get(r.resourceAddress) ?? 0n) + BigInt(r.amount));
+    const parts = [...totals].map(([resourceAddress, amount]) => {
+      const meta = balances?.find((b) => b.resourceAddress === resourceAddress);
+      const symbol = resourceAddress === TARI_RESOURCE_ADDRESS ? "TARI" : resourceLabel(resourceAddress, meta?.symbol ?? null);
+      return `${formatBalanceAmountGrouped(amount.toString(), meta?.divisibility ?? 6)} ${symbol}`;
+    });
+    const dismiss = h("button", { class: "icon-btn received-dismiss", "aria-label": t("home.dismiss") }, [icon(ICON_CLOSE)]);
+    dismiss.addEventListener("click", () => {
+      receivedBanner.style.display = "none";
+    });
+    receivedBanner.replaceChildren(
+      h("div", { class: "received-text" }, [
+        h("strong", {}, [t("home.receivedPrivately", { amount: parts.join(", ") })]),
+        h("span", {}, [t("home.receivedPrivatelyHint")]),
+      ]),
+      dismiss
+    );
+    receivedBanner.style.display = "";
   };
 
   sendActionBtn.addEventListener("click", async () => {
@@ -1028,17 +1059,23 @@ async function renderHome(status: WalletStatus) {
   // popup-auto-scan-private-payments's own doc comment for the freshly-created-wallet fast path.
   // Silent when it finds nothing (the common case, every single open) -- only surfaced when there's
   // something to actually tell the user about.
+  let shownBalances = "";
+  const onReceived = async (received: ReceivedPayment[]) => {
+    const balances = await fetchBalances(status, true).catch(() => null);
+    if (balances && balancesCard.isConnected) {
+      showAssets(balances);
+      updateHeroBalance(balances);
+      shownBalances = JSON.stringify(balances);
+    }
+    showReceived(received, balances);
+  };
+  rescanControl?.setOnReceived((received) => void onReceived(received));
+
   if (rescanControl) {
     void (async () => {
       try {
-        const { claimed } = await send<{ claimed: number }>({ kind: "popup-auto-scan-private-payments" });
-        if (claimed > 0) {
-          rescanControl.statusEl.style.display = "block";
-          rescanControl.statusEl.textContent = t("rescan.found", { count: claimed, word: claimed === 1 ? "payment" : "payments" });
-          const balances = await fetchBalances(status);
-          showAssets(balances);
-          updateHeroBalance(balances);
-        }
+        const { received = [] } = await send<ScanResult>({ kind: "popup-auto-scan-private-payments" });
+        if (received.length > 0) await onReceived(received);
       } catch {
         // Best-effort background check -- an indexer hiccup here shouldn't interrupt anything the
         // user is already doing on the home screen.
@@ -1046,7 +1083,6 @@ async function renderHome(status: WalletStatus) {
     })();
   }
 
-  let shownBalances = "";
   try {
     const balances = await fetchBalances(status);
     showAssets(balances);
@@ -1082,8 +1118,28 @@ async function renderHome(status: WalletStatus) {
       refreshing = false;
     }
   };
+  // The balance poll alone never sees a private payment: it only exists for this wallet once a scan
+  // finds it. So while Home stays open, a light scan (recent transactions only) runs every few
+  // ticks too, and an arrival is announced the moment it is found.
+  let scanning = false;
+  let ticks = 0;
+  const scanForArrivals = async () => {
+    if (!rescanControl || scanning || !balancesCard.isConnected || document.visibilityState !== "visible") return;
+    scanning = true;
+    try {
+      const { received = [] } = await send<ScanResult>({ kind: "popup-auto-scan-private-payments", light: true });
+      if (received.length > 0 && balancesCard.isConnected) await onReceived(received);
+    } catch {
+      // Best-effort, like the balance poll.
+    } finally {
+      scanning = false;
+    }
+  };
   const onVisible = () => {
-    if (document.visibilityState === "visible") void refreshBalances();
+    if (document.visibilityState === "visible") {
+      void refreshBalances();
+      void scanForArrivals();
+    }
   };
   const timer = setInterval(() => {
     if (!balancesCard.isConnected) {
@@ -1092,11 +1148,18 @@ async function renderHome(status: WalletStatus) {
       return;
     }
     void refreshBalances();
+    if (++ticks % HOME_ARRIVAL_SCAN_EVERY_TICKS === 0) void scanForArrivals();
   }, HOME_BALANCE_REFRESH_MS);
   document.addEventListener("visibilitychange", onVisible);
 }
 
 const HOME_BALANCE_REFRESH_MS = 15_000;
+/** Every 4th balance tick (once a minute) also scans recent transactions for private payments. */
+const HOME_ARRIVAL_SCAN_EVERY_TICKS = 4;
+
+/** A private payment a scan just found: raw units of `resourceAddress`. */
+type ReceivedPayment = { resourceAddress: string; amount: string };
+type ScanResult = { claimed: number; received?: ReceivedPayment[] };
 
 function settingsRow(id: string, label: string, leadingIcon: string, trailing?: string): HTMLButtonElement {
   return h("button", { class: "settings-row", id }, [
@@ -1407,7 +1470,12 @@ function renderReceive(status: WalletStatus) {
  * without waiting for the next popup open to notice it. Returns `{ button, statusEl }` so the
  * caller can lay both out next to the title and under it respectively.
  */
-function buildRescanControl(): { button: HTMLElement; statusEl: HTMLElement } {
+function buildRescanControl(): {
+  button: HTMLElement;
+  statusEl: HTMLElement;
+  setOnReceived: (f: (received: ReceivedPayment[]) => void) => void;
+} {
+  let onReceived: ((received: ReceivedPayment[]) => void) | null = null;
   const button = h("button", { class: "icon-btn", "aria-label": t("rescan.ariaLabel"), title: t("rescan.ariaLabel") }, [
     icon(ICON_REFRESH),
   ]);
@@ -1421,8 +1489,9 @@ function buildRescanControl(): { button: HTMLElement; statusEl: HTMLElement } {
     button.setAttribute("disabled", "true");
     showStatus(t("rescan.scanning"));
     try {
-      const { claimed } = await send<{ claimed: number }>({ kind: "popup-rescan-private-payments" });
+      const { claimed, received = [] } = await send<ScanResult>({ kind: "popup-rescan-private-payments" });
       showStatus(claimed === 0 ? t("rescan.noneFound") : t("rescan.found", { count: claimed, word: claimed === 1 ? "payment" : "payments" }));
+      if (received.length > 0) onReceived?.(received);
     } catch (e) {
       showStatus(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1430,7 +1499,13 @@ function buildRescanControl(): { button: HTMLElement; statusEl: HTMLElement } {
     }
   });
 
-  return { button, statusEl };
+  return {
+    button,
+    statusEl,
+    setOnReceived: (f) => {
+      onReceived = f;
+    },
+  };
 }
 
 /**

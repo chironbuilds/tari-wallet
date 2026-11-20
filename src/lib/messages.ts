@@ -813,7 +813,8 @@ export type PopupRequest =
   | { kind: "popup-rescan-private-payments" }
   /** The popup's own opportunistic scan -- triggered once the home screen has already rendered
    * (see renderHome()), not blocking on it the way buildStatus() used to. */
-  | { kind: "popup-auto-scan-private-payments" }
+  /** `light`: recent transactions only -- the once-a-minute check while Home stays open. */
+  | { kind: "popup-auto-scan-private-payments"; light?: boolean }
   | { kind: "popup-add-account" }
   | { kind: "popup-import-account"; mnemonic: string; label?: string }
   | { kind: "popup-remove-imported-account"; accountId: string }
