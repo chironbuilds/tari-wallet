@@ -645,7 +645,8 @@ export class DaemonAccount implements WalletAccountApi {
     unsignedTx.main_signer = "SealSigner";
 
     return {
-      transaction: { V1: unsignedTx },
+      // Ootle 0.55 walletd refuses any schema but the current one (V2) for transactions it signs.
+      transaction: { V2: unsignedTx },
       seal_signer: ownerKeyId,
       other_signers: opts.otherSigners ?? [],
       signatures: [],

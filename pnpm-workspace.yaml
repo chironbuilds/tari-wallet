@@ -48,7 +48,8 @@ overrides:
   # override and the vendor/ directory once upstream ships a real fix.
   # One bindings version everywhere: the indexer/signer packages still pull 1.54 (pre-Ootle 0.42 types),
   # which clash with the 0.42 transaction/claim types this wallet and the SDK are built against.
-  '@tari-project/ootle-ts-bindings': ^1.62.0
+  # 1.66 (Ootle 0.55) adds the schema-V2 transaction tag.
+  '@tari-project/ootle-ts-bindings': ^1.66.0
   # @tari-project/ootle-secret-key-wallet@0.3.0 now correctly externalizes @tari-project/ootle-wasm
   # (confirmed: its dist/index.js dropped from ~1.5MB with inlined WebAssembly.instantiate calls to
   # ~4KB) -- the dual-WASM-instance bug this override worked around is fixed upstream. No override
