@@ -46,8 +46,8 @@ importers:
         specifier: ^8.0.2
         version: 8.0.2(@capacitor/core@8.6.2)
       '@chironbuilder/ootle-sdk':
-        specifier: ^0.6.1
-        version: 0.6.1
+        specifier: ^0.6.2
+        version: 0.6.2
       '@fontsource-variable/geist':
         specifier: 5.3.0
         version: 5.3.0
@@ -197,8 +197,8 @@ packages:
     peerDependencies:
       '@capacitor/core': '>=8.0.0'
 
-  '@chironbuilder/ootle-sdk@0.6.1':
-    resolution: {integrity: sha512-6hxD8xvqu+TkUoFR9J+2agK67kgXcbqTNXCDWEA997AOPLGq11yRJALlqC+0L4w/HORIHMNq5T/Ea7J0YIG5pw==}
+  '@chironbuilder/ootle-sdk@0.6.2':
+    resolution: {integrity: sha512-+Bt9uUVLkGl4nczMEYoDKjDOZiIKzhXsxJoSwErhVBAZxEOWjDx0PExOmz99jPrs+1/39KvTCOuiQqy0j+ZtFQ==}
     peerDependencies:
       '@walletconnect/universal-provider': ^2.26.0
     peerDependenciesMeta:
@@ -1964,7 +1964,7 @@ snapshots:
     dependencies:
       '@capacitor/core': 8.6.2
 
-  '@chironbuilder/ootle-sdk@0.6.1':
+  '@chironbuilder/ootle-sdk@0.6.2':
     dependencies:
       '@chironbuilder/ootle-wasm-legacy': file:vendor/ootle-wasm-patched
       '@noble/curves': 1.9.7
