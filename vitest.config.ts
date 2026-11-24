@@ -17,16 +17,23 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],
-      exclude: ["src/**/*.test.ts", "src/**/*.d.ts"],
+      exclude: ["src/**/*.test.ts", "src/**/*.d.ts", "src/**/testHarness.ts"],
       reporter: ["text-summary", "html", "json-summary", "lcov"],
       reportsDirectory: "coverage",
       thresholds: {
-        statements: 13,
-        branches: 14,
-        functions: 16,
-        lines: 13,
+        statements: 22,
+        branches: 22,
+        functions: 23,
+        lines: 22,
         // The pure logic (seed format, storage, formatting, validation) is where unit tests belong.
-        "src/lib/**/*.ts": { lines: 75, statements: 74 },
+        "src/lib/**/*.ts": { lines: 77, statements: 76 },
+        // The wallet core's permission and approval logic (core.page/core.popup tests). What's left
+        // uncovered needs a live indexer (balances, sends, scans).
+        "src/background/core.ts": { lines: 39 },
+        "src/background/approvals.ts": { lines: 90 },
+        "src/background/session.ts": { lines: 95 },
+        // window.tari and its relay (content.test.ts).
+        "src/content/**/*.ts": { lines: 88 },
       },
     },
   },
