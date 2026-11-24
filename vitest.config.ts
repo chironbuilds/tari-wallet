@@ -21,10 +21,10 @@ export default defineConfig({
       reporter: ["text-summary", "html", "json-summary", "lcov"],
       reportsDirectory: "coverage",
       thresholds: {
-        statements: 28,
-        branches: 28,
-        functions: 31,
-        lines: 28,
+        statements: 31,
+        branches: 30,
+        functions: 33,
+        lines: 31,
         // The pure logic (seed format, storage, formatting, validation) is where unit tests belong.
         "src/lib/**/*.ts": { lines: 77, statements: 76 },
         // The wallet core's permission and approval logic (core.page/core.popup tests). What's left
@@ -39,6 +39,9 @@ export default defineConfig({
         // Host glue: Chrome (chrome.test.ts) and Android (mobile/platform.test.ts).
         "src/platform/chrome.ts": { lines: 90 },
         "src/mobile/platform.ts": { lines: 95 },
+        // The WalletConnect bridge (mobile/wc.test.ts).
+        "src/mobile/wc.ts": { lines: 85 },
+        "src/mobile/wcPolicy.ts": { lines: 95 },
       },
     },
   },
