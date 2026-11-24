@@ -291,3 +291,72 @@ test.describe("dApp API (window.tari)", () => {
     expect(outcome.ok).toBeUndefined();
   });
 });
+
+test.describe("private actions by account kind", () => {
+  // The popup's balances are faked (a fresh wallet has none on-chain); this checks which actions the
+  // UI offers, not the spend itself.
+  const fakeTariBalance = () => {
+    const balances = [
+      {
+        resourceAddress: "resource_" + "01".repeat(32),
+        kind: "Stealth",
+        amount: "5000000",
+        confidentialAmount: "2000000",
+        confidentialDecryptFailures: 0,
+        divisibility: 6,
+        symbol: "TARI",
+        name: "Tari",
+        nonFungibleTokenIds: null,
+        nonFungibleIds: null,
+      },
+    ];
+    const original = chrome.runtime.sendMessage.bind(chrome.runtime) as (m: unknown, cb: (r: unknown) => void) => void;
+    (chrome.runtime as unknown as { sendMessage: unknown }).sendMessage = (m: { kind?: string }, cb: (r: unknown) => void) => {
+      if (m?.kind === "popup-get-balances") return void setTimeout(() => cb({ ok: true, result: balances }), 0);
+      return original(m, cb);
+    };
+  };
+
+  async function expectPrivateActions(popup: Page, accountLabel: string) {
+    await popup.reload();
+    await expect(popup.locator("#addrPill")).toBeVisible({ timeout: 60_000 });
+    await expect(popup.getByText(accountLabel).first()).toBeVisible();
+    await popup.click("#sendAction");
+    await expect(popup.getByRole("tab", { name: "Send privately" })).toBeVisible();
+    await popup.click("#back");
+    await popup.locator(".balance-row").first().click();
+    for (const id of ["#tokenShield", "#tokenUnshield", "#tokenSendPrivate"]) await expect(popup.locator(id)).toBeVisible();
+  }
+
+  test("a wallet's own account offers Send privately, Shield and Unshield", async ({ popup, context }) => {
+    await context.addInitScript(fakeTariBalance);
+    await createWallet(popup);
+    await expectPrivateActions(popup, "Account 1");
+  });
+
+  test("so does an account imported from another recovery phrase", async ({ popup, context }) => {
+    // Another wallet's phrase, from a throwaway profile.
+    const other = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "sapient-e2e-")), {
+      channel: "chromium",
+      headless: true,
+      args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`],
+    });
+    const sw = other.serviceWorkers()[0] ?? (await other.waitForEvent("serviceworker"));
+    const otherPopup = await other.newPage();
+    await otherPopup.goto(`chrome-extension://${new URL(sw.url()).host}/popup.html`);
+    const words = await createWallet(otherPopup);
+    await other.close();
+
+    await context.addInitScript(fakeTariBalance);
+    await createWallet(popup);
+    const imported = await popup.evaluate(
+      (mnemonic) =>
+        new Promise<{ ok: boolean; error?: string }>((res) =>
+          chrome.runtime.sendMessage({ kind: "popup-import-account", mnemonic }, (r: { ok: boolean; error?: string }) => res(r)),
+        ),
+      words.join(" "),
+    );
+    expect(imported.ok, imported.error).toBe(true);
+    await expectPrivateActions(popup, "Imported 1");
+  });
+});

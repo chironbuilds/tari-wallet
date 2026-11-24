@@ -1786,14 +1786,14 @@ function renderSend(
     return;
   }
 
-  const accountKind = activeAccountSummary(status)?.kind;
-  const isLocalAccount = accountKind === "local";
-  const isDaemonAccount = accountKind === "daemon";
+  // Every account kind can send privately: local and imported accounts are seed accounts that do it
+  // client-side, a daemon-relayed one has its daemon do it. Only an unknown account gets public-only.
+  const hasPrivateSend = !!activeAccountSummary(status);
 
   const publicSection = h("div", {});
   const privateSection = h("div", { style: "display:none" });
 
-  if (!isLocalAccount && !isDaemonAccount) {
+  if (!hasPrivateSend) {
     render(h("h1", {}, [t("send.title")]), publicSection, back);
     document.getElementById("back")!.addEventListener("click", onBack);
     buildPublicSendForm(publicSection, balances, status.addressBook, status.network, options?.initialResourceAddress);
@@ -2457,11 +2457,10 @@ function renderTokenDetail(status: WalletStatus, balance: Balance) {
   // actually something to show instead.
   const isConfidential = BigInt(balance.confidentialAmount) > 0n || balance.confidentialDecryptFailures > 0;
   const failures = balance.confidentialDecryptFailures;
-  // Shield/Unshield/Send-privately are all available for both a seed-derived local account and
-  // a daemon-relayed one -- the daemon does the actual spend server-side (see background/index.ts's
-  // popup-shield/popup-unshield/popup-send-privately handlers).
-  const activeAccountKind = activeAccountSummary(status)?.kind;
-  const hasPrivacyActions = activeAccountKind === "local" || activeAccountKind === "daemon";
+  // Shield/Unshield/Send-privately are available for every account kind: a seed-derived local or
+  // imported account spends client-side, a daemon-relayed one has the daemon do it server-side (see
+  // core.ts's popup-shield/popup-unshield/popup-send-privately handlers).
+  const hasPrivacyActions = !!activeAccountSummary(status);
 
   // Of the engine's three resource kinds (Fungible, Confidential, Stealth — see
   // demo_token/src/lib.rs's ResourceBuilder usage and StealthTransfer.prepare()'s source for how
