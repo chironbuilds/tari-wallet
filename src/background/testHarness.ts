@@ -23,9 +23,9 @@ export interface Harness {
   broadcasts: WalletBroadcast[];
   sitesChanged: ReturnType<typeof vi.fn>;
   /** Sets how the next approval windows answer (default "approve"). */
-  answerWith(action: ApprovalAction): void;
-  /** Answers a held approval. */
-  answer(id: string, approve: boolean): Promise<void>;
+  answerWith(action: ApprovalAction, feeType?: "private" | "transparent"): void;
+  /** Answers a held approval (optionally with the fee type the user picked on it). */
+  answer(id: string, approve: boolean, feeType?: "private" | "transparent"): Promise<void>;
   /** Simulates the user closing a held approval window. */
   dismiss(id: string): void;
   popup<T = unknown>(message: PopupRequest): Promise<T>;
@@ -38,13 +38,14 @@ export interface Harness {
 
 export function setupHarness(): Harness {
   let action: ApprovalAction = "approve";
+  let chosenFee: "private" | "transparent" | undefined;
   const shown: PendingApproval[] = [];
   const broadcasts: WalletBroadcast[] = [];
   const dismissHandlers: Array<(id: string) => void> = [];
   const sitesChanged = vi.fn();
 
-  const answer = async (id: string, approve: boolean) => {
-    await handlePopupRequest({ kind: "popup-resolve-approval", approvalId: id, approve });
+  const answer = async (id: string, approve: boolean, feeType?: "private" | "transparent") => {
+    await handlePopupRequest({ kind: "popup-resolve-approval", approvalId: id, approve, feeType });
   };
   const dismiss = (id: string) => dismissHandlers.forEach((h) => h(id));
 
@@ -61,7 +62,7 @@ export function setupHarness(): Harness {
       const decided = action;
       setTimeout(() => {
         if (decided === "dismiss") dismiss(id);
-        else void answer(id, decided === "approve");
+        else void answer(id, decided === "approve", chosenFee);
       }, 0);
     },
     closeApproval() {},
@@ -96,8 +97,9 @@ export function setupHarness(): Harness {
     shown,
     broadcasts,
     sitesChanged,
-    answerWith: (a) => {
+    answerWith: (a, feeType) => {
       action = a;
+      chosenFee = feeType;
     },
     answer,
     dismiss,

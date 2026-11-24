@@ -548,8 +548,11 @@ export async function recordTransactionRequestDecision(
     const record = state.transactionRequests[index]!;
     if (record.status !== "pending") return false;
     const transactionRequests = [...state.transactionRequests];
+    // A dApp that set `enforceFeeType` made its `feeType` binding: the approval screen locks the
+    // toggle, and a choice arriving here anyway (a stale or misbehaving approval view) is ignored.
+    const enforced = "enforceFeeType" in record.operation && record.operation.enforceFeeType === true;
     const operation =
-      approved && chosenFeeType && record.operation.kind !== "redeemStealthOutputWithPrivateFee"
+      approved && chosenFeeType && !enforced && record.operation.kind !== "redeemStealthOutputWithPrivateFee"
         ? { ...record.operation, feeType: chosenFeeType }
         : record.operation;
     transactionRequests[index] = { ...record, operation, status: approved ? "approved" : "rejected" };
