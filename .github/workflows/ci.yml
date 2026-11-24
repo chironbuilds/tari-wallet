@@ -120,8 +120,25 @@ jobs:
       - name: Build web bundle and sync into the Android project
         run: pnpm run build:mobile && pnpm exec cap sync android
 
+      # Maven Central rate-limits shared CI runners (HTTP 429) now and then. Gradle retries each
+      # download with backoff, and the dependency download is re-run up to three times on its
+      # own, so a busy mirror doesn't fail the build; real build/test/lint failures still do.
+      - name: Download Gradle dependencies
+        working-directory: android
+        env:
+          GRADLE_OPTS: -Dorg.gradle.internal.repository.max.retries=8 -Dorg.gradle.internal.repository.initial.backoff=2000
+        run: |
+          for attempt in 1 2 3; do
+            ./gradlew --no-daemon :app:dependencies --configuration debugRuntimeClasspath > /dev/null && exit 0
+            echo "::warning::dependency download failed (attempt $attempt), retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
+          exit 1
+
       - name: Assemble debug APK, run unit tests and lint
         working-directory: android
+        env:
+          GRADLE_OPTS: -Dorg.gradle.internal.repository.max.retries=8 -Dorg.gradle.internal.repository.initial.backoff=2000
         run: ./gradlew --no-daemon assembleDebug testDebugUnitTest lintDebug
 
       - name: Check the APK's package, version and size
