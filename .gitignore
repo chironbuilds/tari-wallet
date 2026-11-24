@@ -10,3 +10,8 @@ node_modules/
 /vendor/ootle-src/
 /dist-mobile/
 .env.local
+
+# Playwright end-to-end output
+/test-results/
+/playwright-report/
+/blob-report/

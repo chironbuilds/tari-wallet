@@ -1,31 +1,49 @@
 name: CI
 
+# Every push and pull request runs four jobs in parallel. A green run means: dependencies are
+# clean, the code typechecks and passes its unit and crypto golden-vector tests, the extension and
+# the Android web bundle build, the release artifacts are consistent (versions, manifest,
+# permissions, CSP, store zip, size budgets), the real builds pass end-to-end tests in Chromium,
+# and the Android APK builds, passes lint and its own unit tests.
+
 on:
   push:
-    branches: [master]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PNPM_VERSION: 11.9.0
+  NODE_VERSION: 26
 
 jobs:
-  test:
+  checks:
+    name: Audit, typecheck, unit tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-
       - uses: pnpm/action-setup@v4
         with:
-          version: 11.9.0
-
+          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v5
         with:
-          node-version: 26
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-
       - run: pnpm install --frozen-lockfile
 
-      - name: Audit dependencies
+      - name: Audit dependencies (pnpm lockfile)
         run: pnpm audit --audit-level=moderate
+      - name: Audit dependencies (npm lockfile)
+        run: npm audit --package-lock-only --audit-level=moderate
 
-      - name: Typecheck
+      - name: Typecheck (app and end-to-end tests)
         run: pnpm run typecheck
 
       - name: Unit tests
@@ -34,5 +52,104 @@ jobs:
       - name: Crypto golden-vector tests
         run: pnpm run test:crypto
 
-      - name: Build extension
-        run: pnpm run build
+  extension:
+    name: Build, release checks, end-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build extension and Chrome Web Store zip
+        run: pnpm run package
+      - name: Build Android web bundle
+        run: pnpm run build:mobile
+
+      - name: Release checks
+        run: pnpm run check:release
+
+      - name: Install Chromium for Playwright
+        run: pnpm exec playwright install --with-deps chromium
+      - name: End-to-end tests (extension and mobile)
+        run: pnpm run test:e2e
+
+      - name: Upload store zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: sapient-extension-zip
+          path: sapient-wallet-*.zip
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+  android:
+    name: Android APK, lint, unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build web bundle and sync into the Android project
+        run: pnpm run build:mobile && pnpm exec cap sync android
+
+      - name: Assemble debug APK, run unit tests and lint
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest lintDebug
+
+      - name: Check the APK's package, version and size
+        run: |
+          set -euo pipefail
+          apk=$(ls android/app/build/outputs/apk/debug/*universal*.apk 2>/dev/null || ls android/app/build/outputs/apk/debug/*.apk | head -1)
+          apk=$(echo "$apk" | head -1)
+          aapt2=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt2
+          badging=$("$aapt2" dump badging "$apk" | head -1)
+          echo "$badging"
+          want=$(node -p "require('./package.json').version")
+          echo "$badging" | grep -q "name='mw.tari.sapient'" || { echo "::error::wrong applicationId"; exit 1; }
+          echo "$badging" | grep -q "versionName='$want'" || { echo "::error::APK versionName is not $want"; exit 1; }
+          size=$(stat -c %s "$apk")
+          echo "APK size: $size bytes"
+          [ "$size" -lt $((80 * 1024 * 1024)) ] || { echo "::error::APK over 80 MB"; exit 1; }
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sapient-android-debug
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 14
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-lint-report
+          path: android/app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 14

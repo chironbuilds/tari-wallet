@@ -108,16 +108,22 @@ importers:
         version: file:vendor/ootle-wasm-patched
       '@crxjs/vite-plugin':
         specifier: ^2.7.1
-        version: 2.7.1(vite@8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))
+        version: 2.7.1(vite@8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1))
       '@noble/curves':
         specifier: ^2.4.0
         version: 2.4.0
+      '@playwright/test':
+        specifier: 1.65.1
+        version: 1.65.1
       '@swc/core':
         specifier: 1.15.46
         version: 1.15.46
       '@types/chrome':
         specifier: ^0.2.2
         version: 0.2.2
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
       tsx:
         specifier: ^4.23.1
         version: 4.23.1
@@ -126,16 +132,16 @@ importers:
         version: 7.0.2
       vite:
         specifier: 8.1.7
-        version: 8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)
+        version: 8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1)
       vite-plugin-top-level-await:
         specifier: ^1.6.0
-        version: 1.6.0(rollup@2.80.0)(vite@8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))
+        version: 1.6.0(rollup@2.80.0)(vite@8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1))
       vite-plugin-wasm:
         specifier: ^3.6.0
-        version: 3.6.0(vite@8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))
+        version: 3.6.0(vite@8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1))
       vitest:
         specifier: ^4.1.12
-        version: 4.1.12(@types/node@26.6.6)(vite@8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))
+        version: 4.1.12(@types/node@24.19.2)(vite@8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1))
 
 packages:
 
@@ -482,6 +488,11 @@ packages:
   '@oxc-project/types@0.139.0':
     resolution: {integrity: sha512-r9gHphtCs+1M7J0pw6Sn/hh/Wpa/iQrOOkrNAlVLF/gHq+/CJmHIWKKUUhdWjcD6CIa8idarspCsASiXCXvFUw==}
 
+  '@playwright/test@1.65.1':
+    resolution: {integrity: sha512-y+NCIRm2LvY4slUVWvGh1nujJ8RF/hEisIsq2mtUPgdQC4L701bq5hZGMhrpeXjACvwvO9tj5dJqhvM6TP9lbw==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   '@reown/walletkit@1.6.0':
     resolution: {integrity: sha512-vJh5gaGYIYzSw4Ty2sCDNG1CTh7IhD3o9TXjlUyrWqwXKBEVX919456WuvwrIEluo4UqieIMMkwlumXG50S+8g==}
 
@@ -753,6 +764,9 @@ packages:
 
   '@types/har-format@1.2.16':
     resolution: {integrity: sha512-fluxdy7ryD3MV6h8pTfTYpy/xQzCFC7m89nOH9y94cNqJ1mDIDPut7MnRHI3F6qRmh/cT2fUjG1MLdCNb4hE9A==}
+
+  '@types/node@24.19.2':
+    resolution: {integrity: sha512-93d49wCWJkCyN87MxLpNN6KXPCwFw7bVUg79mGUV1OS40JGWwVCr8n61DXCSqz7CV6/VfPkb7xec7uP2M+QHWQ==}
 
   '@types/node@26.6.6':
     resolution: {integrity: sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog==}
@@ -1487,6 +1501,16 @@ packages:
     resolution: {integrity: sha512-eI9pKwWEix40kfvSzqEP6ldqOoBIN7dwD/o91TY5z8vQI12sAffpR/pOqAD1IVVwIVHDpHjkq0joBPdJD0rafA==}
     hasBin: true
 
+  playwright-core@1.65.1:
+    resolution: {integrity: sha512-hqPpz7blSMPxWVdoeE1yiBSzXsKiVOd2k+kjCvmUywD2GPO2Dd9HfcWnq9NN0GHbNZDFgZ9JfBFr+X5/BLo0qw==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  playwright@1.65.1:
+    resolution: {integrity: sha512-vJ1FuoOrNwOKHUIVEvSt3jT1L+wjjDpwhwIstKtfvTh8XIG4FG4bIFuvNdMxi81LGfAhUgUZleVFaOLY4RIUUw==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   plist@3.1.1:
     resolution: {integrity: sha512-ZIfcLJC+7E7FBFnDxm9MPmt7D+DidyQ26lewieO75AdhA2ayMtsJSES0iWzqJQbcVRSrTufQoy0DR94xHue0oA==}
     engines: {node: '>=10.4.0'}
@@ -1672,6 +1696,9 @@ packages:
 
   uncrypto@0.1.3:
     resolution: {integrity: sha512-Ql87qFHB3s/De2ClA9e0gsnS6zXG27SkTiSJwjCc9MebbfapQfuPzumMIUMi38ezPZVNFcHI9sUIepeQfw8J8Q==}
+
+  undici-types@7.24.6:
+    resolution: {integrity: sha512-WRNW+sJgj5OBN4/0JpHFqtqzhpbnV0GuB+OozA9gCL7a993SmU+1JBZCzLNxYsbMfIeDL+lTsphD5jN5N+n0zg==}
 
   undici-types@8.9.0:
     resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
@@ -1981,7 +2008,7 @@ snapshots:
 
   '@chironbuilder/ootle-wasm-legacy@file:vendor/ootle-wasm-patched': {}
 
-  '@crxjs/vite-plugin@2.7.1(vite@8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))':
+  '@crxjs/vite-plugin@2.7.1(vite@8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1))':
     dependencies:
       '@webcomponents/custom-elements': 1.6.0
       acorn-walk: 8.3.5
@@ -1997,7 +2024,7 @@ snapshots:
       rollup: 2.80.0
       rxjs: 7.5.7
       tinyglobby: 0.2.17
-      vite: 8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)
+      vite: 8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -2221,6 +2248,10 @@ snapshots:
   '@noble/hashes@2.4.0': {}
 
   '@oxc-project/types@0.139.0': {}
+
+  '@playwright/test@1.65.1':
+    dependencies:
+      playwright: 1.65.1
 
   '@reown/walletkit@1.6.0(@capacitor/preferences@8.0.1(@capacitor/core@8.6.2))(typescript@7.0.2)':
     dependencies:
@@ -2461,6 +2492,10 @@ snapshots:
 
   '@types/har-format@1.2.16': {}
 
+  '@types/node@24.19.2':
+    dependencies:
+      undici-types: 7.24.6
+
   '@types/node@26.6.6':
     dependencies:
       undici-types: 8.9.0
@@ -2536,13 +2571,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.12(vite@8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))':
+  '@vitest/mocker@4.1.12(vite@8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1))':
     dependencies:
       '@vitest/spy': 4.1.12
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)
+      vite: 8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1)
 
   '@vitest/pretty-format@4.1.12':
     dependencies:
@@ -3410,6 +3445,12 @@ snapshots:
       sonic-boom: 4.2.1
       thread-stream: 3.2.0
 
+  playwright-core@1.65.1: {}
+
+  playwright@1.65.1:
+    dependencies:
+      playwright-core: 1.65.1
+
   plist@3.1.1:
     dependencies:
       '@xmldom/xmldom': 0.9.12
@@ -3613,6 +3654,8 @@ snapshots:
 
   uncrypto@0.1.3: {}
 
+  undici-types@7.24.6: {}
+
   undici-types@8.9.0: {}
 
   universalify@2.0.1: {}
@@ -3637,22 +3680,22 @@ snapshots:
 
   uuid@11.1.1: {}
 
-  vite-plugin-top-level-await@1.6.0(rollup@2.80.0)(vite@8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)):
+  vite-plugin-top-level-await@1.6.0(rollup@2.80.0)(vite@8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1)):
     dependencies:
       '@rollup/plugin-virtual': 3.0.2(rollup@2.80.0)
       '@swc/core': 1.15.46
       '@swc/wasm': 1.15.46
       uuid: 11.1.1
-      vite: 8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)
+      vite: 8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1)
     transitivePeerDependencies:
       - '@swc/helpers'
       - rollup
 
-  vite-plugin-wasm@3.6.0(vite@8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)):
+  vite-plugin-wasm@3.6.0(vite@8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1)):
     dependencies:
-      vite: 8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)
+      vite: 8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1)
 
-  vite@8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1):
+  vite@8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
@@ -3660,15 +3703,15 @@ snapshots:
       rolldown: 1.1.8
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@types/node': 26.6.6
+      '@types/node': 24.19.2
       esbuild: 0.28.1
       fsevents: 2.3.3
       tsx: 4.23.1
 
-  vitest@4.1.12(@types/node@26.6.6)(vite@8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)):
+  vitest@4.1.12(@types/node@24.19.2)(vite@8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1)):
     dependencies:
       '@vitest/expect': 4.1.12
-      '@vitest/mocker': 4.1.12(vite@8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))
+      '@vitest/mocker': 4.1.12(vite@8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1))
       '@vitest/pretty-format': 4.1.12
       '@vitest/runner': 4.1.12
       '@vitest/snapshot': 4.1.12
@@ -3685,10 +3728,10 @@ snapshots:
       tinyexec: 1.2.4
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
-      vite: 8.1.7(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)
+      vite: 8.1.7(@types/node@24.19.2)(esbuild@0.28.1)(tsx@4.23.1)
       why-is-node-running: 2.3.0
     optionalDependencies:
-      '@types/node': 26.6.6
+      '@types/node': 24.19.2
     transitivePeerDependencies:
       - msw
 
