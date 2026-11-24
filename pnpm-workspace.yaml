@@ -31,6 +31,11 @@ minimumReleaseAgeExclude:
 # this project's wasm build pipeline is deliberately pinned to (see README "Building").
 overrides:
   uuid: ^11.1.1
+  # Build-time only (vite's CSS pipeline), never shipped: patched versions for pnpm audit's
+  # postcss (<=8.5.22), nanoid (<3.3.18) and source-map-js (<1.2.2) advisories.
+  postcss: ^8.5.33
+  nanoid@3: ^3.3.18
+  source-map-js: ^1.2.2
   # @tari-project/ootle-wasm@0.39.1 is a real, officially published, pinned release (not a
   # moving branch HEAD like the vendor build this used to point at) -- confirmed it exports
   # buildScriptPathWitness/buildStealthInputsStatementFromInputs/buildStealthTransferStatement
