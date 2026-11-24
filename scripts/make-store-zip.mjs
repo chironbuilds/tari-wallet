@@ -1,4 +1,5 @@
-// Builds a Chrome-Web-Store-ready zip of dist/ with POSIX forward-slash entry names.
+// Builds a Chrome-Web-Store-ready zip of dist/ with POSIX forward-slash entry names
+// (`node scripts/make-store-zip.mjs firefox` zips dist-firefox/ into the .xpi for addons.mozilla.org).
 // Needed because PowerShell's Compress-Archive / System.IO.Compression.ZipFile write
 // backslash-separated entry names on Windows, which Chrome's zip reader (spec-compliant,
 // forward-slash-only) treats as literal characters in a flat filename instead of a directory
@@ -9,9 +10,10 @@ import { deflateRawSync, crc32 } from "node:zlib";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const distDir = join(root, "dist");
+const firefox = process.argv[2] === "firefox";
+const distDir = join(root, firefox ? "dist-firefox" : "dist");
 const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
-const outPath = join(root, `sapient-wallet-${version}.zip`);
+const outPath = join(root, firefox ? `sapient-wallet-firefox-${version}.xpi` : `sapient-wallet-${version}.zip`);
 
 function walk(dir) {
   const out = [];

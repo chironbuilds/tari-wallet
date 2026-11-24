@@ -82,6 +82,10 @@ jobs:
 
       - name: Build extension and Chrome Web Store zip
         run: pnpm run package
+      - name: Build Firefox add-on (.xpi)
+        run: pnpm run package:firefox
+      - name: Mozilla add-on linter (what addons.mozilla.org runs on upload)
+        run: pnpm run lint:firefox
       - name: Build Android web bundle
         run: pnpm run build:mobile
 
@@ -98,6 +102,13 @@ jobs:
         with:
           name: sapient-extension-zip
           path: sapient-wallet-*.zip
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Firefox .xpi
+        uses: actions/upload-artifact@v4
+        with:
+          name: sapient-firefox-xpi
+          path: sapient-wallet-firefox-*.xpi
           if-no-files-found: error
           retention-days: 14
       - name: Upload Playwright report
