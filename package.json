@@ -18,7 +18,8 @@
     "test:crypto": "vitest run src/lib/cryptoVectors.test.ts",
     "test:e2e": "playwright test",
     "check:release": "node scripts/check-release.mjs",
-    "verify": "pnpm typecheck && pnpm test && pnpm package && pnpm build:mobile && pnpm check:release && pnpm test:e2e"
+    "verify": "pnpm typecheck && pnpm test:coverage && pnpm package && pnpm build:mobile && pnpm check:release && pnpm test:e2e",
+    "test:coverage": "vitest run --coverage"
   },
   "license": "MIT",
   "packageManager": "pnpm@11.9.0",
@@ -61,6 +62,7 @@
     "@swc/core": "1.15.46",
     "@types/chrome": "^0.2.2",
     "@types/node": "^24.19.2",
+    "@vitest/coverage-v8": "4.1.12",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vite": "8.1.7",

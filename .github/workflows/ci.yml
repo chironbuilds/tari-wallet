@@ -46,8 +46,21 @@ jobs:
       - name: Typecheck (app and end-to-end tests)
         run: pnpm run typecheck
 
-      - name: Unit tests
-        run: pnpm run test
+      - name: Unit tests with coverage (fails if coverage drops below the floors in vitest.config.ts)
+        run: pnpm run test:coverage
+
+      - name: Coverage summary
+        if: always()
+        run: test -f coverage/coverage-summary.json && node scripts/coverage-summary.mjs || true
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Crypto golden-vector tests
         run: pnpm run test:crypto
