@@ -71,7 +71,25 @@ export function formatBalanceAmountGrouped(rawAmount: string, divisibility: numb
   const formatted = formatBalanceAmount(rawAmount, divisibility);
   const [whole, frac] = formatted.split(".");
   const grouped = BigInt(whole!).toLocaleString("en-US");
-  return frac ? `${grouped}.${frac}` : grouped;
+  // Every displayed amount is shown at two decimals; a token without decimals (an NFT count)
+  // stays a whole number.
+  return divisibility === 0 ? grouped : twoDecimals(frac ? `${grouped}.${frac}` : grouped);
+}
+
+/**
+ * An amount at two decimals, cut rather than rounded so it never shows more than is held.
+ * "2,459.624" -> "2,459.62", "0.5" -> "0.50", "7" -> "7.00"; a positive amount under 0.01 is
+ * "< 0.01" rather than a misleading "0.00". Anything that isn't a plain number is returned as is,
+ * so applying it twice is harmless.
+ */
+export function twoDecimals(text: string): string {
+  const m = text.trim().match(/^([\d,]+)(?:\.(\d+))?$/);
+  if (!m) return text;
+  const whole = m[1]!;
+  const dec = m[2] ?? "";
+  const cut = `${dec}00`.slice(0, 2);
+  if (whole.replace(/,/g, "") === "0" && cut === "00" && /[1-9]/.test(dec)) return "< 0.01";
+  return `${whole}.${cut}`;
 }
 
 /** TARI's on-chain divisibility. Transaction fees are always paid in TARI, so the max-fee budget

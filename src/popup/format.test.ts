@@ -199,20 +199,25 @@ describe("formatBalanceAmount", () => {
 
 describe("formatBalanceAmountGrouped", () => {
   it("groups a large whole-number balance with thousands separators", () => {
-    expect(formatBalanceAmountGrouped("1234567000000", 6)).toBe("1,234,567");
+    expect(formatBalanceAmountGrouped("1234567000000", 6)).toBe("1,234,567.00");
   });
 
-  it("groups the whole part while leaving the fractional part untouched", () => {
+  it("groups the whole part and cuts the fraction to two decimals", () => {
     expect(formatBalanceAmountGrouped("1234567890000", 6)).toBe("1,234,567.89");
+    expect(formatBalanceAmountGrouped("2459624000", 6)).toBe("2,459.62");
   });
 
   it("leaves a balance under 1000 ungrouped", () => {
-    expect(formatBalanceAmountGrouped("999000000", 6)).toBe("999");
+    expect(formatBalanceAmountGrouped("999000000", 6)).toBe("999.00");
   });
 
   it("groups zero and small balances without throwing", () => {
-    expect(formatBalanceAmountGrouped("0", 6)).toBe("0");
-    expect(formatBalanceAmountGrouped("1", 6)).toBe("0.000001");
+    expect(formatBalanceAmountGrouped("0", 6)).toBe("0.00");
+    expect(formatBalanceAmountGrouped("1", 6)).toBe("< 0.01");
+  });
+
+  it("keeps a token without decimals (an NFT count) whole", () => {
+    expect(formatBalanceAmountGrouped("3", 0)).toBe("3");
   });
 });
 
@@ -242,15 +247,15 @@ describe("tokenInitial", () => {
 describe("formatMaxFee", () => {
   it("scales a raw micro-TARI fee budget to a human TARI amount", () => {
     // 2_000_000 micro-TARI is 2 TARI, not a 2-million fee cap.
-    expect(formatMaxFee("2000000")).toBe("2 TARI");
+    expect(formatMaxFee("2000000")).toBe("2.00 TARI");
   });
 
-  it("keeps fractional TARI (truncating trailing zeros)", () => {
-    expect(formatMaxFee("1500")).toBe("0.0015 TARI");
+  it("shows a fee under 0.01 TARI as < 0.01 rather than 0.00", () => {
+    expect(formatMaxFee("1500")).toBe("< 0.01 TARI");
   });
 
   it("groups the whole part of a large budget", () => {
-    expect(formatMaxFee("1234567000000")).toBe("1,234,567 TARI");
+    expect(formatMaxFee("1234567000000")).toBe("1,234,567.00 TARI");
   });
 
   it("falls back to the raw string for a non-integer value rather than throwing", () => {

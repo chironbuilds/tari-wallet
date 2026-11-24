@@ -7,7 +7,7 @@
 import { t } from "../lib/i18n";
 import { avatarSvg } from "../lib/avatar";
 import type { TransactionHistoryEntry } from "../lib/storage";
-import { formatBalanceAmountGrouped, resourceLabel, shortAddr } from "../popup/format";
+import { formatBalanceAmountGrouped, resourceLabel, shortAddr, twoDecimals } from "../popup/format";
 import { platform } from "../platform";
 
 /** What the layouts read beyond the rendered screen. */
@@ -407,20 +407,7 @@ function splitDecimals(target: HTMLElement): void {
   target.replaceChildren(whole, frac);
 }
 
-/**
- * A balance as Home shows it: two decimals, cut rather than rounded so it never shows more than is
- * held. "2,459.624" -> "2,459.62", "0.5" -> "0.50", "7" -> "7.00"; a positive amount under 0.01 is
- * "< 0.01" rather than a misleading "0.00". Anything that isn't a plain number is returned as is.
- */
-export function twoDecimals(text: string): string {
-  const m = text.trim().match(/^([\d,]+)(?:\.(\d+))?$/);
-  if (!m) return text;
-  const whole = m[1]!;
-  const dec = m[2] ?? "";
-  const cut = `${dec}00`.slice(0, 2);
-  if (whole.replace(/,/g, "") === "0" && cut === "00" && /[1-9]/.test(dec)) return "< 0.01";
-  return `${whole}.${cut}`;
-}
+export { twoDecimals };
 
 /** The first number inside a label ("0.5 TARI private", "+0.5 private") at two decimals. */
 function shortenFirstNumber(node: HTMLElement): void {
