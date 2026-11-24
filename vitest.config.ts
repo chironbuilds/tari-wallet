@@ -21,19 +21,24 @@ export default defineConfig({
       reporter: ["text-summary", "html", "json-summary", "lcov"],
       reportsDirectory: "coverage",
       thresholds: {
-        statements: 22,
-        branches: 22,
-        functions: 23,
-        lines: 22,
+        statements: 28,
+        branches: 28,
+        functions: 31,
+        lines: 28,
         // The pure logic (seed format, storage, formatting, validation) is where unit tests belong.
         "src/lib/**/*.ts": { lines: 77, statements: 76 },
         // The wallet core's permission and approval logic (core.page/core.popup tests). What's left
         // uncovered needs a live indexer (balances, sends, scans).
-        "src/background/core.ts": { lines: 39 },
+        "src/background/core.ts": { lines: 49 },
+        "src/background/preview.ts": { lines: 95 },
+        "src/background/receipts.ts": { lines: 95 },
         "src/background/approvals.ts": { lines: 90 },
         "src/background/session.ts": { lines: 95 },
         // window.tari and its relay (content.test.ts).
         "src/content/**/*.ts": { lines: 88 },
+        // Host glue: Chrome (chrome.test.ts) and Android (mobile/platform.test.ts).
+        "src/platform/chrome.ts": { lines: 90 },
+        "src/mobile/platform.ts": { lines: 95 },
       },
     },
   },
