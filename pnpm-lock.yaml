@@ -49,8 +49,8 @@ importers:
         specifier: ^8.0.2
         version: 8.0.2(@capacitor/core@8.6.2)
       '@chironbuilder/ootle-sdk':
-        specifier: ^0.6.4
-        version: 0.6.4
+        specifier: ^0.7.0
+        version: 0.7.0
       '@fontsource-variable/geist':
         specifier: 5.3.0
         version: 5.3.0
@@ -67,26 +67,26 @@ importers:
         specifier: ^1.6.0
         version: 1.6.0(@capacitor/preferences@8.0.1(@capacitor/core@8.6.2))(typescript@7.0.2)
       '@tari-project/ootle':
-        specifier: ^0.19.0
-        version: 0.19.0
+        specifier: ^0.23.0
+        version: 0.23.0
       '@tari-project/ootle-indexer':
-        specifier: ^0.19.0
-        version: 0.19.0
+        specifier: ^0.23.0
+        version: 0.23.0
       '@tari-project/ootle-secret-key-wallet':
-        specifier: ^0.19.0
-        version: 0.19.0
+        specifier: ^0.23.0
+        version: 0.23.0
       '@tari-project/ootle-ts-bindings':
         specifier: ^1.66.0
         version: 1.66.0
       '@tari-project/ootle-wallet-daemon-signer':
-        specifier: ^0.19.0
-        version: 0.19.0
+        specifier: ^0.23.0
+        version: 0.23.0
       '@tari-project/ootle-wasm':
-        specifier: ^0.55.0
-        version: 0.55.0
+        specifier: ^0.57.0
+        version: 0.57.0
       '@tari-project/ootle-wasm-bor':
-        specifier: ^0.55.0
-        version: 0.55.0
+        specifier: ^0.57.0
+        version: 0.57.0
       '@walletconnect/core':
         specifier: ^2.26.0
         version: 2.26.0(@capacitor/preferences@8.0.1(@capacitor/core@8.6.2))(typescript@7.0.2)
@@ -233,8 +233,8 @@ packages:
     peerDependencies:
       '@capacitor/core': '>=8.0.0'
 
-  '@chironbuilder/ootle-sdk@0.6.4':
-    resolution: {integrity: sha512-fmzfjtVCXGqghLDc+Zx1iHJG3yQwdSvrxpNAbFzwIl0dGZ/QKRMLuFhsyztFl+BtDiNYhl/k3qKDvRsPxbd/bw==}
+  '@chironbuilder/ootle-sdk@0.7.0':
+    resolution: {integrity: sha512-LqELGmHRONhCl/pMMvuryZH+5v13w+lCDriQSn4RtfTXY2YRILv9G93OyEPK+TwvMVNvWlZ8vIZgOsVhnv6C3A==}
     peerDependencies:
       '@walletconnect/universal-provider': ^2.26.0
     peerDependenciesMeta:
@@ -820,26 +820,26 @@ packages:
   '@tari-project/indexer-client@1.14.0':
     resolution: {integrity: sha512-HIcv7muqBkxOvEdPcwPofyY+oVfHJ7OycjqXmFcQXfg84daOQKxI4OqcDnDc6mrIs1QVPginq6CdC9G2ZqBWkg==}
 
-  '@tari-project/ootle-indexer@0.19.0':
-    resolution: {integrity: sha512-kXaHjUcdAWIVAt6upnED4mai6980lJEaUAr0mAImuTQf66c6OKQNEE3aV1GFL7XbWRpmPtu3icL/XObqOB0FcQ==}
+  '@tari-project/ootle-indexer@0.23.0':
+    resolution: {integrity: sha512-EHHIZu1RYrWsaDfy3Y56x/VPVBTIA1xqnoPq27mhCi0UkZtUEjCfTv5XrMyGQP7Vu0KhEAGIJwmpOeEqDMhxPw==}
 
-  '@tari-project/ootle-secret-key-wallet@0.19.0':
-    resolution: {integrity: sha512-Lts2XFJEgWQXO5wBT98T9nrodOZ+MzNrUPk/PHJsGy3MVyI4Bw8n7ske2Ebr+ORheecBZD7mA5MqHxkRTvxYNQ==}
+  '@tari-project/ootle-secret-key-wallet@0.23.0':
+    resolution: {integrity: sha512-r/WE8R/VY/tWEt1cz7zgbwOHyMXK3x5e2MLKqDc1AEod4N7z007NNC4Zt5xLhbSz0ZZKX77TN27ML05gWpN+5g==}
 
   '@tari-project/ootle-ts-bindings@1.66.0':
     resolution: {integrity: sha512-F/Rg+NWahuv5p7kVrltz5I5n60Ku+DbK0PLHE/Cw1vvWMSjU7nuuic9XUOowSWDETBgVQRqOJq2ngIduUmH4lA==}
 
-  '@tari-project/ootle-wallet-daemon-signer@0.19.0':
-    resolution: {integrity: sha512-tnY+OmzeT27Jj3XbtTOo/mlvlXJj/XWvZz5etGNBPrPr9bjpsIOk7nSO9ziXLtlUcMQaMzgtR0Zpj3Rd9isvdA==}
+  '@tari-project/ootle-wallet-daemon-signer@0.23.0':
+    resolution: {integrity: sha512-5NBLyasLkTZH26myGhgb6OLZDc7nmR00VwmLB3IoMHBqigF2EOifgfvGdNXciILKTrerIJx2nFwVy+eXyqaazQ==}
 
-  '@tari-project/ootle-wasm-bor@0.55.0':
-    resolution: {integrity: sha512-rpbL+myNUozGkijgWt3y1DT4MH0MK0GTtN/iVAEF1w9ye0QSAS+UFnohhbwcd6n1riT1ebtfcaipz2JfHVflmg==}
+  '@tari-project/ootle-wasm-bor@0.57.0':
+    resolution: {integrity: sha512-iiWX65LGc3o1ceJybX9TEKopx85sJr4g+uZPxN8fSJkyc3OxN8z8jgkrWEwMjz5DPkuIiysLc0LvdHP07aKqgg==}
 
-  '@tari-project/ootle-wasm@0.55.0':
-    resolution: {integrity: sha512-fkVigkC/GuHN/EPEhcvLiQQKHPD6G3XFIjDI0me8t2WI61KDjPPn8ka7L8zAV3VRNVx1bPya+2eksJbo719eVA==}
+  '@tari-project/ootle-wasm@0.57.0':
+    resolution: {integrity: sha512-2Fy5bLqy0gav5O5kSWyV7ZyImVd/lYtDJbcLvkRlhTDJds+MSO933Xu5WfLxbGh+kfN6cp0AZq9YutbmTwDmvg==}
 
-  '@tari-project/ootle@0.19.0':
-    resolution: {integrity: sha512-igSaWGKCdho9o2RJimb69yGK1hNcLtoev3rPkVSGSWClosdZp0tKMPQPlCvv83Aem20albmXKeiMLotx5iF06w==}
+  '@tari-project/ootle@0.23.0':
+    resolution: {integrity: sha512-0eDoqlancoNtAKwSxeuuv4POlJk9jSY2UbkJC2kiXF5Rp6XPzb3SGaWLHSFTWtQs21sXA9Smz2A7oSJMP/XTcQ==}
 
   '@tari-project/wallet_jrpc_client@1.29.0':
     resolution: {integrity: sha512-uBXCZ0Dc6eGo1SQds2LIQHCU2g3J0yweJwDpmG+b0pS3ROhW1YrteAT1nnATxNCwyEr8zZRfde2tHEy2yh1dkA==}
@@ -2629,17 +2629,17 @@ snapshots:
     dependencies:
       '@capacitor/core': 8.6.2
 
-  '@chironbuilder/ootle-sdk@0.6.4':
+  '@chironbuilder/ootle-sdk@0.7.0':
     dependencies:
       '@chironbuilder/ootle-wasm-legacy': file:vendor/ootle-wasm-patched
       '@noble/curves': 1.9.7
       '@noble/hashes': 2.4.0
-      '@tari-project/ootle': 0.19.0
-      '@tari-project/ootle-indexer': 0.19.0
-      '@tari-project/ootle-secret-key-wallet': 0.19.0
+      '@tari-project/ootle': 0.23.0
+      '@tari-project/ootle-indexer': 0.23.0
+      '@tari-project/ootle-secret-key-wallet': 0.23.0
       '@tari-project/ootle-ts-bindings': 1.66.0
-      '@tari-project/ootle-wasm': 0.55.0
-      '@tari-project/ootle-wasm-bor': 0.55.0
+      '@tari-project/ootle-wasm': 0.57.0
+      '@tari-project/ootle-wasm-bor': 0.57.0
 
   '@chironbuilder/ootle-wasm-legacy@file:vendor/ootle-wasm-patched': {}
 
@@ -3137,37 +3137,37 @@ snapshots:
     dependencies:
       '@tari-project/ootle-ts-bindings': 1.66.0
 
-  '@tari-project/ootle-indexer@0.19.0':
+  '@tari-project/ootle-indexer@0.23.0':
     dependencies:
       '@tari-project/indexer-client': 1.14.0
-      '@tari-project/ootle': 0.19.0
+      '@tari-project/ootle': 0.23.0
       '@tari-project/ootle-ts-bindings': 1.66.0
 
-  '@tari-project/ootle-secret-key-wallet@0.19.0':
+  '@tari-project/ootle-secret-key-wallet@0.23.0':
     dependencies:
-      '@tari-project/ootle': 0.19.0
+      '@tari-project/ootle': 0.23.0
       '@tari-project/ootle-ts-bindings': 1.66.0
-      '@tari-project/ootle-wasm': 0.55.0
+      '@tari-project/ootle-wasm': 0.57.0
 
   '@tari-project/ootle-ts-bindings@1.66.0':
     dependencies:
       bech32: 2.0.0
 
-  '@tari-project/ootle-wallet-daemon-signer@0.19.0':
+  '@tari-project/ootle-wallet-daemon-signer@0.23.0':
     dependencies:
-      '@tari-project/ootle': 0.19.0
+      '@tari-project/ootle': 0.23.0
       '@tari-project/ootle-ts-bindings': 1.66.0
       '@tari-project/wallet_jrpc_client': 1.29.0
 
-  '@tari-project/ootle-wasm-bor@0.55.0': {}
+  '@tari-project/ootle-wasm-bor@0.57.0': {}
 
-  '@tari-project/ootle-wasm@0.55.0': {}
+  '@tari-project/ootle-wasm@0.57.0': {}
 
-  '@tari-project/ootle@0.19.0':
+  '@tari-project/ootle@0.23.0':
     dependencies:
       '@tari-project/ootle-ts-bindings': 1.66.0
-      '@tari-project/ootle-wasm': 0.55.0
-      '@tari-project/ootle-wasm-bor': 0.55.0
+      '@tari-project/ootle-wasm': 0.57.0
+      '@tari-project/ootle-wasm-bor': 0.57.0
 
   '@tari-project/wallet_jrpc_client@1.29.0':
     dependencies:
