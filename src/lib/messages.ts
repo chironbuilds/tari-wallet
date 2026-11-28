@@ -860,6 +860,10 @@ export interface WalletStatus {
   backupPending: boolean;
   isUnlocked: boolean;
   network: NetworkName;
+  /** True while a wallet that never picked a network is still due to move to mainnet (see
+   * core.ts's applyMainnetDefault). That move can finish after this status was built, so a screen
+   * showing an address re-checks the status until this goes false. */
+  networkMovePending?: boolean;
   activeAccountId: string;
   accountCount: number;
   address: string | null;

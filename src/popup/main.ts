@@ -1071,6 +1071,12 @@ async function renderHome(status: WalletStatus) {
   };
   rescanControl?.setOnReceived((received) => void onReceived(received));
 
+  // A new wallet starts on the testnet and moves to mainnet in the background once mainnet answers
+  // (applyMainnetDefault). popup-get-status waits for that only briefly, so this Home can come up on
+  // the old network, showing a testnet address the user might copy. Re-check for a short while and
+  // redraw Home on the network the wallet is actually on.
+  if (status.networkMovePending) void watchNetworkMove(status, balancesCard);
+
   if (rescanControl) {
     void (async () => {
       try {
@@ -1151,6 +1157,26 @@ async function renderHome(status: WalletStatus) {
     if (++ticks % HOME_ARRIVAL_SCAN_EVERY_TICKS === 0) void scanForArrivals();
   }, HOME_BALANCE_REFRESH_MS);
   document.addEventListener("visibilitychange", onVisible);
+}
+
+/** Redraws Home once a pending move to mainnet lands; gives up after about half a minute. */
+async function watchNetworkMove(status: WalletStatus, homeMarker: HTMLElement): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    await sleep(3000);
+    if (!homeMarker.isConnected) return;
+    let next: WalletStatus;
+    try {
+      next = await getStatus();
+    } catch {
+      continue;
+    }
+    if (!homeMarker.isConnected) return;
+    if (next.network !== status.network || next.receiveAddress !== status.receiveAddress) {
+      await renderHome(next);
+      return;
+    }
+    if (!next.networkMovePending) return;
+  }
 }
 
 const HOME_BALANCE_REFRESH_MS = 15_000;
@@ -1781,7 +1807,10 @@ function renderSend(
   const back = h("button", { class: "secondary", id: "back" }, [t("common.backArrow")]);
 
   if (balances.length === 0) {
-    render(h("h1", {}, [t("send.title")]), h("p", { class: "muted" }, [t("send.noTokensYet")]), back);
+    // Not a dead end: the next step is receiving something, so offer it right here.
+    const receiveBtn = h("button", { class: "primary", id: "sendEmptyReceive" }, [t("home.receive")]);
+    render(h("h1", {}, [t("send.title")]), emptyState(t("send.noTokensYet"), ICON_INBOX), receiveBtn, back);
+    receiveBtn.addEventListener("click", () => renderReceive(status));
     document.getElementById("back")!.addEventListener("click", onBack);
     return;
   }

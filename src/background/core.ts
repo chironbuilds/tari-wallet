@@ -1504,6 +1504,7 @@ async function buildStatus(): Promise<WalletStatus> {
     backupPending: state.vault !== null && state.backupPending === true,
     isUnlocked: unlocked,
     network: state.network,
+    networkMovePending: canMoveToMainnetDefault(state, Date.now()),
     activeAccountId: state.activeAccountId,
     accountCount: state.accountCount,
     address,
